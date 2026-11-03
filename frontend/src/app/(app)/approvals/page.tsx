@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { ApprovalsPage } from '@/modules/approvals/components/approvals-page';
 
 export default function ApprovalsRoute() {
-  const { user, loading } = useAuthGuard('settings.view_approvals');
+  const { user, loading } = useAuthGuard();
   const { t } = useI18n();
 
   if (loading || !user) {

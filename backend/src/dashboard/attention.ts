@@ -1,6 +1,5 @@
 import type { DataStore } from '../data/store';
 import type { DashboardAlert, UserRole } from '../types';
-import { rolesActingAs } from '../approvals/approvals';
 
 /**
  * Things that need someone's attention today, from the newer parts of the
@@ -15,11 +14,10 @@ export function attentionAlerts(store: DataStore, companyId: string, viewer: { u
   const finance = viewer.variant === 'Admin' || viewer.variant === 'Accountant';
   const today = new Date().toISOString().slice(0, 10);
 
-  const waiting = store.approvals.waiting(companyId, rolesActingAs(viewer.companyRole))
-    .filter((w) => !store.approvals.steps(w.docType, w.docId).some((s) => s.status === 'approved' && s.decidedByUserId === viewer.userId));
+  const waiting = store.approvalsWaitingFor(companyId, viewer.userId);
   if (waiting.length) {
     alerts.push({ id: 'attention-approvals', severity: 'warning', route: '/approvals',
-      title: `${waiting.length} waiting for your approval`, detail: 'Purchase orders and expenses above an approval level.' });
+      title: `${waiting.length} waiting for your approval`, detail: 'Documents waiting at a step you decide.' });
   }
 
   if (operations) {

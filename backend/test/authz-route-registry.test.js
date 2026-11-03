@@ -78,6 +78,10 @@ test('legacy roles copy the gate matrix, except declarations marked legacyOverri
   for (const d of ROUTES.filter((r) => r.legacyOverride)) assert.ok(d.note, `${id(d)}: legacyOverride needs a note saying why`);
   assert.deepEqual(overridden.sort(), [
     'DELETE /users/:id',
+    // Approvals (2026-11-03): anyone can be on a step (a Legal team member may be an Employee).
+    'GET /approvals/:docType/:docId',
+    'GET /companies/:companyId/approvals',
+    'POST /approvals/:docType/:docId/decision',
     'POST /users',
     'PUT /companies/:companyId/approvals/rules',
   ]);

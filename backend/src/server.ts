@@ -13,7 +13,7 @@ import { projectPriorities, projectStatuses } from './projects/project-plan';
 import { registerProjectPlanRoutes } from './routes/project-plan';
 import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
-import { ApprovalError, decide, type ApprovalDocType } from './approvals/approvals';
+import { ApprovalError, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
 import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
 import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
@@ -851,6 +851,8 @@ export function createServer(options: CreateServerOptions = {}) {
             .filter((g) => g.publishedAt && !g.frozenAt && !g.archivedAt && Date.parse(g.endsAt) <= Date.now())
             .forEach((g) => ensureFrozen(store, g));
         }
+        const approvals = store.sendApprovalReminders();
+        if (approvals.reminded + approvals.escalated > 0) logger.info(`[notifications] approvals: ${approvals.reminded} reminded, ${approvals.escalated} escalated`);
         if (tasks + followups + overdue + lowStock + expiring > 0) {
           logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }
@@ -6997,17 +6999,65 @@ export function createServer(options: CreateServerOptions = {}) {
   );
 
   // ── Approval chains: deciding a document (purchase-order and expense routes use this too) ──
-  const docSummary = (docType: ApprovalDocType, docId: string) => {
-    if (docType === 'purchase_order') {
-      const po = store.getPurchaseOrderById(docId);
-      return po ? { companyId: po.companyId, number: po.orderNumber, amount: po.totalAmount, party: po.supplierName, date: po.orderDate } : undefined;
-    }
-    const ex = store.getExpenseById(docId);
-    return ex ? { companyId: ex.companyId, number: ex.category, amount: ex.amount, party: ex.vendor ?? null, date: ex.expenseDate } : undefined;
+  /**
+   * The documents approvals know: how each reads in an inbox, what happens to
+   * it when its request ends, and how to load it back. Wave-1 types register
+   * here as they are wired (spec 2026-11-03-approvals-design).
+   */
+  type ApprovalDoc = {
+    summary: (docId: string) => { companyId: string; number: string; amount: number; party: string | null; date: Date } | undefined;
+    settle: (req: AuthedRequest, docId: string, outcome: 'approved' | 'rejected' | 'changes_requested', note?: string) => void;
+    load: (docId: string) => object | undefined;
   };
-  /** One person's decision on a document's chain; when the chain finishes, the document follows. */
-  const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => {
+  const approvalDocs: Partial<Record<ApprovalDocType, ApprovalDoc>> = {
+    purchase_order: {
+      summary: (id) => {
+        const po = store.getPurchaseOrderById(id);
+        return po ? { companyId: po.companyId, number: po.orderNumber, amount: po.totalAmount, party: po.supplierName, date: po.orderDate } : undefined;
+      },
+      settle: (req, id, outcome, note) => {
+        const by = req.user!.name || req.user!.email;
+        withActor(req, () => store.settlePurchaseOrderApproval(id, outcome === 'approved' ? 'approved' : 'rejected', by, note));
+      },
+      load: (id) => store.getPurchaseOrderById(id),
+    },
+    expense: {
+      summary: (id) => {
+        const ex = store.getExpenseById(id);
+        return ex ? { companyId: ex.companyId, number: ex.category, amount: ex.amount, party: ex.vendor ?? null, date: ex.expenseDate } : undefined;
+      },
+      settle: (req, id, outcome) => withActor(req, () => store.settleExpenseApproval(id, outcome === 'approved' ? 'approved' : 'rejected')),
+      load: (id) => store.getExpenseById(id),
+    },
+  };
+  // Documents whose state follows the request itself (the store refuses their next step until approved).
+  const followsRequest = (summary: ApprovalDoc['summary'], load: ApprovalDoc['load']): ApprovalDoc => ({ summary, load, settle: () => undefined });
+  approvalDocs.vendor_bill = followsRequest((id) => {
+    const b = store.getVendorBillById(id);
+    return b ? { companyId: b.companyId, number: b.billNumber, amount: Number(b.amount) || 0, party: b.vendorName, date: new Date(b.issueDate) } : undefined;
+  }, (id) => store.getVendorBillById(id));
+  approvalDocs.invoice = followsRequest((id) => {
+    const inv = store.getInvoiceById(id);
+    return inv ? { companyId: inv.companyId, number: inv.invoiceNumber, amount: Number(inv.total) || 0, party: store.getClientById(inv.clientId)?.name ?? null, date: new Date(inv.issueDate) } : undefined;
+  }, (id) => store.getInvoiceById(id));
+  approvalDocs.quotation = followsRequest((id) => {
+    const q = store.getQuotationById(id);
+    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: Number(q.totalAmount) || 0, party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
+  }, (id) => store.getQuotationById(id));
+  approvalDocs.payroll_run = followsRequest((id) => {
+    const r = store.getPayrollRunById(id);
+    return r ? { companyId: r.companyId, number: `Payroll ${r.period}`, amount: Number(r.totalNet) || 0, party: null, date: new Date(r.createdAt) } : undefined;
+  }, (id) => store.getPayrollRunById(id));
+  approvalDocs.document = followsRequest((id) => {
+    const d = store.getDocumentById(id);
+    return d ? { companyId: d.companyId, number: d.title, amount: 0, party: null, date: new Date(d.createdAt) } : undefined;
+  }, (id) => store.getDocumentById(id));
+  const docSummary = (docType: ApprovalDocType, docId: string) => approvalDocs[docType]?.summary(docId);
+  /** One person's decision on a document's request; when the request ends, the document follows. */
+  const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => {
     const user = req.user!;
+    const doc = approvalDocs[docType];
+    if (!doc) throw new HttpError(404, 'Document not found.');
     // N-5: an approval-chain step on a purchase order also respects the
     // purchasing.approve limit (POs are in the company currency).
     if (docType === 'purchase_order' && decision === 'approve') {
@@ -7016,18 +7066,13 @@ export function createServer(options: CreateServerOptions = {}) {
     }
     let outcome;
     try {
-      outcome = decide(store.approvals, docType, docId, { id: user.id, name: user.name || user.email, companyRole: getEffectiveRole(user, companyId) ?? undefined }, decision, note);
+      outcome = store.decideApproval(docType, docId, { id: user.id, name: user.name || user.email }, decision, note);
     } catch (error) {
       if (error instanceof ApprovalError) throw new HttpError(409, error.message);
       throw error;
     }
-    if (outcome === 'approved' || outcome === 'rejected') {
-      withActor(req, () => (docType === 'purchase_order'
-        ? store.settlePurchaseOrderApproval(docId, outcome, user.name || user.email, note)
-        : store.settleExpenseApproval(docId, outcome)));
-    }
-    const document = docType === 'purchase_order' ? store.getPurchaseOrderById(docId) : store.getExpenseById(docId);
-    return { ...document, approvalSteps: store.approvals.steps(docType, docId) };
+    if (outcome === 'approved' || outcome === 'rejected' || outcome === 'changes_requested') doc.settle(req, docId, outcome, note);
+    return { ...doc.load(docId), approvalSteps: store.approvals.steps(docType, docId), approval: store.approvalView(docType, docId) };
   };
 
   // Routes that live in their own modules (src/routes), registered in their original order.

@@ -1812,6 +1812,8 @@ export type NotificationType =
   | 'expiry_warning'
   | 'po_approval'
   | 'po_approval_result'
+  | 'approval_needed'
+  | 'approval_result'
   | 'recurring_document'
   | 'storage_excursion'
   | 'storage_reading_due'
