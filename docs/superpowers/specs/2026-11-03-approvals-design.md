@@ -194,3 +194,17 @@ Owner: "approvals that require approvals from the group, inherit it upwards".
 - Settings: the switch appears on group companies; a company's page lists
   the sign-off its groups add after its own steps.
 - Migration 156: `approval_rules.alsoBelow`, `approval_steps.ownerCompanyId`.
+
+### Group sign-off: review fixes (2026-11-04)
+
+- A group's sign-off step is decided with the group's roles even for purchase
+  orders and expenses (their decision key is checked in the document's
+  company only for the company's own steps).
+- Purchase orders go through the same chain (own or group policy, then group
+  sign-off), keeping the single threshold when no policy applies at all.
+- A group's step follows the group's own "never your own" and reminder hours.
+- Group approvers see what they decided (Decided tab) and can read requests
+  they are on; reaching a child's request through the group needs being on it,
+  and only a missing membership falls through (a module switched off stands).
+- A group sign-off can name only people of the group company; a step with no
+  amount band ignores currency; the currency note is added once, after the start.

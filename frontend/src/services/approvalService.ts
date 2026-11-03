@@ -24,6 +24,8 @@ export interface ApprovalPolicy {
   steps: PolicyStep[]; allowSelf: boolean; reminderHours: number; escalateHours: number;
   /** Set when this company uses its group's policy. */
   inheritedFrom: { id: string; name: string } | null;
+  /** This company has companies below: its steps can be their group sign-off. */
+  hasCompaniesBelow?: boolean;
   /** What each group above adds after this company's own steps, nearest first. */
   groupSignOff?: Array<{ companyId: string; name: string; steps: PolicyStep[] }>;
 }

@@ -9182,10 +9182,11 @@ export class DataStore {
     const items = updates.items !== undefined ? this.normalizePurchaseOrderItems(updates.items) : existing.items;
     if (!items.length) throw new Error('Purchase order requires at least one line item.');
     const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
-    const poRules = this.approvals.rules(existing.companyId, 'purchase_order');
-    const levels = levelsFor(poRules, totalAmount);
+    // The policy that applies here (own, or the group's) and every group's sign-off above.
+    const poPolicy = this.approvalApplies(existing.companyId, 'purchase_order');
+    const levels = this.approvalLevels(existing.companyId, 'purchase_order', totalAmount);
     const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
-    const requiresApproval = poRules.length ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
+    const requiresApproval = poPolicy ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     // What is being ordered changed: other lines, other amounts or another supplier.
     const changed = totalAmount !== existing.totalAmount
       || JSON.stringify(items) !== JSON.stringify(existing.items)
@@ -15051,10 +15052,11 @@ export class DataStore {
     // Approval gate: orders at/above the company threshold start as a pending
     // Draft and cannot move past Draft until an approver signs off.
     // With approval rules for purchase orders, they decide; otherwise the single threshold does.
-    const poRules = this.approvals.rules(input.companyId, 'purchase_order');
-    const levels = levelsFor(poRules, totalAmount);
+    // The policy that applies here (own, or the group's) and every group's sign-off above.
+    const poPolicy = this.approvalApplies(input.companyId, 'purchase_order');
+    const levels = this.approvalLevels(input.companyId, 'purchase_order', totalAmount);
     const threshold = this.getCompanyFinanceSettings(input.companyId).poApprovalThreshold;
-    const requiresApproval = poRules.length ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
+    const requiresApproval = poPolicy ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     const approvalStatus: PurchaseOrder['approvalStatus'] = requiresApproval ? 'pending' : 'not_required';
 
     // A pending order is forced to Draft; auto-receive only runs once approved.
@@ -17223,7 +17225,9 @@ export class DataStore {
       const signOff = this.approvals.rules(groupId, docType).filter((r) => r.alsoBelow);
       if (!signOff.length) return [];
       const groupCurrency = this.getCompanyFinanceSettings(groupId).currencyCode;
-      if (groupCurrency === currency) return levelsFor(signOff, amount).map((l) => ({ ...l, ownerCompanyId: groupId }));
+      // No amount band (from 0, no ceiling) means nothing to compare: the currency doesn't matter.
+      const banded = signOff.some((r) => r.minAmount > 0 || r.maxAmount !== null);
+      if (groupCurrency === currency || !banded) return levelsFor(signOff, amount).map((l) => ({ ...l, ownerCompanyId: groupId }));
       const name = this.getCompanyById(groupId)?.name ?? 'The group';
       return levelsFor(signOff.map((r) => ({ ...r, minAmount: 0, maxAmount: null })), 0).map((l) => ({
         ...l, ownerCompanyId: groupId,

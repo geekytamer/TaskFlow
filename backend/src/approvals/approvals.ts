@@ -277,12 +277,15 @@ export class ApprovalStore {
       kept.forEach((l, i) => {
         const approvers = l.approvers ?? [{ kind: 'role', id: l.approverRole } as Approver];
         insert.run(companyId, docType, docId, i + 1, l.minAmount, firstRole(approvers), JSON.stringify(approvers), l.need ?? 'any', l.ownerCompanyId ?? companyId);
-        if (l.note) trail.run(docType, docId, i + 1, null, 'noted', null, null, l.note, at);
       });
       const status: ApprovalOutcome = kept.length ? 'pending' : 'not_required';
       this.db.prepare('INSERT OR REPLACE INTO approval_requests (docType, docId, companyId, requesterId, status, policyCompanyId, startedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(docType, docId, companyId, requesterId, status, policyCompanyId ?? companyId, at);
       if (kept.length) trail.run(docType, docId, null, null, restarting ? 'restarted' : 'started', requesterId, null, null, at);
+      // Notes on the steps (a group band in another currency) come after the start, once each.
+      [...new Map(kept.map((l, i) => [l.note, i + 1] as const)).entries()].forEach(([note, level]) => {
+        if (note) trail.run(docType, docId, level, null, 'noted', null, null, note, at);
+      });
       return status;
     })();
   }
@@ -386,7 +389,8 @@ export class ApprovalStore {
     const steps = this.steps(docType, docId);
     if (!req || req.status === 'changes_requested' || outcomeOf(steps) !== 'pending') return { ok: false, reason: 'Nothing is waiting for approval on this document.' };
     const step = steps.find((s) => s.status === 'pending')!;
-    const policy = this.policy(req.policyCompanyId ?? req.companyId, docType);
+    // A group's sign-off follows the group's own rules (self-approval), not the company's.
+    const policy = this.policy(step.ownerCompanyId !== req.companyId ? step.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
     const already = this.approvedBy(docType, docId);
     // One person, one approval: having approved an earlier step, they may still refuse a later one.
     if (decision === 'approve' && already.has(userId)) return { ok: false, reason: 'You approved an earlier step of this document; someone else must approve this one.' };
@@ -432,6 +436,13 @@ export class ApprovalStore {
     })();
   }
 
+  /** Whether this person is on this request: deciding its current step now, or having decided a step. */
+  involves(docType: ApprovalDocType, docId: string, userId: string): boolean {
+    if (this.seat(docType, docId, userId).ok) return true;
+    return Boolean(this.db.prepare("SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND (userId = ? OR onBehalfOf = ?) AND kind IN ('approved', 'rejected', 'changes_requested')")
+      .get(docType, docId, userId, userId));
+  }
+
   /** Whether this person decides the current step for someone else (a delegation), or for themselves. */
   actingFor(docType: ApprovalDocType, docId: string, userId: string): string | null {
     const seat = this.seat(docType, docId, userId);
@@ -461,8 +472,9 @@ export class ApprovalStore {
   decidedBy(companyId: string, userId: string): Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }> {
     return this.db.prepare(
       `SELECT DISTINCT r.docType, r.docId, r.status FROM approval_requests r JOIN approval_decisions d ON d.docType = r.docType AND d.docId = r.docId
-        WHERE r.companyId = ? AND d.userId = ? AND d.kind IN ('approved', 'rejected', 'changes_requested') ORDER BY d.at DESC LIMIT 200`,
-    ).all(companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
+        WHERE (r.companyId = ? OR EXISTS (SELECT 1 FROM approval_steps s WHERE s.docType = d.docType AND s.docId = d.docId AND s.level = d.level AND s.ownerCompanyId = ?))
+          AND d.userId = ? AND d.kind IN ('approved', 'rejected', 'changes_requested') ORDER BY d.at DESC LIMIT 200`,
+    ).all(companyId, companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
   }
 
   /** The request as a reader sees it: steps with who and whether anyone can fill them, and the trail. */
@@ -486,7 +498,7 @@ export class ApprovalStore {
     return rows.flatMap((r) => {
       const step = this.steps(r.docType, r.docId).find((s) => s.status === 'pending');
       if (!step) return [];
-      const policy = this.policy(r.policyCompanyId ?? r.companyId, r.docType);
+      const policy = this.policy(step.ownerCompanyId !== r.companyId ? step.ownerCompanyId : r.policyCompanyId ?? r.companyId, r.docType);
       const hours = kind === 'reminded' ? policy.reminderHours : policy.escalateHours;
       // Waiting since the last real move (a start or a decision), not since a reminder.
       const lastMove = this.db.prepare("SELECT MAX(at) at FROM approval_decisions WHERE docType = ? AND docId = ? AND kind NOT IN ('reminded', 'escalated')").get(r.docType, r.docId) as { at: string | null };

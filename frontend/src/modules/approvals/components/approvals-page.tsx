@@ -130,10 +130,10 @@ export function ApprovalsPage() {
                         : s.status === 'rejected' ? <XCircle className="h-3 w-3 text-destructive" aria-hidden="true" />
                         : <CircleDashed className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                       <span>{s.approvers.map((a) => a.label).join(s.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))}</span>
-                      {s.ownerCompanyId && s.ownerCompanyId !== w.companyId && <span className="text-muted-foreground">· {companyName(s.ownerCompanyId)}</span>}
+                      {s.ownerCompanyId && s.ownerCompanyId !== w.companyId && <span className="text-muted-foreground">· {companyName(s.ownerCompanyId) !== s.ownerCompanyId ? companyName(s.ownerCompanyId) : tr('the group', 'المجموعة')}</span>}
                       {s.decidedByName && <span className="text-muted-foreground">· {s.decidedByName}</span>}
                       {s.stuck && (
-                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody who works in this company can decide this step. Change who decides in Settings → Approvals.', 'لا يوجد في هذه الشركة من يستطيع البت في هذه الخطوة. غيّر من يقرر في الإعدادات ← الموافقات.')}>
+                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody who can open this step\'s company can decide it. Change who decides in Settings → Approvals.', 'لا يوجد من يستطيع البت في هذه الخطوة من شركتها. غيّر من يقرر في الإعدادات ← الموافقات.')}>
                           <AlertTriangle className="h-3 w-3" aria-hidden="true" />{tr('nobody to decide', 'لا أحد للبت')}
                         </span>
                       )}

@@ -109,3 +109,61 @@ test('routes: a group approver decides a child\'s document without a place in th
   assert.equal(refused.status, 403);
   server.close();
 });
+
+// ── Review fixes ─────────────────────────────────────────────────────
+
+const serve = (store) => {
+  const server = createServer({ store, dbPath: ':memory:', seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'legacy', logger: { info() {}, warn() {}, error() {} } }).listen(0);
+  server.unref();
+  return server;
+};
+
+test('a group-only accountant decides a child\'s expense at the group\'s sign-off', async () => {
+  const { store, group, child, mk } = setup();
+  const cfo = mk(group.id, 'Accountant');
+  store.approvals.setPolicy(group.id, 'expense', { steps: [{ approvers: [{ kind: 'role', id: 'Accountant' }], need: 'any', alsoBelow: true }] });
+  const ex = store.createExpense({ companyId: child.id, category: 'Travel', amount: 300, expenseDate: new Date() });
+  assert.equal(store.getExpenseById(ex.id).approvalStatus, 'pending');
+  const server = serve(store);
+  const res = await request(server).post(`/approvals/expense/${ex.id}/decision`).set('Authorization', `Bearer ${store.issueToken(cfo.id)}`).send({ decision: 'approve' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(store.getExpenseById(ex.id).approvalStatus, 'approved');
+  const decided = await request(server).get(`/companies/${group.id}/approvals?box=decided`).set('Authorization', `Bearer ${store.issueToken(cfo.id)}`);
+  assert.deepEqual(decided.body.map((w) => w.docId), [ex.id], 'in the group approver\'s Decided tab');
+  const read = await request(server).get(`/approvals/expense/${ex.id}`).set('Authorization', `Bearer ${store.issueToken(cfo.id)}`);
+  assert.equal(read.status, 200, 'and they can still read the request they decided');
+  server.close();
+});
+
+test('a child\'s purchase order gets the group sign-off too', () => {
+  const { store, group, child } = setup();
+  const supplier = store.createSupplier({ companyId: child.id, name: 'S', email: 's@gso.test' });
+  const item = store.createInventoryItem({ companyId: child.id, name: 'I', category: 'C', unit: 'u', unitCost: 1 });
+  store.approvals.setPolicy(group.id, 'purchase_order', { steps: [{ approvers: [{ kind: 'role', id: 'Admin' }], need: 'any', alsoBelow: true }] });
+  const po = store.createPurchaseOrder({ companyId: child.id, supplierId: supplier.id, supplierName: 'S', orderDate: new Date(), status: 'Draft', items: [{ inventoryItemId: item.id, description: 'I', quantity: 1, unitCost: 10 }] });
+  assert.equal(po.approvalStatus, 'pending');
+  assert.equal(store.approvalView('purchase_order', po.id).steps[0].ownerCompanyId, group.id);
+});
+
+test('the group\'s "never your own" holds on its sign-off even when the company allows its own', () => {
+  const { store, group, child, mk, as } = setup();
+  const manager = mk(child.id, 'Manager');
+  const both = mk(child.id, 'Employee');
+  store.addCompanyMembership(both.id, group.id, 'Accountant');
+  store.approvals.setPolicy(child.id, 'vendor_bill', { steps: [{ approvers: [{ kind: 'role', id: 'Manager' }], need: 'any' }], allowSelf: true });
+  store.approvals.setPolicy(group.id, 'vendor_bill', { steps: [{ approvers: [{ kind: 'role', id: 'Accountant' }], need: 'any', alsoBelow: true }], allowSelf: false });
+  store.startApproval(child.id, 'vendor_bill', 'own', { amount: 10, requesterId: both.id });
+  store.decideApproval('vendor_bill', 'own', as(manager), 'approve');
+  assert.throws(() => store.decideApproval('vendor_bill', 'own', as(both), 'approve'), /own/);
+});
+
+test('a group sign-off can only name people of the group company', async () => {
+  const { store, group, child, mk } = setup();
+  const admin = mk(group.id, 'Admin');
+  const childOnly = mk(child.id, 'Employee');
+  const server = serve(store);
+  const res = await request(server).put(`/companies/${group.id}/approvals/policies/document`).set('Authorization', `Bearer ${store.issueToken(admin.id)}`)
+    .send({ steps: [{ approvers: [{ kind: 'user', id: childOnly.id }], need: 'any', alsoBelow: true }] });
+  assert.equal(res.status, 400);
+  server.close();
+});

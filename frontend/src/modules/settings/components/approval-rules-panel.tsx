@@ -17,7 +17,6 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
-import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
@@ -44,8 +43,6 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
   const confirm = useConfirm();
   const companyId = selectedCompany?.id ?? '';
-  // A group company can make a step its sign-off for every company below.
-  const { isGroup } = useCompanyScope();
   const [teams, setTeams] = React.useState<ApprovalTeam[]>([]);
   const [policies, setPolicies] = React.useState<Record<string, ApprovalPolicy> | null>(null);
   const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
@@ -165,7 +162,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
               <ol className="space-y-2">
                 {p.steps.map((s, i) => (
                   <StepEditor
-                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={isGroup}
+                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)}
                     teams={teams} people={people}
                     onChange={(next) => edit(t, (q) => ({ ...q, inheritedFrom: null, steps: q.steps.map((x, j) => (j === i ? next : x)) }))}
                     onMove={(d) => edit(t, (q) => { const steps = [...q.steps]; const [x] = steps.splice(i, 1); steps.splice(i + d, 0, x); return { ...q, steps }; })}
@@ -177,7 +174,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                 <p key={g.companyId} className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                   {tr(`Then ${g.name} signs off: `, `ثم تعتمد ${g.name}: `)}
                   {g.steps.map((st) => st.approvers.map((a) => label(a)).join(st.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))
-                    + (st.minAmount ? tr(` (from ${st.minAmount})`, ` (من ${st.minAmount})`) : '')).join(tr(', then ', '، ثم '))}
+                    + (st.minAmount ? tr(` (from ${st.minAmount}`, ` (من ${st.minAmount}`) + (st.maxAmount ? tr(` up to ${st.maxAmount})`, ` حتى ${st.maxAmount})`) : ')') : st.maxAmount ? tr(` (up to ${st.maxAmount})`, ` (حتى ${st.maxAmount})`) : '')).join(tr(', then ', '، ثم '))}
+                  {tr(` In ${g.name}'s currency.`, ` بعملة ${g.name}.`)}
                 </p>
               ))}
               {canEdit && (
