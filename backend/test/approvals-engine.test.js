@@ -137,3 +137,26 @@ test('converted rules keep today\'s behaviour: an Admin acts for a Manager level
   store.startApproval(co.id, 'purchase_order', 'p1', { amount: 2000, requesterId: admin.id });
   assert.equal(store.decideApproval('purchase_order', 'p1', as(admin), 'approve'), 'approved');
 });
+
+test('approvers hear when it reaches them, the requester hears the answer, and a stuck step reminds then escalates', () => {
+  const { store, co, mk, as } = setup();
+  const lawyer = mk('Employee');
+  const requester = mk('Employee');
+  const admin = mk('Admin');
+  const legal = store.approvals.saveTeam(co.id, { name: 'Legal', members: [{ kind: 'user', value: lawyer.id }] });
+  store.approvals.setPolicy(co.id, 'document', { steps: [{ approvers: [{ kind: 'team', id: legal.id }], need: 'any' }] });
+  const mine = (u, type) => store.listNotifications(u.id).filter((n) => n.type === type);
+  store.startApproval(co.id, 'document', 'n1', { amount: 0, requesterId: requester.id });
+  assert.equal(mine(lawyer, 'approval_needed').length, 1);
+  assert.equal(mine(requester, 'approval_needed').length, 0, 'not the requester');
+
+  store.db.prepare("UPDATE approval_decisions SET at = '2000-01-01T00:00:00.000Z' WHERE docId = 'n1'").run();
+  store.db.prepare("UPDATE approval_requests SET startedAt = '2000-01-01T00:00:00.000Z' WHERE docId = 'n1'").run();
+  assert.deepEqual(store.sendApprovalReminders(), { reminded: 1, escalated: 1 });
+  assert.equal(mine(lawyer, 'approval_needed').length, 2, 'reminded');
+  assert.ok(mine(admin, 'approval_needed').length >= 1, 'Admins hear when it waits too long');
+  assert.deepEqual(store.sendApprovalReminders(), { reminded: 0, escalated: 0 }, 'once each');
+
+  store.decideApproval('document', 'n1', as(lawyer), 'reject', 'Wrong counterparty');
+  assert.equal(mine(requester, 'approval_result').length, 1);
+});

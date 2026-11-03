@@ -709,6 +709,13 @@ const ACTIVITY_AREAS: Partial<Record<ActivityEvent['entityType'], VisibleArea>> 
   task: 'tasks',
 };
 
+/** How each kind of document reads in an approval message. */
+const APPROVAL_LABEL: Record<ApprovalDocType, string> = {
+  purchase_order: 'purchase order', expense: 'expense', vendor_bill: 'vendor bill', vendor_payment: 'payment',
+  invoice: 'invoice', credit_note: 'credit note', quotation: 'quotation', payroll_run: 'payroll run',
+  document: 'document', purchase_requisition: 'purchase requisition', leave_request: 'leave request',
+};
+
 export class DataStore {
   private db: Database.Database;
   /** Identity for the external portals: their own users, invitations and sessions. */
@@ -17153,11 +17160,84 @@ export class DataStore {
       this.approvals.clear(docType, docId);
       return 'not_required' as const;
     }
-    return this.approvals.start(companyId, docType, docId, levels, input.requesterId, policyCompany);
+    const outcome = this.approvals.start(companyId, docType, docId, levels, input.requesterId, policyCompany);
+    if (outcome === 'pending') this.notifyApprovers(companyId, docType, docId);
+    return outcome;
   }
 
   decideApproval(docType: ApprovalDocType, docId: string, actor: { id: string; name: string }, decision: 'approve' | 'reject' | 'send_back', note?: string) {
-    return this.approvals.decide(docType, docId, actor, decision, note);
+    const before = this.approvals.steps(docType, docId).find((s) => s.status === 'pending')?.level;
+    const outcome = this.approvals.decide(docType, docId, actor, decision, note);
+    const companyId = this.approvalCompanyOf(docType, docId);
+    if (!companyId) return outcome;
+    const now = this.approvals.steps(docType, docId).find((s) => s.status === 'pending')?.level;
+    if (outcome === 'pending' && now !== before) this.notifyApprovers(companyId, docType, docId);
+    // Purchase orders and expenses tell their requester through their own messages.
+    if (outcome !== 'pending' && docType !== 'purchase_order' && docType !== 'expense') {
+      const requesterId = this.approvals.view(docType, docId).requesterId;
+      if (requesterId && requesterId !== actor.id) {
+        const said = outcome === 'approved' ? 'approved' : outcome === 'rejected' ? 'rejected' : 'sent back for changes';
+        this.notify({
+          companyId, userIds: [requesterId], type: 'approval_result',
+          title: `Your ${APPROVAL_LABEL[docType]} was ${said}`, body: note?.trim() || undefined,
+          link: '/approvals?box=mine', entityType: docType, entityId: docId,
+        });
+      }
+    }
+    return outcome;
+  }
+
+  private approvalCompanyOf(docType: ApprovalDocType, docId: string): string | null {
+    const row = this.db.prepare('SELECT companyId FROM approval_requests WHERE docType = ? AND docId = ?').get(docType, docId) as { companyId: string } | undefined;
+    return row?.companyId ?? null;
+  }
+
+  /** Tells everyone who can decide the current step (or stands in for them) that it is waiting. */
+  private notifyApprovers(companyId: string, docType: ApprovalDocType, docId: string, kind: 'new' | 'reminder' = 'new') {
+    const view = this.approvals.view(docType, docId);
+    const step = this.approvals.steps(docType, docId).find((s) => s.status === 'pending');
+    if (!step) return;
+    const people = new Set(step.approvers.flatMap((a) => this.approvals.candidates(a, companyId, view.requesterId)));
+    for (const id of [...people]) {
+      const d = this.approvals.delegation(id);
+      const today = new Date().toISOString().slice(0, 10);
+      if (d && d.startsAt <= today && d.endsAt >= today) people.add(d.toUserId);
+    }
+    if (view.requesterId) people.delete(view.requesterId);
+    if (!people.size) return;
+    this.notify({
+      companyId, userIds: [...people], type: 'approval_needed',
+      title: kind === 'reminder' ? `Still waiting: a ${APPROVAL_LABEL[docType]} needs your approval` : `A ${APPROVAL_LABEL[docType]} needs your approval`,
+      link: '/approvals', entityType: docType, entityId: docId,
+    });
+  }
+
+  /**
+   * Hourly: a step waiting past its policy's reminder hours re-notifies its
+   * approvers; past the escalation hours the company's Admins hear too. Once each.
+   */
+  sendApprovalReminders(): { reminded: number; escalated: number } {
+    let reminded = 0;
+    let escalated = 0;
+    for (const r of this.approvals.overdue('reminded')) {
+      this.notifyApprovers(r.companyId, r.docType, r.docId, 'reminder');
+      this.approvals.note(r.docType, r.docId, r.level, 'reminded');
+      reminded += 1;
+    }
+    for (const r of this.approvals.overdue('escalated')) {
+      const admins = this.approvals.people!.usersWithRole(r.companyId, 'Admin');
+      if (admins.length) {
+        this.notify({
+          companyId: r.companyId, userIds: admins, type: 'approval_needed',
+          title: `A ${APPROVAL_LABEL[r.docType]} has been waiting for approval too long`,
+          body: 'Nobody has decided its current step. Reassign it or ask the approvers.',
+          link: '/approvals', entityType: r.docType, entityId: r.docId,
+        });
+      }
+      this.approvals.note(r.docType, r.docId, r.level, 'escalated');
+      escalated += 1;
+    }
+    return { reminded, escalated };
   }
 
   approvalView(docType: ApprovalDocType, docId: string) {

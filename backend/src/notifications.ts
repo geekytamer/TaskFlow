@@ -36,6 +36,8 @@ export const NOTIFICATION_META: Record<
   expiry_warning: { category: 'inventory', priority: 'normal' },
   po_approval: { category: 'finance', priority: 'critical' },
   po_approval_result: { category: 'finance', priority: 'normal' },
+  approval_needed: { category: 'finance', priority: 'critical' },
+  approval_result: { category: 'finance', priority: 'normal' },
   recurring_document: { category: 'finance', priority: 'normal' },
   storage_excursion: { category: 'inventory', priority: 'critical' },
   storage_reading_due: { category: 'inventory', priority: 'normal' },
@@ -73,6 +75,9 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   expiry_warning: 'inventory',
   po_approval: 'purchasing',
   po_approval_result: 'purchasing',
+  // Approvals cover many modules; they ride on settings, which is always on.
+  approval_needed: 'settings',
+  approval_result: 'settings',
   recurring_document: 'invoices',
   storage_excursion: 'inventory',
   storage_reading_due: 'inventory',

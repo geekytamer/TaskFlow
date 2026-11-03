@@ -851,6 +851,8 @@ export function createServer(options: CreateServerOptions = {}) {
             .filter((g) => g.publishedAt && !g.frozenAt && !g.archivedAt && Date.parse(g.endsAt) <= Date.now())
             .forEach((g) => ensureFrozen(store, g));
         }
+        const approvals = store.sendApprovalReminders();
+        if (approvals.reminded + approvals.escalated > 0) logger.info(`[notifications] approvals: ${approvals.reminded} reminded, ${approvals.escalated} escalated`);
         if (tasks + followups + overdue + lowStock + expiring > 0) {
           logger.info(`[notifications] reminders: ${tasks} task, ${followups} follow-up, ${overdue} overdue invoice, ${lowStock} low stock, ${expiring} expiry`);
         }
