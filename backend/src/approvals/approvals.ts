@@ -298,7 +298,7 @@ export class ApprovalStore {
 
   /** A readable name for an approver, for messages and the inbox. */
   label(a: Approver): string {
-    if (a.kind === 'role') return a.id === 'Admin' ? 'an Admin' : `a ${a.id}`;
+    if (a.kind === 'role') return a.id === 'Manager' ? 'a Manager' : `an ${a.id}`;
     if (a.kind === 'team') return this.team(a.id)?.name ?? 'a team';
     if (a.kind === 'user') return this.people ? this.who.nameOf(a.id) : 'a named person';
     return "the requester's manager";

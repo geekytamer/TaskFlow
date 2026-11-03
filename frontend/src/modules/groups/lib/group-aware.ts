@@ -10,7 +10,7 @@
  */
 export const GROUP_AWARE_PAGES: ReadonlySet<string> = new Set([
   '/', '/tasks', '/projects', '/contacts', '/clients', '/suppliers', '/sales', '/purchases',
-  '/purchases/requisitions', '/finance',
+  '/purchases/requisitions', '/finance', '/approvals',
 ]);
 
 /**

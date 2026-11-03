@@ -6,7 +6,8 @@
  * palette, the section links and the page guards. A destination absent from
  * this map is open to every member: /tasks decides visibility per record (a
  * person always sees their own tasks), /inbox lists what each person may see (staff chats are for everyone),
- * /academy and /diagram are for everyone.
+ * /academy and /diagram are for everyone; /approvals lists what each person decides or asked
+ * for (a Legal team member may be an Employee).
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/': 'dashboard.view',
@@ -24,7 +25,6 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   '/inventory/counts': 'inventory.view',
   '/shipments': 'logistics.view',
   '/warehouse': 'inventory.view',
-  '/approvals': 'settings.view_approvals',
   '/manufacturing': 'manufacturing.view',
   '/finance': 'finance.view',
   '/crm/commissions': 'commissions.view',
