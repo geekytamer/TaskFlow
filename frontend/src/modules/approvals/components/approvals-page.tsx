@@ -129,7 +129,7 @@ export function ApprovalsPage() {
                       <span>{s.approvers.map((a) => a.label).join(s.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))}</span>
                       {s.decidedByName && <span className="text-muted-foreground">· {s.decidedByName}</span>}
                       {s.stuck && (
-                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody can decide this step: the team is empty.', 'لا يستطيع أحد البت في هذه الخطوة: الفريق فارغ.')}>
+                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody who works in this company can decide this step. Change who decides in Settings → Approvals.', 'لا يوجد في هذه الشركة من يستطيع البت في هذه الخطوة. غيّر من يقرر في الإعدادات ← الموافقات.')}>
                           <AlertTriangle className="h-3 w-3" aria-hidden="true" />{tr('nobody to decide', 'لا أحد للبت')}
                         </span>
                       )}

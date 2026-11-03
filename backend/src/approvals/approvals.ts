@@ -65,6 +65,8 @@ export interface ApprovalPeople {
   /** Logins holding exactly this role in the company. */
   usersWithRole: (companyId: string, role: string) => string[];
   nameOf: (userId: string) => string;
+  /** Whether this person can work in the company at all (only then can they decide its documents). */
+  reaches: (userId: string, companyId: string) => boolean;
 }
 
 export class ApprovalError extends Error {}
@@ -135,7 +137,7 @@ export class ApprovalStore {
   /** Replaces a document type's rules the old way (one role per level, by amount): today's behaviour kept. */
   setRules(companyId: string, docType: ApprovalDocType, rules: Array<{ minAmount: number; approverRole: ApproverRole }>): void {
     this.setPolicy(companyId, docType, {
-      steps: rules.map((r) => ({ approvers: [{ kind: 'role', id: r.approverRole }], need: 'any' as Need, minAmount: r.minAmount })),
+      steps: [...rules].sort((a, b) => a.minAmount - b.minAmount).map((r) => ({ approvers: [{ kind: 'role', id: r.approverRole }], need: 'any' as Need, minAmount: r.minAmount })),
       allowSelf: true,
     });
   }
@@ -213,7 +215,7 @@ export class ApprovalStore {
     this.db.prepare('DELETE FROM approval_delegations WHERE fromUserId = ?').run(userId);
     if (!input) return;
     if (input.toUserId === userId) throw new ApprovalError('Hand your approvals to someone else.');
-    if (!(input.endsAt > input.startsAt)) throw new ApprovalError('The end must be after the start.');
+    if (input.endsAt < input.startsAt) throw new ApprovalError('The end can\'t be before the start.');
     this.db.prepare('INSERT INTO approval_delegations (fromUserId, toUserId, startsAt, endsAt) VALUES (?, ?, ?, ?)')
       .run(userId, input.toUserId, input.startsAt, input.endsAt);
   }
@@ -278,6 +280,12 @@ export class ApprovalStore {
     })();
   }
 
+  /** The document is gone: its request and steps go (the trail stays for the record). */
+  forget(docType: ApprovalDocType, docId: string): void {
+    this.db.prepare('DELETE FROM approval_steps WHERE docType = ? AND docId = ?').run(docType, docId);
+    this.db.prepare('DELETE FROM approval_requests WHERE docType = ? AND docId = ?').run(docType, docId);
+  }
+
   clear(docType: ApprovalDocType, docId: string): void {
     this.db.prepare('DELETE FROM approval_steps WHERE docType = ? AND docId = ?').run(docType, docId);
   }
@@ -305,6 +313,8 @@ export class ApprovalStore {
   }
 
   private qualifies(a: Approver, userId: string, companyId: string, requesterId: string | null): boolean {
+    // Someone outside the document's company can't open it, so can't decide it.
+    if (!this.who.reaches(userId, companyId)) return false;
     const role = this.who.roleOf(userId, companyId);
     if (a.kind === 'role') return rolesActingAs(role).includes(a.id);
     if (a.kind === 'user') return a.id === userId;
@@ -315,6 +325,10 @@ export class ApprovalStore {
 
   /** Everyone who could fill this approver now (empty: nobody can). */
   candidates(a: Approver, companyId: string, requesterId: string | null): string[] {
+    return this.anyone(a, companyId, requesterId).filter((id) => this.who.reaches(id, companyId));
+  }
+
+  private anyone(a: Approver, companyId: string, requesterId: string | null): string[] {
     if (a.kind === 'user') return [a.id];
     if (a.kind === 'manager') return requesterId ? [this.who.managerOf(requesterId, companyId)].filter((x): x is string => Boolean(x)) : [];
     if (a.kind === 'role') {
@@ -353,7 +367,7 @@ export class ApprovalStore {
    * The slot this person (or someone who handed them their approvals) may
    * fill on the current step, or why not.
    */
-  private seat(docType: ApprovalDocType, docId: string, userId: string):
+  private seat(docType: ApprovalDocType, docId: string, userId: string, decision: 'approve' | 'reject' | 'send_back' = 'approve'):
     | { ok: true; step: ApprovalStep; slot: number; onBehalfOf: string | null; companyId: string }
     | { ok: false; reason: string } {
     const req = this.request(docType, docId);
@@ -362,11 +376,12 @@ export class ApprovalStore {
     const step = steps.find((s) => s.status === 'pending')!;
     const policy = this.policy(req.policyCompanyId ?? req.companyId, docType);
     const already = this.approvedBy(docType, docId);
-    if (already.has(userId)) return { ok: false, reason: 'You approved an earlier step of this document; someone else must approve this one.' };
+    // One person, one approval: having approved an earlier step, they may still refuse a later one.
+    if (decision === 'approve' && already.has(userId)) return { ok: false, reason: 'You approved an earlier step of this document; someone else must approve this one.' };
     let ownBlocked = false;
     for (const identity of [userId, ...this.delegatorsOf(userId)]) {
       const onBehalfOf = identity === userId ? null : identity;
-      if (onBehalfOf && already.has(onBehalfOf)) continue;
+      if (decision === 'approve' && onBehalfOf && already.has(onBehalfOf)) continue;
       if (!policy.allowSelf && req.requesterId && (identity === req.requesterId || userId === req.requesterId)) { ownBlocked = true; continue; }
       for (const slot of this.openSlots(step)) {
         if (this.slotApprovers(step, slot).some((a) => this.qualifies(a, identity, req.companyId, req.requesterId))) {
@@ -383,11 +398,12 @@ export class ApprovalStore {
   decide(docType: ApprovalDocType, docId: string, user: { id: string; name: string }, decision: 'approve' | 'reject' | 'send_back', note?: string): ApprovalOutcome {
     const text = note?.trim() || null;
     if (decision === 'send_back' && !text) throw new ApprovalError('Say what needs changing: a reason is required to send it back.');
-    const seat = this.seat(docType, docId, user.id);
-    if (!seat.ok) throw new ApprovalError(seat.reason);
-    const { step, slot, onBehalfOf } = seat;
     const at = new Date().toISOString();
     return this.db.transaction(() => {
+      // Checked inside the transaction: two decisions at once can't both take the same seat.
+      const seat = this.seat(docType, docId, user.id, decision);
+      if (!seat.ok) throw new ApprovalError(seat.reason);
+      const { step, slot, onBehalfOf } = seat;
       const kind: TrailKind = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'changes_requested';
       this.db.prepare('INSERT INTO approval_decisions (docType, docId, level, slot, kind, userId, onBehalfOf, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(docType, docId, step.level, slot, kind, user.id, onBehalfOf, text, at);
@@ -402,6 +418,12 @@ export class ApprovalStore {
         .run(outcome, outcome === 'pending' ? null : at, docType, docId);
       return outcome;
     })();
+  }
+
+  /** Whether this person decides the current step for someone else (a delegation), or for themselves. */
+  actingFor(docType: ApprovalDocType, docId: string, userId: string): string | null {
+    const seat = this.seat(docType, docId, userId);
+    return seat.ok ? seat.onBehalfOf : null;
   }
 
   /** Documents of this company waiting at a step this person (or their delegator) may decide. */
@@ -453,7 +475,7 @@ export class ApprovalStore {
       // Waiting since the last real move (a start or a decision), not since a reminder.
       const lastMove = this.db.prepare("SELECT MAX(at) at FROM approval_decisions WHERE docType = ? AND docId = ? AND kind NOT IN ('reminded', 'escalated')").get(r.docType, r.docId) as { at: string | null };
       const since = Date.parse(lastMove.at ?? r.startedAt);
-      const told = this.db.prepare('SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = ?').get(r.docType, r.docId, step.level, kind);
+      const told = this.db.prepare('SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = ? AND id > ?').get(r.docType, r.docId, step.level, kind, this.roundStart(r.docType, r.docId));
       return !told && now - since >= hours * 3_600_000 ? [{ companyId: r.companyId, docType: r.docType, docId: r.docId, level: step.level }] : [];
     });
   }

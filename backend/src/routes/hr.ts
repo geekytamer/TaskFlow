@@ -191,6 +191,8 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
   }));
   app.get('/payroll-runs/:id/wps', authMiddleware, handler((req, res) => {
     const run = loadPayrollRun(req);
+    // The bank file pays people: it waits for the run's approval like marking it paid.
+    store.requireApproved('payroll_run', run.id, 'sent to the bank');
     // The file carries every employee's pay, IBAN and ID number.
     for (const field of ['salary', 'bank_details', 'personal_ids'] as const) {
       if (!seesField(req, run.companyId, field)) throw forbidden(run.companyId, `field:${field}`);

@@ -829,6 +829,13 @@ export class DataStore {
       usersWithRole: (companyId, role) => this.listUsersByCompany(companyId)
         .filter((u) => this.companyRolesOf(u).find((r) => r.companyId === companyId)?.role === role).map((u) => u.id),
       nameOf: (userId) => this.getUserById(userId)?.name ?? 'Someone',
+      reaches: (userId, companyId) => {
+        const u = this.getUserById(userId);
+        if (!u) return false;
+        if (this.companyRolesOf(u).some((r) => r.companyId === companyId)) return true;
+        // v2 group-wide roles reach the company too.
+        return this.permissionHolders?.engine === 'v2' && this.authz.holdingCompanyIds(userId).includes(companyId);
+      },
     };
     this.clientEmail = new ClientEmailStore(this.db);
     this.workspace = new WorkspaceStore(this.db);
@@ -5691,6 +5698,13 @@ export class DataStore {
                                  CASE WHEN SUM(status = 'rejected') > 0 THEN 'rejected' WHEN SUM(status = 'pending') > 0 THEN 'pending' ELSE 'approved' END,
                                  MIN(companyId), COALESCE(MIN(decidedAt), '${new Date().toISOString()}')
                             FROM approval_steps GROUP BY docType, docId`);
+          // Chains already waiting before reminders existed are not reminded or escalated on day one.
+          this.db.exec(`INSERT INTO approval_decisions (docType, docId, level, slot, kind, userId, onBehalfOf, note, at)
+                          SELECT s.docType, s.docId, s.level, NULL, k.kind, NULL, NULL, 'Waiting before reminders existed.', '${new Date().toISOString()}'
+                            FROM approval_steps s JOIN (SELECT 'reminded' kind UNION ALL SELECT 'escalated') k
+                           WHERE s.status = 'pending'
+                             AND s.level = (SELECT MIN(level) FROM approval_steps x WHERE x.docType = s.docType AND x.docId = s.docId AND x.status = 'pending')
+                             AND NOT EXISTS (SELECT 1 FROM approval_decisions d WHERE d.docType = s.docType AND d.docId = s.docId AND d.kind = k.kind)`);
           this.db.exec(`INSERT INTO approval_decisions (docType, docId, level, slot, kind, userId, onBehalfOf, note, at)
                           SELECT docType, docId, level, 0, CASE status WHEN 'approved' THEN 'approved' ELSE 'rejected' END, decidedByUserId, NULL, note, decidedAt
                             FROM approval_steps WHERE status IN ('approved', 'rejected') AND decidedAt IS NOT NULL
@@ -9060,6 +9074,8 @@ export class DataStore {
 
   /** Delete an invoice. Blocks if it has payments or is referenced by a credit note. */
   deleteInvoice(id: string): void {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('invoice', id);
     const invoice = this.getInvoiceById(id);
     if (!invoice) throw new Error('Invoice not found.');
     // Deleting hard-removes the journal entries too, so it would silently rewrite
@@ -9192,7 +9208,7 @@ export class DataStore {
     });
     // Changed lines start the chain again from the bottom: earlier sign-offs were for something else.
     if (resetApproval) {
-      if (approvalStatus === 'pending' && levels.length) this.approvals.start(existing.companyId, 'purchase_order', id, levels);
+      if (approvalStatus === 'pending' && levels.length) this.startDocApproval(existing.companyId, 'purchase_order', id, levels);
       else this.approvals.clear('purchase_order', id);
     }
     const result = this.getPurchaseOrderById(id);
@@ -9205,6 +9221,8 @@ export class DataStore {
 
   /** Delete a purchase order. Blocks if it has a vendor bill or received stock. */
   deletePurchaseOrder(id: string): void {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('purchase_order', id);
     const order = this.getPurchaseOrderById(id);
     if (!order) throw new Error('Purchase order not found.');
     const bill = this.db.prepare('SELECT 1 FROM vendor_bills WHERE purchaseOrderId = ? LIMIT 1').get(id);
@@ -9264,11 +9282,13 @@ export class DataStore {
       taxRate: Number(next.taxRate) || 0, vatTreatment: next.vatTreatment ?? null, notes: next.notes ?? null, expenseAccountId: next.expenseAccountId ?? null,
     });
     this.createActivityEvent({ companyId: bill.companyId, entityType: 'vendor_bill', entityId: id, action: 'updated', summary: `Vendor bill ${bill.billNumber} updated.` });
-    this.reapprove(bill.companyId, 'vendor_bill', id, Number(bill.amount) || 0, Number(next.amount) || 0);
+    this.reapprove(bill.companyId, 'vendor_bill', id, Number(bill.amount) || 0, Number(next.amount) || 0, (next.supplierId ?? next.vendorName) !== (bill.supplierId ?? bill.vendorName));
     return this.getVendorBillById(id)!;
   }
 
   deleteVendorBill(id: string): void {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('vendor_bill', id);
     const bill = this.getVendorBillById(id);
     if (!bill) throw new Error('Vendor bill not found.');
     // As with invoices: removing the bill also removes its ledger entries, so a
@@ -9833,6 +9853,8 @@ export class DataStore {
   }
 
   deletePayrollRun(id: string): boolean {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('payroll_run', id);
     const run = this.getPayrollRunById(id);
     if (!run) return false;
     if (run.status === 'paid') {
@@ -10679,6 +10701,11 @@ export class DataStore {
     if (!existing) return undefined;
     // Legal (or whoever the policy names) signs off before a document is final.
     if (updates.status === 'final' && existing.status !== 'final') this.requireApproved('document', id, 'finalised');
+    // What was signed off is the text: changing it, or reopening a final document, asks again.
+    const reopened = updates.status === 'draft' && existing.status === 'final';
+    const rewritten = (updates.title !== undefined && updates.title.trim() !== existing.title)
+      || (updates.fieldValues !== undefined && JSON.stringify(updates.fieldValues) !== JSON.stringify(existing.fieldValues ?? {}));
+    if ((reopened || rewritten) && updates.status !== 'final') this.reapprove(existing.companyId, 'document', id, 0, 0, true);
     this.db.prepare('UPDATE documents SET title=@title, fieldValues=@fieldValues, recordType=@recordType, recordId=@recordId, status=@status, updatedAt=@updatedAt WHERE id=@id')
       .run({
         id,
@@ -10696,6 +10723,8 @@ export class DataStore {
   }
 
   deleteDocument(id: string): boolean {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('document', id);
     if (!this.getDocumentById(id)) return false;
     this.db.prepare('DELETE FROM documents WHERE id = ?').run(id);
     return true;
@@ -15062,7 +15091,7 @@ export class DataStore {
     if (input.contactId) {
       this.addContactRole(input.contactId, input.companyId, 'Vendor', 'PurchaseOrder');
     }
-    if (levels.length) this.approvals.start(order.companyId, 'purchase_order', order.id, levels);
+    if (levels.length) this.startDocApproval(order.companyId, 'purchase_order', order.id, levels);
 
     if (requiresApproval) {
       this.notify({
@@ -15475,7 +15504,7 @@ export class DataStore {
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'updated',
       summary: `Quotation ${existing.quoteNumber} updated.`, metadata: { totalAmount: result?.totalAmount },
     });
-    if (result) this.reapprove(existing.companyId, 'quotation', id, Number(existing.totalAmount) || 0, Number(result.totalAmount) || 0);
+    if (result) this.reapprove(existing.companyId, 'quotation', id, Number(existing.totalAmount) || 0, Number(result.totalAmount) || 0, result.clientId !== existing.clientId);
     return result;
   }
 
@@ -15528,6 +15557,8 @@ export class DataStore {
   }
 
   deleteQuotation(id: string): void {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('quotation', id);
     const existing = this.getQuotationById(id);
     if (!existing) throw new Error('Quotation not found.');
     if (existing.salesOrderId || existing.invoiceId) {
@@ -17230,7 +17261,7 @@ export class DataStore {
         this.notify({
           companyId: r.companyId, userIds: admins, type: 'approval_needed',
           title: `A ${APPROVAL_LABEL[r.docType]} has been waiting for approval too long`,
-          body: 'Nobody has decided its current step. Reassign it or ask the approvers.',
+          body: 'Nobody has decided its current step. Ask the approvers, or change who decides in Settings → Approvals.',
           link: '/approvals', entityType: r.docType, entityId: r.docId,
         });
       }
@@ -17253,10 +17284,35 @@ export class DataStore {
     return this.approvals.rules(this.approvalPolicyCompany(companyId, docType), docType).length > 0;
   }
 
-  /** A new document asks for approval when its type has a policy; whoever is acting asked. */
+  /** Who asked: the request's first requester when it restarts, else whoever is acting now. */
+  private requesterFor(docType: ApprovalDocType, docId: string): string | null {
+    return this.approvals.view(docType, docId).requesterId ?? this.currentActor?.userId ?? null;
+  }
+
+  /**
+   * Purchase orders and expenses keep their own approval status column: start
+   * their request with who asked and the policy that applies, and when every
+   * step falls away (a manager step with no manager) the document needs none.
+   */
+  private startDocApproval(companyId: string, docType: 'purchase_order' | 'expense', docId: string, levels: ReturnType<typeof levelsFor>) {
+    const outcome = this.approvals.start(companyId, docType, docId, levels, this.requesterFor(docType, docId), this.approvalPolicyCompany(companyId, docType));
+    if (outcome === 'not_required') {
+      this.db.prepare(`UPDATE ${docType === 'purchase_order' ? 'purchase_orders' : 'expenses'} SET approvalStatus = 'not_required' WHERE id = ?`).run(docId);
+    } else {
+      this.notifyApprovers(companyId, docType, docId);
+    }
+    return outcome;
+  }
+
+  /** A new document asks for approval when its type has a policy; whoever is acting asked (or first asked). */
   private beginApproval(companyId: string, docType: ApprovalDocType, docId: string, amount: number) {
     if (!this.approvalApplies(companyId, docType)) return;
-    this.startApproval(companyId, docType, docId, { amount: Number(amount) || 0, requesterId: this.currentActor?.userId ?? null });
+    this.startApproval(companyId, docType, docId, { amount: Number(amount) || 0, requesterId: this.requesterFor(docType, docId) });
+  }
+
+  /** A deleted document's request goes with it (its trail stays). */
+  forgetApproval(docType: ApprovalDocType, docId: string) {
+    this.approvals.forget(docType, docId);
   }
 
   /**
@@ -17264,10 +17320,10 @@ export class DataStore {
    * was rejected or sent back (changing it is the answer). Otherwise the
    * request stands.
    */
-  private reapprove(companyId: string, docType: ApprovalDocType, docId: string, before: number, after: number) {
+  private reapprove(companyId: string, docType: ApprovalDocType, docId: string, before: number, after: number, materialChange = false) {
     const outcome = this.approvals.outcome(docType, docId);
     if (outcome === 'not_required' && !this.approvalApplies(companyId, docType)) return;
-    if (after > before || outcome === 'rejected' || outcome === 'changes_requested') this.beginApproval(companyId, docType, docId, after);
+    if (after > before || materialChange || outcome === 'rejected' || outcome === 'changes_requested') this.beginApproval(companyId, docType, docId, after);
   }
 
   /** Refuses an action on a document whose approval isn't through. */
@@ -17334,7 +17390,7 @@ export class DataStore {
         createdAt: nowIso,
         updatedAt: nowIso,
       });
-    if (levels.length) this.approvals.start(expense.companyId, 'expense', expense.id, levels);
+    if (levels.length) this.startDocApproval(expense.companyId, 'expense', expense.id, levels);
     else this.postExpenseJournal(expense);
     this.createActivityEvent({
       companyId: expense.companyId,
@@ -17433,7 +17489,7 @@ export class DataStore {
       const keep = next.amount === existing.amount && existing.approvalStatus === 'approved';
       const status: Expense['approvalStatus'] = !levels.length ? 'not_required' : keep ? 'approved' : 'pending';
       this.db.prepare('UPDATE expenses SET approvalStatus = ? WHERE id = ?').run(status, id);
-      if (status === 'pending') this.approvals.start(next.companyId, 'expense', id, levels);
+      if (status === 'pending') this.startDocApproval(next.companyId, 'expense', id, levels);
       else if (status === 'not_required') this.approvals.clear('expense', id);
       if (status !== 'pending') this.postExpenseJournal({ ...next, approvalStatus: status });
     })();
@@ -17445,6 +17501,8 @@ export class DataStore {
   }
 
   deleteExpense(id: string): boolean {
+    // Its approval request goes with it, so nobody is asked to decide a document that is gone.
+    this.forgetApproval('expense', id);
     const existing = this.getExpenseById(id);
     if (!existing) return false;
     // Deleting removes the ledger entry too, so a closed period must stay closed.
@@ -18374,7 +18432,7 @@ export class DataStore {
   updateInvoiceStatus(invoiceId: string, status: InvoiceStatus) {
     const existing = this.getInvoiceById(invoiceId);
     if (!existing) return undefined;
-    if (status === 'Sent' && existing.status === 'Draft') this.requireApproved('invoice', invoiceId, 'sent');
+    if (status !== 'Draft' && existing.status === 'Draft') this.requireApproved('invoice', invoiceId, 'sent');
 
     if (status === 'Paid') {
       const outstandingAmount = existing.outstandingAmount ?? existing.total;
@@ -18466,6 +18524,8 @@ export class DataStore {
   updateInvoice(invoiceId: string, updates: Partial<Omit<Invoice, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId) as any;
     if (!existing) return undefined;
+    // Leaving Draft through an edit waits for approval like any other way out.
+    if (updates.status && updates.status !== 'Draft' && existing.status === 'Draft') this.requireApproved('invoice', invoiceId, 'sent');
 
     const currentLineItems = this.normalizeInvoiceLineItems(this.parseJson(existing.lineItems) || []);
     const nextLineItems = this.normalizeInvoiceLineItems(
@@ -18545,7 +18605,7 @@ export class DataStore {
         console.error('Failed to auto-post invoice journal', error);
       }
     }
-    if (saved) this.reapprove(saved.companyId, 'invoice', invoiceId, Number(existing.total) || 0, Number(saved.total) || 0);
+    if (saved) this.reapprove(saved.companyId, 'invoice', invoiceId, Number(existing.total) || 0, Number(saved.total) || 0, saved.clientId !== existing.clientId);
     return saved;
   }
 
@@ -19720,6 +19780,10 @@ export class DataStore {
     }
 
     const requestedStatus: VendorBillStatus = input.status ?? 'Draft';
+    // A bill created already paid would skip its approval: with a policy, it is paid after.
+    if (requestedStatus === 'Paid' && this.approvalApplies(input.companyId, 'vendor_bill')) {
+      throw new HttpError(409, 'Vendor bills need approval in this company: record the bill first, then pay it once approved.', { code: 'APPROVAL_REQUIRED' });
+    }
     const bill: VendorBill = {
       ...input,
       id: uuid(),

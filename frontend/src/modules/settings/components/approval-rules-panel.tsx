@@ -145,6 +145,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
         {POLICY_DOC_TYPES.map((t) => {
           const p = policyOf(t);
           const dirty = Boolean(drafts[t]);
+          // The group's policy is read here; adding a step is how this company takes its own.
+          const inherited = Boolean(p.inheritedFrom && !dirty);
           return (
             <section key={t} className="space-y-2 border-t pt-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -175,14 +177,14 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                     <Plus className="me-1 h-4 w-4" />{tr('Add step', 'إضافة خطوة')}
                   </Button>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Switch checked={p.allowSelf} onCheckedChange={(v) => edit(t, (q) => ({ ...q, allowSelf: v }))} disabled={p.steps.length === 0} />
+                    <Switch checked={p.allowSelf} onCheckedChange={(v) => edit(t, (q) => ({ ...q, allowSelf: v }))} disabled={p.steps.length === 0 || inherited} />
                     {tr('The requester may approve their own', 'يجوز لمقدّم الطلب اعتماد طلبه')}
                   </label>
                   <label className="flex items-center gap-1 text-xs text-muted-foreground">
                     {tr('Remind after', 'تذكير بعد')}
-                    <Input type="number" min={1} max={720} className="h-7 w-16" value={p.reminderHours} onChange={(e) => edit(t, (q) => ({ ...q, reminderHours: Number(e.target.value) || 24 }))} />
+                    <Input type="number" min={1} max={720} className="h-7 w-16" disabled={inherited} value={p.reminderHours} onChange={(e) => edit(t, (q) => ({ ...q, reminderHours: Number(e.target.value) || 24 }))} />
                     {tr('h, tell Admins after', 'س، إبلاغ المدراء بعد')}
-                    <Input type="number" min={1} max={720} className="h-7 w-16" value={p.escalateHours} onChange={(e) => edit(t, (q) => ({ ...q, escalateHours: Number(e.target.value) || 72 }))} />
+                    <Input type="number" min={1} max={720} className="h-7 w-16" disabled={inherited} value={p.escalateHours} onChange={(e) => edit(t, (q) => ({ ...q, escalateHours: Number(e.target.value) || 72 }))} />
                     {tr('h', 'س')}
                   </label>
                   {dirty && (

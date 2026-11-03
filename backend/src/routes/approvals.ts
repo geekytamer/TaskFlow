@@ -12,6 +12,9 @@ export interface ApprovalDecisions {
   decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => object;
 }
 
+/** Document types wired in wave 1 (spec 2026-11-03-approvals-design, "As built"). */
+const WIRED_DOC_TYPES: ApprovalDocType[] = ['purchase_order', 'expense', 'vendor_bill', 'invoice', 'quotation', 'payroll_run', 'document'];
+
 /** The permission that lets someone decide a step, per kind of document (route-registry HANDLER_CHECKED). */
 const DECISION_KEYS: Partial<Record<ApprovalDocType, string>> = {
   purchase_order: 'purchasing.approve_step',
@@ -114,7 +117,13 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       const value = kind === 'role'
         ? enumValue(m.value, `members[${i}].value`, ['Admin', 'Manager', 'Accountant', 'Employee'] as const)
         : String(m.value ?? '');
-      if (kind === 'user' && !store.getUserById(value)) throw new HttpError(400, `members[${i}]: no such person.`);
+      if (kind === 'user') {
+        // A team is people of this company's group, never someone from elsewhere.
+        const user = store.getUserById(value);
+        const tree = new Set(subtreeIds(store.companyTreeNodes(), lineage(req.params.companyId).at(-1)!));
+        const inGroup = user && [...tree].some((c) => (user.companyIds ?? []).includes(c) || user.companyRoles?.some((r) => r.companyId === c));
+        if (!inGroup) throw new HttpError(400, `members[${i}]: that person does not work in this company or its group.`);
+      }
       return { kind, value };
     });
     res.json(runApprovals(() => store.approvals.saveTeam(req.params.companyId, {
@@ -146,7 +155,8 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
 
   app.put('/companies/:companyId/approvals/policies/:docType', authMiddleware, handler((req, res) => {
     requireManageApprovals(req, req.params.companyId);
-    const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    // Only document types whose next step actually waits for approval take a policy.
+    const docType = enumValue(req.params.docType, 'docType', WIRED_DOC_TYPES) as ApprovalDocType;
     const body = asRecord(req.body, 'body');
     if (!Array.isArray(body.steps) || body.steps.length > 10) throw new HttpError(400, 'steps must be a list of up to 10.');
     const steps = (body.steps as unknown[]).map((raw, i) => {
@@ -246,7 +256,9 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       // naming a team, a person or the manager is decided by being on it.
       const current = store.approvals.steps(docType, req.params.docId).find((x) => x.status === 'pending');
       const roleStep = !current || current.approvers.every((a) => a.kind === 'role');
-      if (key && roleStep) {
+      // A delegate decides for the person they stand in for: that person's role counts (the engine checks it).
+      const standingIn = Boolean(store.approvals.actingFor(docType, req.params.docId, req.user!.id));
+      if (key && roleStep && !standingIn) {
         // Purchase orders and expenses keep their step permission (v2) and its limit.
         requireCompanyRoles(req, doc.companyId, companyManagementRoles, key);
         requirePermission(req, doc.companyId, key, undefined, { amount: doc.amount });

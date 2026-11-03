@@ -122,6 +122,8 @@ test('a child company with no policy of its own uses its group\'s', () => {
   const child = store.createCompany({ name: 'Child' });
   store.setCompanyParent(child.id, co.id, null);
   const cfo = mk('Employee');
+  // The group's finance lead works in the child too (an approver must be able to open the document).
+  store.addCompanyMembership(cfo.id, child.id, 'Employee');
   const finance = store.approvals.saveTeam(co.id, { name: 'Group finance', members: [{ kind: 'user', value: cfo.id }] });
   store.approvals.setPolicy(co.id, 'vendor_bill', { steps: [{ approvers: [{ kind: 'team', id: finance.id }], need: 'any' }] });
   assert.equal(store.startApproval(child.id, 'vendor_bill', 'b1', { amount: 100, requesterId: null }), 'pending');
@@ -159,4 +161,25 @@ test('approvers hear when it reaches them, the requester hears the answer, and a
 
   store.decideApproval('document', 'n1', as(lawyer), 'reject', 'Wrong counterparty');
   assert.equal(mine(requester, 'approval_result').length, 1);
+});
+
+test('a named approver from outside the document\'s company cannot decide it, and the step says it is stuck', () => {
+  const { store, co, mk, as } = setup();
+  const elsewhere = store.createCompany({ name: 'Elsewhere' });
+  const outsider = mk('Admin', elsewhere.id);
+  store.approvals.setPolicy(co.id, 'document', { steps: [{ approvers: [{ kind: 'user', id: outsider.id }], need: 'any' }] });
+  store.startApproval(co.id, 'document', 'x1', { amount: 0, requesterId: null });
+  assert.equal(store.approvalView('document', 'x1').steps[0].stuck, true);
+  assert.throws(() => store.decideApproval('document', 'x1', as(outsider), 'approve'));
+});
+
+test('having approved an earlier step, a person may still reject a later one', () => {
+  const { store, co, mk, as } = setup();
+  const manager = mk('Manager');
+  const admin = mk('Admin');
+  store.approvals.setPolicy(co.id, 'expense', { steps: [{ approvers: [{ kind: 'role', id: 'Manager' }], need: 'any' }, { approvers: [{ kind: 'role', id: 'Admin' }], need: 'any' }] });
+  store.startApproval(co.id, 'expense', 'r1', { amount: 1, requesterId: null });
+  store.decideApproval('expense', 'r1', as(admin), 'approve');
+  assert.equal(store.decideApproval('expense', 'r1', as(admin), 'reject', 'Second thoughts'), 'rejected');
+  assert.ok(manager);
 });

@@ -148,3 +148,25 @@ clear message (409 APPROVAL_PENDING / APPROVAL_REJECTED) until approved.
   step"; team, person and manager approvers mean exactly those people.
 - Rules saved through the old PUT /approvals/rules keep `allowSelf` (today's
   behaviour); policies saved through the new API default to "never your own".
+
+### Review fixes (2026-11-03)
+
+- Purchase orders and expenses record who asked and use the group's policy;
+  when every step falls away (a manager step with no manager) they need none.
+- No way past approval: a vendor bill can't be created Paid, an invoice can't
+  leave Draft by any route (status, edit, Overdue) or be emailed, the payroll
+  bank file waits too, and recurring invoices are held as drafts.
+- A restart keeps the first requester. Rewriting a document, reopening a final
+  one, or changing a document's counterparty asks again. A deleted document's
+  request goes with it.
+- Only people who can open the document's company can decide it (a group
+  policy naming someone outside that company flags the step as stuck). Teams
+  take people of the company's group only. A delegate decides purchase-order
+  and expense role steps on their colleague's behalf.
+- Having approved an earlier step, a person may still reject a later one (as
+  before). Decisions are checked inside their transaction. Reminders count per
+  round. A one-day delegation is fine. Old-style rules save in amount order.
+- Policies only for wired document types. Chains waiting before this release
+  are not reminded or escalated on day one.
+- Not built: reassigning a stuck step (the escalation message points to
+  Settings → Approvals instead).

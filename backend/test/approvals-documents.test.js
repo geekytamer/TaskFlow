@@ -90,3 +90,62 @@ test('a document is finalised only after Legal signs off', () => {
   approve('document', doc.id);
   assert.equal(store.updateDocument(doc.id, { status: 'final' }).status, 'final');
 });
+
+// ── Review fixes ─────────────────────────────────────────────────────
+
+test('an expense whose only step is the requester\'s manager, with no manager, needs no approval and posts', () => {
+  const { store, co, asRequester } = setup();
+  store.approvals.setPolicy(co, 'expense', { steps: [{ approvers: [{ kind: 'manager' }], need: 'any', minAmount: 10 }] });
+  const ex = asRequester(() => store.createExpense({ companyId: co, category: 'Taxi', amount: 100, expenseDate: new Date() }));
+  assert.equal(store.getExpenseById(ex.id).approvalStatus, 'not_required');
+});
+
+test('a purchase order records who asked, and "never your own" holds', () => {
+  const { store, co, asRequester } = setup();
+  const supplier = store.createSupplier({ companyId: co, name: 'S', email: 's@x.example' });
+  const item = store.createInventoryItem({ companyId: co, name: 'I', category: 'C', unit: 'u', unitCost: 1 });
+  store.approvals.setPolicy(co, 'purchase_order', { steps: [{ approvers: [{ kind: 'role', id: 'Admin' }], need: 'any', minAmount: 1 }] });
+  const admin = store.createUser({ name: 'Boss', email: 'boss-po@apdocs.test', password: 'x', role: 'Admin', companyIds: [co], companyRoles: [{ companyId: co, role: 'Admin' }] });
+  const po = store.runAsActor({ userId: admin.id, name: admin.name }, () => store.createPurchaseOrder({ companyId: co, supplierId: supplier.id, supplierName: 'S', orderDate: new Date(), status: 'Draft', items: [{ inventoryItemId: item.id, description: 'I', quantity: 10, unitCost: 10 }] }));
+  assert.equal(store.approvalView('purchase_order', po.id).requesterId, admin.id);
+  assert.throws(() => store.decideApproval('purchase_order', po.id, { id: admin.id, name: admin.name }, 'approve'), /own/);
+  assert.ok(asRequester);
+});
+
+test('a vendor bill cannot be created already paid while bills need approval', () => {
+  const { store, co, policy } = setup();
+  policy('vendor_bill');
+  refused(() => store.createVendorBill({ companyId: co, vendorName: 'Globex', amount: 500, issueDate: new Date(), dueDate: new Date(), status: 'Paid' }), 'APPROVAL_REQUIRED');
+});
+
+test('an invoice cannot leave Draft through an edit or as Overdue before approval', () => {
+  const { store, co, policy, asRequester, client } = setup();
+  policy('invoice');
+  const inv = asRequester(() => store.createInvoice({ companyId: co, clientId: client.id, issueDate: new Date(), dueDate: new Date(), status: 'Draft', lineItems: [{ description: 'W', quantity: 1, unitPrice: 100, amount: 100, itemType: 'Manual' }] }));
+  refused(() => store.updateInvoice(inv.id, { status: 'Sent' }), 'APPROVAL_PENDING');
+  refused(() => store.updateInvoiceStatus(inv.id, 'Overdue'), 'APPROVAL_PENDING');
+});
+
+test('a restart keeps the first requester; a deleted invoice leaves nobody waiting', () => {
+  const { store, co, policy, asRequester, client } = setup();
+  policy('invoice');
+  const lines = (n) => [{ description: 'W', quantity: n, unitPrice: 100, amount: 100 * n, itemType: 'Manual' }];
+  const inv = asRequester(() => store.createInvoice({ companyId: co, clientId: client.id, issueDate: new Date(), dueDate: new Date(), status: 'Draft', lineItems: lines(1) }));
+  const first = store.approvalView('invoice', inv.id).requesterId;
+  const other = store.createUser({ name: 'Other', email: 'other@apdocs.test', password: 'x', role: 'Manager', companyIds: [co], companyRoles: [{ companyId: co, role: 'Manager' }] });
+  store.runAsActor({ userId: other.id, name: other.name }, () => store.updateInvoice(inv.id, { lineItems: lines(3) }));
+  assert.equal(store.approvalView('invoice', inv.id).requesterId, first, 'the editor does not become the requester');
+  store.deleteInvoice(inv.id);
+  assert.equal(store.approvals.outcome('invoice', inv.id), 'not_required');
+  assert.deepEqual(store.approvals.overdue('reminded', Date.now() + 1e12).filter((r) => r.docId === inv.id), []);
+});
+
+test('rewriting a document Legal approved asks Legal again', () => {
+  const { store, co, policy, asRequester, approve } = setup();
+  policy('document');
+  const template = store.createDocumentTemplate(co, { name: 'NDA', type: 'letter', dataSource: 'none' });
+  const doc = asRequester(() => store.createDocument(co, { templateId: template.id, title: 'NDA', status: 'draft' }));
+  approve('document', doc.id);
+  store.updateDocument(doc.id, { title: 'NDA, rewritten' });
+  assert.equal(store.approvals.outcome('document', doc.id), 'pending');
+});

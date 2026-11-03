@@ -60,3 +60,14 @@ test('a person hands their approvals to a colleague for a while', async () => {
   assert.ok(co);
   server.close();
 });
+
+test('a team takes people of this company\'s group only', async () => {
+  const { server, store, co, mk, as } = setup();
+  const admin = mk('Admin');
+  const elsewhere = store.createCompany({ name: 'Elsewhere' });
+  const stranger = store.createUser({ name: 'Stranger', email: 'stranger@apapi.test', password: 'x', role: 'Admin', companyIds: [elsewhere.id], companyRoles: [{ companyId: elsewhere.id, role: 'Admin' }] });
+  const res = await as(admin).put(`/companies/${co.id}/approvals/teams`, { name: 'Legal', members: [{ kind: 'user', value: stranger.id }] });
+  assert.equal(res.status, 400);
+  assert.equal((await as(admin).put(`/companies/${co.id}/approvals/policies/leave_request`, { steps: [] })).status, 400, 'not wired yet');
+  server.close();
+});
