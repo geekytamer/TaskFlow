@@ -29,7 +29,7 @@ import { DelegationCard } from './delegation-card';
 
 export function ApprovalsPage() {
   const { selectedCompany } = useCompany();
-  const { companyIds } = useCompanyScope();
+  const { companyIds, companyName } = useCompanyScope();
   const { language } = useI18n();
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const { toast } = useToast();
@@ -48,7 +48,10 @@ export function ApprovalsPage() {
     const mine = ++ticket.current;
     const answer = await fanOut(scopeKey.split(','), (id) => getApprovals(id, box));
     if (mine !== ticket.current) return;
-    setItems(answer.rows.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)));
+    // A child's document waiting at the group's sign-off is in both inboxes: list it once.
+    const seen = new Set<string>();
+    const unique = answer.rows.filter((w) => { const k = `${w.docType}:${w.docId}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    setItems(unique.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)));
     setMissing(answer.missing);
   }, [selectedCompany, scopeKey, box]);
   React.useEffect(() => { setItems(null); void load(); }, [load]);
@@ -127,9 +130,10 @@ export function ApprovalsPage() {
                         : s.status === 'rejected' ? <XCircle className="h-3 w-3 text-destructive" aria-hidden="true" />
                         : <CircleDashed className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                       <span>{s.approvers.map((a) => a.label).join(s.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))}</span>
+                      {s.ownerCompanyId && s.ownerCompanyId !== w.companyId && <span className="text-muted-foreground">· {companyName(s.ownerCompanyId) !== s.ownerCompanyId ? companyName(s.ownerCompanyId) : tr('the group', 'المجموعة')}</span>}
                       {s.decidedByName && <span className="text-muted-foreground">· {s.decidedByName}</span>}
                       {s.stuck && (
-                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody who works in this company can decide this step. Change who decides in Settings → Approvals.', 'لا يوجد في هذه الشركة من يستطيع البت في هذه الخطوة. غيّر من يقرر في الإعدادات ← الموافقات.')}>
+                        <span className="inline-flex items-center gap-0.5 text-destructive" title={tr('Nobody who can open this step\'s company can decide it. Change who decides in Settings → Approvals.', 'لا يوجد من يستطيع البت في هذه الخطوة من شركتها. غيّر من يقرر في الإعدادات ← الموافقات.')}>
                           <AlertTriangle className="h-3 w-3" aria-hidden="true" />{tr('nobody to decide', 'لا أحد للبت')}
                         </span>
                       )}

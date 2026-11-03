@@ -15,16 +15,26 @@ export type Approver =
 export type Need = 'any' | 'all';
 export type ApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected' | 'changes_requested';
 
-export interface PolicyStep { approvers: Approver[]; need: Need; minAmount: number | null; maxAmount: number | null }
+export interface PolicyStep {
+  approvers: Approver[]; need: Need; minAmount: number | null; maxAmount: number | null;
+  /** On a group company: also for every company below, after their own steps (group sign-off). */
+  alsoBelow?: boolean;
+}
 export interface ApprovalPolicy {
   steps: PolicyStep[]; allowSelf: boolean; reminderHours: number; escalateHours: number;
   /** Set when this company uses its group's policy. */
   inheritedFrom: { id: string; name: string } | null;
+  /** This company has companies below: its steps can be their group sign-off. */
+  hasCompaniesBelow?: boolean;
+  /** What each group above adds after this company's own steps, nearest first. */
+  groupSignOff?: Array<{ companyId: string; name: string; steps: PolicyStep[] }>;
 }
 export interface ApprovalTeam { id: string; companyId: string; name: string; members: Array<{ kind: 'role' | 'user'; value: string }> }
 
 export interface RequestStep {
   level: number; status: 'pending' | 'approved' | 'rejected'; need: Need; minAmount: number;
+  /** Whose people decide it: the document's company, or the group signing off. */
+  ownerCompanyId?: string;
   approvers: Array<Approver & { label: string }>; stuck: boolean;
   decidedByName: string | null; decidedAt: string | null; note: string | null;
 }

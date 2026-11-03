@@ -38,15 +38,19 @@ export interface ApprovalRule {
   /** The first role among the approvers, kept for older screens. */
   approverRole: ApproverRole;
   approvers: Approver[]; need: Need; position: number;
+  /** On a group company: this step also runs, after their own, for documents of every company below. */
+  alsoBelow: boolean;
 }
 export type StepStatus = 'pending' | 'approved' | 'rejected';
 export interface ApprovalStep {
   docType: ApprovalDocType; docId: string; level: number; minAmount: number; approverRole: ApproverRole;
   approvers: Approver[]; need: Need;
+  /** Whose people decide this step: the document's company, or the group whose sign-off it is. */
+  ownerCompanyId: string;
   status: StepStatus; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null;
 }
 export type ApprovalOutcome = 'not_required' | 'pending' | 'approved' | 'rejected' | 'changes_requested';
-export type TrailKind = 'started' | 'skipped' | 'approved' | 'rejected' | 'changes_requested' | 'reminded' | 'escalated' | 'restarted';
+export type TrailKind = 'started' | 'skipped' | 'noted' | 'approved' | 'rejected' | 'changes_requested' | 'reminded' | 'escalated' | 'restarted';
 export interface TrailEntry {
   level: number | null; slot: number | null; kind: TrailKind; userId: string | null; userName: string | null;
   onBehalfOf: string | null; note: string | null; at: string;
@@ -89,11 +93,12 @@ export function rolesActingAs(companyRole: string | undefined): ApproverRole[] {
 }
 
 /** The steps a document of this amount needs, in order. */
-export function levelsFor(rules: ApprovalRule[], amount: number): Array<{ minAmount: number; approverRole: ApproverRole; approvers: Approver[]; need: Need }> {
+export type ApprovalLevel = { minAmount: number; approverRole: ApproverRole; approvers: Approver[]; need: Need; ownerCompanyId?: string; alsoBelow?: boolean };
+export function levelsFor(rules: ApprovalRule[], amount: number): ApprovalLevel[] {
   return [...rules]
     .sort((a, b) => a.position - b.position || a.minAmount - b.minAmount)
     .filter((r) => amount >= r.minAmount && (r.maxAmount === null || amount <= r.maxAmount))
-    .map((r) => ({ minAmount: r.minAmount, approverRole: r.approverRole, approvers: r.approvers, need: r.need }));
+    .map((r) => ({ minAmount: r.minAmount, approverRole: r.approverRole, approvers: r.approvers, need: r.need, alsoBelow: r.alsoBelow }));
 }
 
 export function outcomeOf(steps: ApprovalStep[]): ApprovalOutcome {
@@ -124,6 +129,7 @@ export class ApprovalStore {
         id: r.id, companyId: r.companyId, docType: r.docType, minAmount: Number(r.minAmount) || 0,
         maxAmount: r.maxAmount === null || r.maxAmount === undefined ? null : Number(r.maxAmount),
         approverRole: firstRole(approvers), approvers, need: r.need === 'all' ? 'all' : 'any', position: Number(r.position) || 0,
+        alsoBelow: Boolean(r.alsoBelow),
       };
     });
   }
@@ -144,7 +150,7 @@ export class ApprovalStore {
 
   /** Replaces a document type's policy. No steps: the company has none (and uses its group's, if any). */
   setPolicy(companyId: string, docType: ApprovalDocType, input: {
-    steps: Array<{ approvers: Approver[]; need: Need; minAmount?: number | null; maxAmount?: number | null }>;
+    steps: Array<{ approvers: Approver[]; need: Need; minAmount?: number | null; maxAmount?: number | null; alsoBelow?: boolean }>;
     allowSelf?: boolean; reminderHours?: number; escalateHours?: number;
   }): void {
     this.db.transaction(() => {
@@ -152,10 +158,10 @@ export class ApprovalStore {
       this.db.prepare('DELETE FROM approval_policies WHERE companyId = ? AND docType = ?').run(companyId, docType);
       if (!input.steps.length) return;
       const insert = this.db.prepare(
-        'INSERT INTO approval_rules (id, companyId, docType, minAmount, maxAmount, approverRole, approvers, need, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO approval_rules (id, companyId, docType, minAmount, maxAmount, approverRole, approvers, need, position, alsoBelow) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       );
       input.steps.forEach((s, i) => insert.run(
-        uuid(), companyId, docType, s.minAmount ?? 0, s.maxAmount ?? null, firstRole(s.approvers), JSON.stringify(s.approvers), s.need, i,
+        uuid(), companyId, docType, s.minAmount ?? 0, s.maxAmount ?? null, firstRole(s.approvers), JSON.stringify(s.approvers), s.need, i, s.alsoBelow ? 1 : 0,
       ));
       this.db.prepare('INSERT INTO approval_policies (companyId, docType, allowSelf, reminderHours, escalateHours) VALUES (?, ?, ?, ?, ?)')
         .run(companyId, docType, input.allowSelf ? 1 : 0, input.reminderHours ?? 24, input.escalateHours ?? 72);
@@ -232,7 +238,7 @@ export class ApprovalStore {
     const rows = this.db.prepare('SELECT * FROM approval_steps WHERE docType = ? AND docId = ? ORDER BY level').all(docType, docId) as Array<Record<string, any>>;
     return rows.map((r) => {
       const approvers = legacyApprovers(r as { approvers?: string; approverRole: string });
-      return { ...(r as ApprovalStep), approvers, need: r.need === 'all' ? 'all' : 'any', approverRole: firstRole(approvers) };
+      return { ...(r as ApprovalStep), approvers, need: r.need === 'all' ? 'all' : 'any', approverRole: firstRole(approvers), ownerCompanyId: r.ownerCompanyId ?? r.companyId };
     });
   }
 
@@ -248,7 +254,7 @@ export class ApprovalStore {
    */
   start(
     companyId: string, docType: ApprovalDocType, docId: string,
-    levels: Array<{ minAmount: number; approverRole: ApproverRole; approvers?: Approver[]; need?: Need }>,
+    levels: Array<{ minAmount: number; approverRole: ApproverRole; approvers?: Approver[]; need?: Need; ownerCompanyId?: string; note?: string }>,
     requesterId: string | null = null, policyCompanyId: string | null = null,
   ): ApprovalOutcome {
     return this.db.transaction(() => {
@@ -266,16 +272,20 @@ export class ApprovalStore {
         return true;
       });
       const insert = this.db.prepare(
-        "INSERT INTO approval_steps (companyId, docType, docId, level, minAmount, approverRole, approvers, need, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+        "INSERT INTO approval_steps (companyId, docType, docId, level, minAmount, approverRole, approvers, need, ownerCompanyId, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
       );
       kept.forEach((l, i) => {
         const approvers = l.approvers ?? [{ kind: 'role', id: l.approverRole } as Approver];
-        insert.run(companyId, docType, docId, i + 1, l.minAmount, firstRole(approvers), JSON.stringify(approvers), l.need ?? 'any');
+        insert.run(companyId, docType, docId, i + 1, l.minAmount, firstRole(approvers), JSON.stringify(approvers), l.need ?? 'any', l.ownerCompanyId ?? companyId);
       });
       const status: ApprovalOutcome = kept.length ? 'pending' : 'not_required';
       this.db.prepare('INSERT OR REPLACE INTO approval_requests (docType, docId, companyId, requesterId, status, policyCompanyId, startedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(docType, docId, companyId, requesterId, status, policyCompanyId ?? companyId, at);
       if (kept.length) trail.run(docType, docId, null, null, restarting ? 'restarted' : 'started', requesterId, null, null, at);
+      // Notes on the steps (a group band in another currency) come after the start, once each.
+      [...new Map(kept.map((l, i) => [l.note, i + 1] as const)).entries()].forEach(([note, level]) => {
+        if (note) trail.run(docType, docId, level, null, 'noted', null, null, note, at);
+      });
       return status;
     })();
   }
@@ -312,25 +322,30 @@ export class ApprovalStore {
     return "the requester's manager";
   }
 
-  private qualifies(a: Approver, userId: string, companyId: string, requesterId: string | null): boolean {
-    // Someone outside the document's company can't open it, so can't decide it.
-    if (!this.who.reaches(userId, companyId)) return false;
-    const role = this.who.roleOf(userId, companyId);
+  /**
+   * Whether this person fills this approver. `ownerId` is the company whose
+   * people decide the step (the document's, or the group signing off): they
+   * must work there, with their role there. The manager is the requester's,
+   * in the document's company.
+   */
+  private qualifies(a: Approver, userId: string, ownerId: string, docCompanyId: string, requesterId: string | null): boolean {
+    if (!this.who.reaches(userId, ownerId)) return false;
+    const role = this.who.roleOf(userId, ownerId);
     if (a.kind === 'role') return rolesActingAs(role).includes(a.id);
     if (a.kind === 'user') return a.id === userId;
-    if (a.kind === 'manager') return Boolean(requesterId) && this.who.managerOf(requesterId!, companyId) === userId;
+    if (a.kind === 'manager') return Boolean(requesterId) && this.who.managerOf(requesterId!, docCompanyId) === userId;
     const team = this.team(a.id);
     return Boolean(team?.members.some((m) => (m.kind === 'user' ? m.value === userId : m.value === role)));
   }
 
   /** Everyone who could fill this approver now (empty: nobody can). */
-  candidates(a: Approver, companyId: string, requesterId: string | null): string[] {
-    return this.anyone(a, companyId, requesterId).filter((id) => this.who.reaches(id, companyId));
+  candidates(a: Approver, ownerId: string, requesterId: string | null, docCompanyId: string = ownerId): string[] {
+    return this.anyone(a, ownerId, requesterId, docCompanyId).filter((id) => this.who.reaches(id, ownerId));
   }
 
-  private anyone(a: Approver, companyId: string, requesterId: string | null): string[] {
+  private anyone(a: Approver, companyId: string, requesterId: string | null, docCompanyId: string): string[] {
     if (a.kind === 'user') return [a.id];
-    if (a.kind === 'manager') return requesterId ? [this.who.managerOf(requesterId, companyId)].filter((x): x is string => Boolean(x)) : [];
+    if (a.kind === 'manager') return requesterId ? [this.who.managerOf(requesterId, docCompanyId)].filter((x): x is string => Boolean(x)) : [];
     if (a.kind === 'role') {
       return [...new Set([...this.who.usersWithRole(companyId, a.id), ...this.who.usersWithRole(companyId, 'Admin')])];
     }
@@ -374,7 +389,8 @@ export class ApprovalStore {
     const steps = this.steps(docType, docId);
     if (!req || req.status === 'changes_requested' || outcomeOf(steps) !== 'pending') return { ok: false, reason: 'Nothing is waiting for approval on this document.' };
     const step = steps.find((s) => s.status === 'pending')!;
-    const policy = this.policy(req.policyCompanyId ?? req.companyId, docType);
+    // A group's sign-off follows the group's own rules (self-approval), not the company's.
+    const policy = this.policy(step.ownerCompanyId !== req.companyId ? step.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
     const already = this.approvedBy(docType, docId);
     // One person, one approval: having approved an earlier step, they may still refuse a later one.
     if (decision === 'approve' && already.has(userId)) return { ok: false, reason: 'You approved an earlier step of this document; someone else must approve this one.' };
@@ -384,7 +400,7 @@ export class ApprovalStore {
       if (decision === 'approve' && onBehalfOf && already.has(onBehalfOf)) continue;
       if (!policy.allowSelf && req.requesterId && (identity === req.requesterId || userId === req.requesterId)) { ownBlocked = true; continue; }
       for (const slot of this.openSlots(step)) {
-        if (this.slotApprovers(step, slot).some((a) => this.qualifies(a, identity, req.companyId, req.requesterId))) {
+        if (this.slotApprovers(step, slot).some((a) => this.qualifies(a, identity, step.ownerCompanyId, req.companyId, req.requesterId))) {
           return { ok: true, step, slot, onBehalfOf, companyId: req.companyId };
         }
       }
@@ -420,6 +436,13 @@ export class ApprovalStore {
     })();
   }
 
+  /** Whether this person is on this request: deciding its current step now, or having decided a step. */
+  involves(docType: ApprovalDocType, docId: string, userId: string): boolean {
+    if (this.seat(docType, docId, userId).ok) return true;
+    return Boolean(this.db.prepare("SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND (userId = ? OR onBehalfOf = ?) AND kind IN ('approved', 'rejected', 'changes_requested')")
+      .get(docType, docId, userId, userId));
+  }
+
   /** Whether this person decides the current step for someone else (a delegation), or for themselves. */
   actingFor(docType: ApprovalDocType, docId: string, userId: string): string | null {
     const seat = this.seat(docType, docId, userId);
@@ -428,7 +451,11 @@ export class ApprovalStore {
 
   /** Documents of this company waiting at a step this person (or their delegator) may decide. */
   waitingFor(companyId: string, userId: string): Array<{ docType: ApprovalDocType; docId: string; level: number; onBehalfOf: string | null }> {
-    const rows = this.db.prepare("SELECT docType, docId FROM approval_requests WHERE companyId = ? AND status = 'pending'").all(companyId) as Array<{ docType: ApprovalDocType; docId: string }>;
+    // This company's documents, and documents below it waiting at this company's sign-off.
+    const rows = this.db.prepare(
+      `SELECT r.docType, r.docId FROM approval_requests r WHERE r.status = 'pending' AND (r.companyId = ?
+          OR EXISTS (SELECT 1 FROM approval_steps s WHERE s.docType = r.docType AND s.docId = r.docId AND s.status = 'pending' AND s.ownerCompanyId = ?))`,
+    ).all(companyId, companyId) as Array<{ docType: ApprovalDocType; docId: string }>;
     return rows.flatMap((r) => {
       const seat = this.seat(r.docType, r.docId, userId);
       return seat.ok ? [{ docType: r.docType, docId: r.docId, level: seat.step.level, onBehalfOf: seat.onBehalfOf }] : [];
@@ -445,38 +472,39 @@ export class ApprovalStore {
   decidedBy(companyId: string, userId: string): Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }> {
     return this.db.prepare(
       `SELECT DISTINCT r.docType, r.docId, r.status FROM approval_requests r JOIN approval_decisions d ON d.docType = r.docType AND d.docId = r.docId
-        WHERE r.companyId = ? AND d.userId = ? AND d.kind IN ('approved', 'rejected', 'changes_requested') ORDER BY d.at DESC LIMIT 200`,
-    ).all(companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
+        WHERE (r.companyId = ? OR EXISTS (SELECT 1 FROM approval_steps s WHERE s.docType = d.docType AND s.docId = d.docId AND s.level = d.level AND s.ownerCompanyId = ?))
+          AND d.userId = ? AND d.kind IN ('approved', 'rejected', 'changes_requested') ORDER BY d.at DESC LIMIT 200`,
+    ).all(companyId, companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
   }
 
   /** The request as a reader sees it: steps with who and whether anyone can fill them, and the trail. */
   view(docType: ApprovalDocType, docId: string) {
     const req = this.request(docType, docId);
     const steps = this.steps(docType, docId).map((s) => ({
-      level: s.level, status: s.status, need: s.need, minAmount: s.minAmount,
+      level: s.level, status: s.status, need: s.need, minAmount: s.minAmount, ownerCompanyId: s.ownerCompanyId,
       approvers: s.approvers.map((a) => ({ ...a, label: this.label(a) })),
       stuck: s.status === 'pending' && this.people !== null && req !== undefined
         && (s.need === 'all'
-          ? s.approvers.some((a) => this.candidates(a, req.companyId, req.requesterId).length === 0)
-          : s.approvers.every((a) => this.candidates(a, req.companyId, req.requesterId).length === 0)),
+          ? s.approvers.some((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId).length === 0)
+          : s.approvers.every((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId).length === 0)),
       decidedByName: s.decidedByName, decidedAt: s.decidedAt, note: s.note,
     }));
     return { status: this.outcome(docType, docId), requesterId: req?.requesterId ?? null, steps, trail: this.trail(docType, docId) };
   }
 
   /** Pending requests whose current step has waited past these hours and has not been told so yet. */
-  overdue(kind: 'reminded' | 'escalated', now = Date.now()): Array<{ companyId: string; docType: ApprovalDocType; docId: string; level: number }> {
+  overdue(kind: 'reminded' | 'escalated', now = Date.now()): Array<{ companyId: string; ownerCompanyId: string; docType: ApprovalDocType; docId: string; level: number }> {
     const rows = this.db.prepare("SELECT docType, docId, companyId, policyCompanyId, startedAt FROM approval_requests WHERE status = 'pending'").all() as Array<{ docType: ApprovalDocType; docId: string; companyId: string; policyCompanyId: string | null; startedAt: string }>;
     return rows.flatMap((r) => {
       const step = this.steps(r.docType, r.docId).find((s) => s.status === 'pending');
       if (!step) return [];
-      const policy = this.policy(r.policyCompanyId ?? r.companyId, r.docType);
+      const policy = this.policy(step.ownerCompanyId !== r.companyId ? step.ownerCompanyId : r.policyCompanyId ?? r.companyId, r.docType);
       const hours = kind === 'reminded' ? policy.reminderHours : policy.escalateHours;
       // Waiting since the last real move (a start or a decision), not since a reminder.
       const lastMove = this.db.prepare("SELECT MAX(at) at FROM approval_decisions WHERE docType = ? AND docId = ? AND kind NOT IN ('reminded', 'escalated')").get(r.docType, r.docId) as { at: string | null };
       const since = Date.parse(lastMove.at ?? r.startedAt);
       const told = this.db.prepare('SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = ? AND id > ?').get(r.docType, r.docId, step.level, kind, this.roundStart(r.docType, r.docId));
-      return !told && now - since >= hours * 3_600_000 ? [{ companyId: r.companyId, docType: r.docType, docId: r.docId, level: step.level }] : [];
+      return !told && now - since >= hours * 3_600_000 ? [{ companyId: r.companyId, ownerCompanyId: step.ownerCompanyId, docType: r.docType, docId: r.docId, level: step.level }] : [];
     });
   }
 

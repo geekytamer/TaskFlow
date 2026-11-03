@@ -158,11 +158,11 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                   <span className="text-xs text-muted-foreground">{tr(`Uses ${p.inheritedFrom.name}'s policy. Steps you add here replace it for this company.`, `تستخدم سياسة ${p.inheritedFrom.name}. الخطوات التي تضيفها هنا تحل محلها لهذه الشركة.`)}</span>
                 )}
               </div>
-              {p.steps.length === 0 && <p className="text-sm text-muted-foreground">{tr('No approval needed.', 'لا يحتاج إلى موافقة.')}</p>}
+              {p.steps.length === 0 && !p.groupSignOff?.length && <p className="text-sm text-muted-foreground">{tr('No approval needed.', 'لا يحتاج إلى موافقة.')}</p>}
               <ol className="space-y-2">
                 {p.steps.map((s, i) => (
                   <StepEditor
-                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label}
+                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)}
                     teams={teams} people={people}
                     onChange={(next) => edit(t, (q) => ({ ...q, inheritedFrom: null, steps: q.steps.map((x, j) => (j === i ? next : x)) }))}
                     onMove={(d) => edit(t, (q) => { const steps = [...q.steps]; const [x] = steps.splice(i, 1); steps.splice(i + d, 0, x); return { ...q, steps }; })}
@@ -170,6 +170,14 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                   />
                 ))}
               </ol>
+              {p.groupSignOff?.map((g) => (
+                <p key={g.companyId} className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                  {tr(`Then ${g.name} signs off: `, `ثم تعتمد ${g.name}: `)}
+                  {g.steps.map((st) => st.approvers.map((a) => label(a)).join(st.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))
+                    + (st.minAmount ? tr(` (from ${st.minAmount}`, ` (من ${st.minAmount}`) + (st.maxAmount ? tr(` up to ${st.maxAmount})`, ` حتى ${st.maxAmount})`) : ')') : st.maxAmount ? tr(` (up to ${st.maxAmount})`, ` (حتى ${st.maxAmount})`) : '')).join(tr(', then ', '، ثم '))}
+                  {tr(` In ${g.name}'s currency.`, ` بعملة ${g.name}.`)}
+                </p>
+              ))}
               {canEdit && (
                 <div className="flex flex-wrap items-center gap-3">
                   <Button size="sm" variant="outline" disabled={p.steps.length >= 10}
@@ -247,8 +255,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   );
 }
 
-function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove }: {
-  index: number; step: PolicyStep; count: number; canEdit: boolean; tr: Tr; label: (a: Approver) => string;
+function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove, isGroup }: {
+  index: number; step: PolicyStep; count: number; canEdit: boolean; tr: Tr; label: (a: Approver) => string; isGroup: boolean;
   teams: ApprovalTeam[]; people: Array<{ id: string; name: string }>;
   onChange: (s: PolicyStep) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
 }) {
@@ -310,6 +318,12 @@ function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onC
         <Input type="number" min={0} className="h-7 w-24" placeholder={tr('any', 'أي')} disabled={!canEdit} value={step.maxAmount ?? ''} onChange={(e) => onChange({ ...step, maxAmount: amount(e.target.value) })} />
         {tr('(in the document\'s company currency)', '(بعملة شركة المستند)')}
       </div>
+      {isGroup && (
+        <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Switch checked={Boolean(step.alsoBelow)} onCheckedChange={(v) => onChange({ ...step, alsoBelow: v })} disabled={!canEdit} />
+          {tr('Group sign-off: also for every company below, after their own approvals', 'اعتماد المجموعة: أيضًا لكل شركة تحتها، بعد اعتماداتها')}
+        </label>
+      )}
     </li>
   );
 }

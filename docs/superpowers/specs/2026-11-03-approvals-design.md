@@ -170,3 +170,41 @@ clear message (409 APPROVAL_PENDING / APPROVAL_REJECTED) until approved.
   are not reminded or escalated on day one.
 - Not built: reassigning a stuck step (the escalation message points to
   Settings → Approvals instead).
+
+## Group sign-off (2026-11-04)
+
+Owner: "approvals that require approvals from the group, inherit it upwards".
+
+- On a group company's policy, a step can be marked **also for every company
+  below**. It then runs after a company's own steps on every document below
+  the group, and on the group's own documents as part of its policy.
+- Several levels: each group up the tree adds its sign-off steps, nearest
+  group first.
+- A sign-off step is decided by **the group's people**: they must work in the
+  group company and their role there counts; they need no place in the child.
+  The document shows in their Approvals inbox (the group's), and they may
+  decide it (the decision route accepts access to the group whose sign-off is
+  current). The requester's-manager approver stays the requester's manager.
+- Fallback is unchanged: a company with no policy of its own uses the
+  nearest group's *ordinary* steps; sign-off steps reach it anyway, once.
+- Currencies: amount bands of a group step are in the group's currency. A
+  document in another currency can't be compared before consolidation adds
+  exchange rates, so the step applies and the trail says why (more approval
+  rather than none).
+- Settings: the switch appears on group companies; a company's page lists
+  the sign-off its groups add after its own steps.
+- Migration 156: `approval_rules.alsoBelow`, `approval_steps.ownerCompanyId`.
+
+### Group sign-off: review fixes (2026-11-04)
+
+- A group's sign-off step is decided with the group's roles even for purchase
+  orders and expenses (their decision key is checked in the document's
+  company only for the company's own steps).
+- Purchase orders go through the same chain (own or group policy, then group
+  sign-off), keeping the single threshold when no policy applies at all.
+- A group's step follows the group's own "never your own" and reminder hours.
+- Group approvers see what they decided (Decided tab) and can read requests
+  they are on; reaching a child's request through the group needs being on it,
+  and only a missing membership falls through (a module switched off stands).
+- A group sign-off can name only people of the group company; a step with no
+  amount band ignores currency; the currency note is added once, after the start.
