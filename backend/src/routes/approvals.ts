@@ -1,4 +1,5 @@
-import { APPROVAL_DOC_TYPES, APPROVER_ROLES, type ApprovalDocType, type ApproverRole } from '../approvals/approvals';
+import { APPROVAL_DOC_TYPES, APPROVER_ROLES, ApprovalError, type ApprovalDocType, type Approver, type ApproverRole } from '../approvals/approvals';
+import { subtreeIds } from '../companies/tree';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber } from '../validation';
 import type { RouteContext } from './context';
@@ -55,6 +56,147 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       res.json(store.approvals.rules(req.params.companyId));
     }),
   );
+
+  /** Who signs off what is the company's administration (settings.manage_approvals). */
+  const requireManageApprovals = (req: AuthedRequest, companyId: string) => {
+    requireCompanyRoles(req, companyId, companyManagementRoles, 'settings.view_approvals');
+    if (!allowsRule(req, companyId, 'ADMINISTRATION')) {
+      if (ctx.permissionsEngine === 'v2') throw forbidden(companyId, 'settings.manage_approvals');
+      throw new HttpError(403, 'Only an administrator can change approvals.', { code: 'FORBIDDEN', permission: 'settings.manage_approvals' });
+    }
+  };
+  const runApprovals = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof ApprovalError) throw new HttpError(409, e.message); throw e; }
+  };
+  /** This company and the group companies above it: whose teams a policy may name. */
+  const lineage = (companyId: string): string[] => {
+    const nodes = store.companyTreeNodes();
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const out: string[] = [];
+    for (let id: string | null = companyId; id && out.length < 32; id = byId.get(id)?.parentCompanyId ?? null) out.push(id);
+    return out;
+  };
+  const parseApprovers = (companyId: string, raw: unknown, where: string): Approver[] => {
+    if (!Array.isArray(raw) || raw.length === 0 || raw.length > 10) throw new HttpError(400, `${where}: name 1 to 10 approvers.`);
+    const teamsHere = new Set(lineage(companyId));
+    const tree = new Set(subtreeIds(store.companyTreeNodes(), companyId));
+    return raw.map((item, i) => {
+      const a = asRecord(item, `${where}[${i}]`);
+      const kind = enumValue(a.kind, `${where}[${i}].kind`, ['role', 'team', 'user', 'manager'] as const);
+      if (kind === 'manager') return { kind } as Approver;
+      const id = typeof a.id === 'string' ? a.id : '';
+      if (kind === 'role') return { kind, id: enumValue(id, `${where}[${i}].id`, APPROVER_ROLES) as ApproverRole };
+      if (kind === 'team') {
+        const team = store.approvals.team(id);
+        if (!team || !teamsHere.has(team.companyId)) throw new HttpError(400, 'That team is not one of this company\'s (or its group\'s).');
+        return { kind, id };
+      }
+      const user = store.getUserById(id);
+      const reaches = user && [...tree].some((c) => (user.companyIds ?? []).includes(c) || user.companyRoles?.some((r) => r.companyId === c));
+      if (!reaches) throw new HttpError(400, 'That person does not work in this company or its group.');
+      return { kind, id };
+    });
+  };
+
+  app.get('/companies/:companyId/approvals/teams', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    // A policy may name this company's teams and its group's.
+    res.json(lineage(req.params.companyId).flatMap((id) => store.approvals.teams(id)));
+  }));
+
+  app.put('/companies/:companyId/approvals/teams', authMiddleware, handler((req, res) => {
+    requireManageApprovals(req, req.params.companyId);
+    const body = asRecord(req.body, 'body');
+    if (!Array.isArray(body.members) || body.members.length > 100) throw new HttpError(400, 'members must be a list of up to 100.');
+    const members = (body.members as unknown[]).map((raw, i) => {
+      const m = asRecord(raw, `members[${i}]`);
+      const kind = enumValue(m.kind, `members[${i}].kind`, ['role', 'user'] as const);
+      const value = kind === 'role'
+        ? enumValue(m.value, `members[${i}].value`, ['Admin', 'Manager', 'Accountant', 'Employee'] as const)
+        : String(m.value ?? '');
+      if (kind === 'user' && !store.getUserById(value)) throw new HttpError(400, `members[${i}]: no such person.`);
+      return { kind, value };
+    });
+    res.json(runApprovals(() => store.approvals.saveTeam(req.params.companyId, {
+      id: typeof body.id === 'string' ? body.id : undefined, name: String(body.name ?? ''), members,
+    })));
+  }));
+
+  app.delete('/companies/:companyId/approvals/teams/:teamId', authMiddleware, handler((req, res) => {
+    requireManageApprovals(req, req.params.companyId);
+    runApprovals(() => store.approvals.deleteTeam(req.params.companyId, req.params.teamId));
+    res.status(204).end();
+  }));
+
+  /** Every document type's policy as it applies here: own, or the group's (inheritedFrom). */
+  app.get('/companies/:companyId/approvals/policies', authMiddleware, handler((req, res) => {
+    requireCompanyAccess(req, req.params.companyId);
+    const out: Record<string, unknown> = {};
+    for (const docType of APPROVAL_DOC_TYPES) {
+      const from = store.approvalPolicyCompany(req.params.companyId, docType);
+      const rules = store.approvals.rules(from, docType);
+      out[docType] = {
+        ...store.approvals.policy(from, docType),
+        inheritedFrom: from !== req.params.companyId && rules.length ? { id: from, name: store.getCompanyById(from)?.name ?? from } : null,
+        steps: rules.map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount })),
+      };
+    }
+    res.json(out);
+  }));
+
+  app.put('/companies/:companyId/approvals/policies/:docType', authMiddleware, handler((req, res) => {
+    requireManageApprovals(req, req.params.companyId);
+    const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    const body = asRecord(req.body, 'body');
+    if (!Array.isArray(body.steps) || body.steps.length > 10) throw new HttpError(400, 'steps must be a list of up to 10.');
+    const steps = (body.steps as unknown[]).map((raw, i) => {
+      const st = asRecord(raw, `steps[${i}]`);
+      const num = (v: unknown, f: string) => (v === null || v === undefined || v === '' ? null : requiredNumber(v, f));
+      const minAmount = num(st.minAmount, `steps[${i}].minAmount`);
+      const maxAmount = num(st.maxAmount, `steps[${i}].maxAmount`);
+      if (minAmount !== null && maxAmount !== null && maxAmount < minAmount) throw new HttpError(400, `Step ${i + 1}: the "up to" amount is below the "from" amount.`);
+      return {
+        approvers: parseApprovers(req.params.companyId, st.approvers, `steps[${i}].approvers`),
+        need: enumValue(st.need ?? 'any', `steps[${i}].need`, ['any', 'all'] as const),
+        minAmount, maxAmount,
+      };
+    });
+    const hours = (v: unknown, fallback: number) => {
+      const n = v === undefined || v === null ? fallback : Number(v);
+      if (!Number.isInteger(n) || n < 1 || n > 24 * 30) throw new HttpError(400, 'Hours are a whole number from 1 to 720.');
+      return n;
+    };
+    store.approvals.setPolicy(req.params.companyId, docType, {
+      steps, allowSelf: body.allowSelf === true,
+      reminderHours: hours(body.reminderHours, 24), escalateHours: hours(body.escalateHours, 72),
+    });
+    res.json({ ok: true });
+  }));
+
+  app.get('/me/approval-delegation', authMiddleware, handler((req, res) => {
+    res.json(store.approvals.delegation(req.user!.id));
+  }));
+
+  app.put('/me/approval-delegation', authMiddleware, handler((req, res) => {
+    const body = asRecord(req.body, 'body');
+    if (body.toUserId === null || body.toUserId === undefined) {
+      store.approvals.setDelegation(req.user!.id, null);
+      return res.json(null);
+    }
+    const toUserId = String(body.toUserId);
+    if (!store.getUserById(toUserId)) throw new HttpError(400, 'No such person.');
+    const date = (v: unknown, f: string) => {
+      if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new HttpError(400, `${f} is a date (YYYY-MM-DD).`);
+      return v;
+    };
+    try {
+      store.approvals.setDelegation(req.user!.id, { toUserId, startsAt: date(body.startsAt, 'startsAt'), endsAt: date(body.endsAt, 'endsAt') });
+    } catch (e) {
+      if (e instanceof ApprovalError) throw new HttpError(400, e.message);
+      throw e;
+    }
+    res.json(store.approvals.delegation(req.user!.id));
+  }));
 
   app.get(
     '/companies/:companyId/approvals',

@@ -97,7 +97,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/purchase-requisitions/:id/approve', permission: 'purchasing.approve', legacyRoles: AM },
   { method: 'POST', path: '/purchase-requisitions/:id/reject', permission: 'purchasing.approve', legacyRoles: AM },
   { method: 'POST', path: '/purchase-requisitions/:id/convert', permission: 'purchasing.create', legacyRoles: MGMT },
-  { method: 'POST', path: '/approvals/:docType/:docId/decision', permission: 'per_record', legacyRoles: MGMT, note: 'management gate, then the chain step role; purchasing.approve_step for purchase_order, finance.approve_expenses for expense' },
+  { method: 'POST', path: '/approvals/:docType/:docId/decision', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'a step of roles keeps its gate (purchasing.approve_step for purchase_order, finance.approve_expenses for expense); a team, person or manager step is decided by being on it (approvals engine)' },
   { method: 'GET', path: '/companies/:companyId/bill-matches', permission: 'purchasing.view', legacyRoles: MGMT },
   { method: 'DELETE', path: '/purchase-orders/:id', permission: 'purchasing.delete', legacyRoles: MGMT, note: 'deleteRoute: companyManagementRoles' },
   { method: 'DELETE', path: '/purchase-requisitions/:id', permission: 'purchasing.delete', legacyRoles: MGMT, note: 'deleteRoute: companyManagementRoles' },
@@ -702,8 +702,15 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/companies/:companyId/activity-events', permission: 'settings.view_activity', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/approvals/rules', permission: 'settings.view_approvals', legacyRoles: MGMT },
   { method: 'PUT', path: '/companies/:companyId/approvals/rules', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'matrix says finance:write (management), but the handler also requires ADMINISTRATION (routes/approvals.ts), so only Admin' },
-  { method: 'GET', path: '/companies/:companyId/approvals', permission: 'settings.view_approvals', legacyRoles: MGMT },
-  { method: 'GET', path: '/approvals/:docType/:docId', permission: 'settings.view_approvals', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/approvals', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'company member; lists only what this person decides, asked or decided' },
+  { method: 'GET', path: '/approvals/:docType/:docId', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'company member of the document' },
+  { method: 'GET', path: '/companies/:companyId/approvals/teams', permission: 'per_record', legacyRoles: ALL, note: 'company member: the teams a policy may name' },
+  { method: 'PUT', path: '/companies/:companyId/approvals/teams', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
+  { method: 'DELETE', path: '/companies/:companyId/approvals/teams/:teamId', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
+  { method: 'GET', path: '/companies/:companyId/approvals/policies', permission: 'per_record', legacyRoles: ALL, note: 'company member: who approves what' },
+  { method: 'PUT', path: '/companies/:companyId/approvals/policies/:docType', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
+  { method: 'GET', path: '/me/approval-delegation', permission: 'self' },
+  { method: 'PUT', path: '/me/approval-delegation', permission: 'self' },
 
   // ─── people ────────────────────────────────────────────────────────────────
   { method: 'GET', path: '/positions', permission: 'per_record', note: 'global user.role Admin (legacy quirk: requireAdmin ignores company roles; positions are platform-wide)' },
@@ -859,7 +866,7 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
  */
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
-  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 1, 'src/routes/password.ts': 1 } },
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 2, 'src/routes/password.ts': 1 } },
   USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1, 'src/companies/people-routes.ts': 3 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },

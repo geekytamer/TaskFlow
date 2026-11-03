@@ -49,6 +49,8 @@ const KNOWN_UNGATED = new Set([
     'GET /users',
     'GET /users/:id',
     'POST /companies',
+    'GET /me/approval-delegation', // the caller's own delegation
+    'PUT /me/approval-delegation',
     'PUT /companies/:id/parent', // super admin only (requireSuperAdmin), like POST /companies
     'POST /users',
     'PUT /users/:id',
