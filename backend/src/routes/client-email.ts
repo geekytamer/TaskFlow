@@ -16,6 +16,7 @@ export function registerClientEmailRoutes(app: Express, ctx: RouteContext): void
       const invoice = store.getInvoiceById(req.params.id);
       if (!invoice) throw new HttpError(404, 'Invoice not found.');
       requireCompanyRoles(req, invoice.companyId, companyManagementRoles);
+      store.requireApproved('invoice', invoice.id, 'emailed');
       const body = asRecord(req.body ?? {}, 'body');
       const to = optionalString(body.to) ?? store.getClientById(invoice.clientId)?.email;
       if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new HttpError(400, 'The client has no valid email address; enter one.');

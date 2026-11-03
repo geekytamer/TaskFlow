@@ -159,6 +159,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler((req, res) => {
       const quote = loadQuotation(req);
+      ctx.store.requireApproved('quotation', quote.id, 'turned into a sales order');
       if (quote.salesOrderId) {
         const existing = store.getSalesOrderById(quote.salesOrderId);
         if (existing) {
@@ -195,6 +196,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler((req, res) => {
       const quote = loadQuotation(req);
+      ctx.store.requireApproved('quotation', quote.id, 'invoiced');
       if (quote.invoiceId) {
         const existing = store.getInvoiceById(quote.invoiceId);
         if (existing) {

@@ -131,3 +131,20 @@ clear message (409 APPROVAL_PENDING / APPROVAL_REJECTED) until approved.
   as the document's state.
 - Parallel "all" steps rather than parallel branches: covers "Legal and
   Finance both sign" without a flow designer.
+
+## As built, wave 1 (2026-11-03)
+
+- Wired: purchase orders and expenses (unchanged behaviour), vendor bills
+  (payment waits), customer invoices (sending and emailing wait; a new invoice
+  starts as a draft), quotations (sending, accepting and converting wait),
+  payroll runs (approving and paying wait), documents (finalising waits; a new
+  document starts as a draft).
+- **Rulings:** credit notes, vendor payments, leave and purchase requisitions
+  follow in wave 2 (credit notes and payments are posted the moment they are
+  recorded, and leave and requisitions have their own approve step today; each
+  needs its state reshaped, not a gate). No seeded teams: roles are offered
+  directly as approvers, so an empty Legal team never blocks a company that
+  didn't ask for one. A role approver keeps "an Admin may act for any role
+  step"; team, person and manager approvers mean exactly those people.
+- Rules saved through the old PUT /approvals/rules keep `allowSelf` (today's
+  behaviour); policies saved through the new API default to "never your own".

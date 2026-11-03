@@ -9257,6 +9257,7 @@ export class DataStore {
       taxRate: Number(next.taxRate) || 0, vatTreatment: next.vatTreatment ?? null, notes: next.notes ?? null, expenseAccountId: next.expenseAccountId ?? null,
     });
     this.createActivityEvent({ companyId: bill.companyId, entityType: 'vendor_bill', entityId: id, action: 'updated', summary: `Vendor bill ${bill.billNumber} updated.` });
+    this.reapprove(bill.companyId, 'vendor_bill', id, Number(bill.amount) || 0, Number(next.amount) || 0);
     return this.getVendorBillById(id)!;
   }
 
@@ -9751,7 +9752,9 @@ export class DataStore {
       summary: `Payroll run created for ${period} (${employees.length} employees).`,
       metadata: { period, employees: employees.length },
     });
-    return this.getPayrollRunById(id)!;
+    const created = this.getPayrollRunById(id)!;
+    this.beginApproval(companyId, 'payroll_run', id, Number((created as { totalNet?: number }).totalNet ?? 0) || 0);
+    return created;
   }
 
   updatePayrollRunStatus(id: string, status: PayrollRunStatus): PayrollRun | undefined {
@@ -9760,6 +9763,8 @@ export class DataStore {
     // Payroll only moves forward. Reverting a paid run would strip its ledger
     // entries and leave wages that were actually disbursed unrecorded.
     const order: PayrollRunStatus[] = ['draft', 'approved', 'paid'];
+    // Approving or paying a run waits for its approval request, when there is one.
+    if (status !== 'draft' && status !== run.status) this.requireApproved('payroll_run', id, status === 'paid' ? 'paid' : 'approved');
     if (order.indexOf(status) < order.indexOf(run.status)) {
       throw new Error(`A ${run.status} payroll run cannot be moved back to ${status}.`);
     }
@@ -10620,6 +10625,7 @@ export class DataStore {
     templateId: string; title?: string; recordType?: DocumentDataSource; recordId?: string;
     fieldValues?: Record<string, string>; status?: DocumentStatus;
   }): DocumentRecord {
+    this.requireDraftWhileApproving(companyId, 'document', (input.status ?? 'draft') === 'draft', 'Documents');
     const legacyTemplate = this.getDocumentTemplateById(input.templateId);
     const typedTemplate = this.getInvoiceTemplateById(input.templateId);
     const genericDocumentTypes = new Set<TemplateDocType>([
@@ -10657,12 +10663,15 @@ export class DataStore {
         createdAt: nowIso, updatedAt: nowIso,
       });
     this.createActivityEvent({ companyId, entityType: 'document', entityId: id, action: 'created', summary: `Document "${(input.title || templateName).trim()}" created.` });
+    this.beginApproval(companyId, 'document', id, 0);
     return this.getDocumentById(id)!;
   }
 
   updateDocument(id: string, updates: { title?: string; fieldValues?: Record<string, string>; recordType?: DocumentDataSource | null; recordId?: string; status?: DocumentStatus }): DocumentRecord | undefined {
     const existing = this.getDocumentById(id);
     if (!existing) return undefined;
+    // Legal (or whoever the policy names) signs off before a document is final.
+    if (updates.status === 'final' && existing.status !== 'final') this.requireApproved('document', id, 'finalised');
     this.db.prepare('UPDATE documents SET title=@title, fieldValues=@fieldValues, recordType=@recordType, recordId=@recordId, status=@status, updatedAt=@updatedAt WHERE id=@id')
       .run({
         id,
@@ -15407,6 +15416,7 @@ export class DataStore {
       summary: `Quotation ${quote.quoteNumber} created.`,
       metadata: { totalAmount: quote.totalAmount, clientId: quote.clientId, opportunityId: quote.opportunityId },
     });
+    this.beginApproval(quote.companyId, 'quotation', quote.id, Number(quote.totalAmount) || 0);
     // Read back, so a quote dated with a valid-until already past says Expired at once.
     return this.getQuotationById(quote.id)!;
   }
@@ -15458,6 +15468,7 @@ export class DataStore {
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'updated',
       summary: `Quotation ${existing.quoteNumber} updated.`, metadata: { totalAmount: result?.totalAmount },
     });
+    if (result) this.reapprove(existing.companyId, 'quotation', id, Number(existing.totalAmount) || 0, Number(result.totalAmount) || 0);
     return result;
   }
 
@@ -15472,6 +15483,7 @@ export class DataStore {
     if (!existing) return undefined;
     if (status === 'Expired') throw new Error('A quotation expires on its own once its valid-until date passes.');
     if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted; its status is final.');
+    if (status === 'Sent' || status === 'Accepted') this.requireApproved('quotation', id, status === 'Sent' ? 'sent' : 'accepted');
     const current = existing.status;
     if (current === status) return existing;
     const open = current === 'Draft' || current === 'Sent' || current === 'Expired';
@@ -17156,6 +17168,46 @@ export class DataStore {
     return this.approvals.waitingFor(companyId, userId);
   }
 
+  /** Whether this company (or its group) has a policy for this type of document. */
+  approvalApplies(companyId: string, docType: ApprovalDocType): boolean {
+    return this.approvals.rules(this.approvalPolicyCompany(companyId, docType), docType).length > 0;
+  }
+
+  /** A new document asks for approval when its type has a policy; whoever is acting asked. */
+  private beginApproval(companyId: string, docType: ApprovalDocType, docId: string, amount: number) {
+    if (!this.approvalApplies(companyId, docType)) return;
+    this.startApproval(companyId, docType, docId, { amount: Number(amount) || 0, requesterId: this.currentActor?.userId ?? null });
+  }
+
+  /**
+   * After an edit: a higher amount asks again, and so does a document that
+   * was rejected or sent back (changing it is the answer). Otherwise the
+   * request stands.
+   */
+  private reapprove(companyId: string, docType: ApprovalDocType, docId: string, before: number, after: number) {
+    const outcome = this.approvals.outcome(docType, docId);
+    if (outcome === 'not_required' && !this.approvalApplies(companyId, docType)) return;
+    if (after > before || outcome === 'rejected' || outcome === 'changes_requested') this.beginApproval(companyId, docType, docId, after);
+  }
+
+  /** Refuses an action on a document whose approval isn't through. */
+  requireApproved(docType: ApprovalDocType, docId: string, action: string) {
+    const outcome = this.approvals.outcome(docType, docId);
+    if (outcome === 'pending') {
+      throw new HttpError(409, `This is waiting for approval, so it can't be ${action} yet.`, { code: 'APPROVAL_PENDING' });
+    }
+    if (outcome === 'rejected' || outcome === 'changes_requested') {
+      throw new HttpError(409, `This was ${outcome === 'rejected' ? 'rejected' : 'sent back for changes'} in approval, so it can't be ${action}. Change it to ask again.`, { code: 'APPROVAL_REJECTED' });
+    }
+  }
+
+  /** A document whose type needs approval starts as a draft, never past it. */
+  private requireDraftWhileApproving(companyId: string, docType: ApprovalDocType, draft: boolean, what: string) {
+    if (!draft && this.approvalApplies(companyId, docType)) {
+      throw new HttpError(409, `${what} need approval in this company: create it as a draft, then it goes for approval.`, { code: 'APPROVAL_REQUIRED' });
+    }
+  }
+
   createExpense(input: CreateExpenseInput): Expense {
     const category = (input.category || '').trim();
     if (!category) throw new Error('Expense category is required.');
@@ -18126,6 +18178,7 @@ export class DataStore {
       dueDate: Date | string;
     },
   ) {
+    this.requireDraftWhileApproving(invoice.companyId, 'invoice', !invoice.status || invoice.status === 'Draft', 'Invoices');
     const normalizedLineItems = this.normalizeInvoiceLineItems(invoice.lineItems);
     const computedTotal = this.computeInvoiceTotals(normalizedLineItems, invoice.taxRate).gross;
     const money = this.resolveTransactionCurrency(
@@ -18234,12 +18287,14 @@ export class DataStore {
         paidAt: newInvoice.paidAt ?? new Date(),
       });
     }
+    this.beginApproval(newInvoice.companyId, 'invoice', newInvoice.id, Number(newInvoice.total) || 0);
     return this.getInvoiceById(newInvoice.id) ?? newInvoice;
   }
 
   updateInvoiceStatus(invoiceId: string, status: InvoiceStatus) {
     const existing = this.getInvoiceById(invoiceId);
     if (!existing) return undefined;
+    if (status === 'Sent' && existing.status === 'Draft') this.requireApproved('invoice', invoiceId, 'sent');
 
     if (status === 'Paid') {
       const outstandingAmount = existing.outstandingAmount ?? existing.total;
@@ -18410,6 +18465,7 @@ export class DataStore {
         console.error('Failed to auto-post invoice journal', error);
       }
     }
+    if (saved) this.reapprove(saved.companyId, 'invoice', invoiceId, Number(existing.total) || 0, Number(saved.total) || 0);
     return saved;
   }
 
@@ -19661,6 +19717,7 @@ export class DataStore {
         entityId: result.id,
       });
     }
+    this.beginApproval(result.companyId, 'vendor_bill', result.id, result.amount);
     return result;
   }
 
@@ -19721,6 +19778,7 @@ export class DataStore {
     if (!bill) {
       throw new Error('Vendor bill not found.');
     }
+    this.requireApproved('vendor_bill', bill.id, 'paid');
     if (bill.status === 'Draft') {
       throw new Error('Draft vendor bills cannot receive payments.');
     }

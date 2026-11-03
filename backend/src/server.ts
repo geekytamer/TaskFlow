@@ -7028,6 +7028,28 @@ export function createServer(options: CreateServerOptions = {}) {
       load: (id) => store.getExpenseById(id),
     },
   };
+  // Documents whose state follows the request itself (the store refuses their next step until approved).
+  const followsRequest = (summary: ApprovalDoc['summary'], load: ApprovalDoc['load']): ApprovalDoc => ({ summary, load, settle: () => undefined });
+  approvalDocs.vendor_bill = followsRequest((id) => {
+    const b = store.getVendorBillById(id);
+    return b ? { companyId: b.companyId, number: b.billNumber, amount: Number(b.amount) || 0, party: b.vendorName, date: new Date(b.issueDate) } : undefined;
+  }, (id) => store.getVendorBillById(id));
+  approvalDocs.invoice = followsRequest((id) => {
+    const inv = store.getInvoiceById(id);
+    return inv ? { companyId: inv.companyId, number: inv.invoiceNumber, amount: Number(inv.total) || 0, party: store.getClientById(inv.clientId)?.name ?? null, date: new Date(inv.issueDate) } : undefined;
+  }, (id) => store.getInvoiceById(id));
+  approvalDocs.quotation = followsRequest((id) => {
+    const q = store.getQuotationById(id);
+    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: Number(q.totalAmount) || 0, party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
+  }, (id) => store.getQuotationById(id));
+  approvalDocs.payroll_run = followsRequest((id) => {
+    const r = store.getPayrollRunById(id);
+    return r ? { companyId: r.companyId, number: `Payroll ${r.period}`, amount: Number(r.totalNet) || 0, party: null, date: new Date(r.createdAt) } : undefined;
+  }, (id) => store.getPayrollRunById(id));
+  approvalDocs.document = followsRequest((id) => {
+    const d = store.getDocumentById(id);
+    return d ? { companyId: d.companyId, number: d.title, amount: 0, party: null, date: new Date(d.createdAt) } : undefined;
+  }, (id) => store.getDocumentById(id));
   const docSummary = (docType: ApprovalDocType, docId: string) => approvalDocs[docType]?.summary(docId);
   /** One person's decision on a document's request; when the request ends, the document follows. */
   const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => {

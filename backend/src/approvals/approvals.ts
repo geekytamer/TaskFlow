@@ -325,11 +325,17 @@ export class ApprovalStore {
     return [...new Set(team.members.flatMap((m) => (m.kind === 'user' ? [m.value] : this.who.usersWithRole(companyId, m.value))))];
   }
 
+  /** The trail id of this request's latest start: decisions before it belong to an earlier round. */
+  private roundStart(docType: ApprovalDocType, docId: string): number {
+    const row = this.db.prepare("SELECT MAX(id) id FROM approval_decisions WHERE docType = ? AND docId = ? AND kind IN ('started', 'restarted')").get(docType, docId) as { id: number | null };
+    return row.id ?? 0;
+  }
+
   /** The slots of the current step still to be filled ("any": the whole step is one slot). */
   private openSlots(step: ApprovalStep): number[] {
     if (step.need === 'any') return [0];
-    const filled = new Set((this.db.prepare("SELECT slot FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = 'approved'")
-      .all(step.docType, step.docId, step.level) as Array<{ slot: number }>).map((r) => r.slot));
+    const filled = new Set((this.db.prepare("SELECT slot FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = 'approved' AND id > ?")
+      .all(step.docType, step.docId, step.level, this.roundStart(step.docType, step.docId)) as Array<{ slot: number }>).map((r) => r.slot));
     return step.approvers.map((_, i) => i).filter((i) => !filled.has(i));
   }
 
@@ -339,8 +345,8 @@ export class ApprovalStore {
 
   /** Who already approved anything on this document (one person, one step). */
   private approvedBy(docType: ApprovalDocType, docId: string): Set<string> {
-    return new Set((this.db.prepare("SELECT userId, onBehalfOf FROM approval_decisions WHERE docType = ? AND docId = ? AND kind = 'approved'")
-      .all(docType, docId) as Array<{ userId: string; onBehalfOf: string | null }>).flatMap((r) => [r.userId, r.onBehalfOf].filter((x): x is string => Boolean(x))));
+    return new Set((this.db.prepare("SELECT userId, onBehalfOf FROM approval_decisions WHERE docType = ? AND docId = ? AND kind = 'approved' AND id > ?")
+      .all(docType, docId, this.roundStart(docType, docId)) as Array<{ userId: string; onBehalfOf: string | null }>).flatMap((r) => [r.userId, r.onBehalfOf].filter((x): x is string => Boolean(x))));
   }
 
   /**
