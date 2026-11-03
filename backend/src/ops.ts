@@ -25,6 +25,11 @@ Commands:
   authz:status                 Show the permissions engine, authz version and logged shadow divergences
   authz:compare [--days N]     Summarise shadow divergences (authz_divergence) of the last N days
                                (default 7): by route, key and company, newest first (read-only)
+  authz:roles-review           List converted roles still waiting for review: company, grants, holders
+  authz:activate-role <id>     Activate a reviewed converted role (requires --force; dry run without)
+  group:create --name N --companies "A|B|C"
+                               Make a group company over existing companies, named exactly
+                               (requires --force; dry run without)
 
 Environment:
   TASKFLOW_DB_PATH=/absolute/path/to/taskflow.db
@@ -251,6 +256,53 @@ function authzRepair() {
   );
 }
 
+function argValue(flag: string): string | undefined {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+function rolesReview() {
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const companyName = (id: string | null) => (id ? store.getCompanyById(id)?.name ?? id : '(group)');
+  const waiting = store.listCompanies().flatMap((c) => store.authz.listRoles(c.id).filter((r) => r.needsReview));
+  if (!waiting.length) { console.log('No converted role is waiting for review.'); return; }
+  for (const role of waiting) {
+    const holders = store.listUsers().filter((u) => store.authz.assignments(u.id, role.companyId!).some((a) => a.roleId === role.id));
+    console.log(`${role.id}  ${companyName(role.companyId)} / ${role.name}`);
+    console.log(`  grants: ${role.grants.map((g) => g.key + (g.scope ? `(${g.scope})` : '')).join(', ') || '(none)'}`);
+    console.log(`  held by: ${holders.map((u) => u.name).join(', ') || '(nobody)'}`);
+  }
+}
+
+function activateRole() {
+  const id = args.find((a) => !a.startsWith('--'));
+  if (!id) { console.error('Usage: npm run ops -- authz:activate-role <roleId> --force'); process.exitCode = 1; return; }
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const role = store.authz.getRole(id);
+  if (!role) { console.error(`No role ${id}.`); process.exitCode = 1; return; }
+  if (!role.needsReview) { console.log(`${role.name} is already active.`); return; }
+  if (!force) { console.log(`Would activate "${role.name}" (${role.grants.length} grants). Add --force to do it.`); return; }
+  store.authz.activateRole(id, null);
+  console.log(`Activated "${role.name}".`);
+}
+
+function groupCreate() {
+  const name = argValue('--name');
+  const names = (argValue('--companies') ?? '').split('|').map((n) => n.trim()).filter(Boolean);
+  if (!name || !names.length) { console.error('Usage: npm run ops -- group:create --name "Group" --companies "A|B|C" --force'); process.exitCode = 1; return; }
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  const companies = store.listCompanies().filter((c) => !c.isTraining);
+  const ids = names.map((n) => {
+    const found = companies.filter((c) => c.name.trim() === n);
+    if (found.length !== 1) throw new Error(`"${n}" matches ${found.length} companies; names must match exactly one.`);
+    return found[0].id;
+  });
+  console.log(`Group "${name}" over: ${names.join(', ')}`);
+  if (!force) { console.log('Dry run. Add --force to create it.'); return; }
+  const group = store.groupUp(name, ids, null);
+  console.log(`Created group company ${group.id}. Admins: ${store.listUsersByCompany(group.id).map((u) => u.name).join(', ') || '(none)'}`);
+}
+
 switch (command) {
   case 'authz:repair':
     authzRepair();
@@ -260,6 +312,15 @@ switch (command) {
     break;
   case 'authz:compare':
     authzCompare().catch(fail);
+    break;
+  case 'authz:roles-review':
+    rolesReview();
+    break;
+  case 'authz:activate-role':
+    activateRole();
+    break;
+  case 'group:create':
+    try { groupCreate(); } catch (e) { fail(e); }
     break;
   case 'status':
     showStatus();
