@@ -354,3 +354,17 @@ test('GET /companies does not reveal a parent the viewer cannot open', async () 
   assert.equal(res.body.find((c) => c.id === a.id).parentCompanyId, undefined);
   server.close();
 });
+
+test('groupUp: a new group over existing companies, run by whoever is Admin in all of them', () => {
+  const store = freshStore();
+  const a = store.createCompany({ name: 'A' });
+  const b = store.createCompany({ name: 'B' });
+  const owner = makeUser(store, [a.id, b.id], 'Admin');
+  const partAdmin = makeUser(store, [a.id], 'Admin');
+  const group = store.groupUp('AB Group', [a.id, b.id], null);
+  assert.equal(store.getCompanyById(a.id).parentCompanyId, group.id);
+  assert.equal(store.getCompanyById(b.id).parentCompanyId, group.id);
+  assert.equal(roleIn(store.getUserById(owner.id), group.id), 'Admin');
+  assert.equal(roleIn(store.getUserById(partAdmin.id), group.id), undefined);
+  assert.throws(() => store.groupUp('Again', [a.id], null), (e) => e.status === 409, 'a company already in a group is not taken');
+});

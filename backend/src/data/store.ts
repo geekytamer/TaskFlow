@@ -5647,14 +5647,38 @@ export class DataStore {
         this.db.prepare('UPDATE company_finance_settings SET currencyCode = ? WHERE companyId = ?').run([...currencies][0], parent.id);
       }
 
-      const groupAdmins = new Set((this.db.prepare('SELECT userId FROM holding_group_admins WHERE holdingGroupId = ?').all(group.id) as Array<{ userId: string }>)
-        .map((r) => r.userId));
-      for (const user of this.listUsers()) {
-        const adminEverywhere = memberIds.length > 0
-          && memberIds.every((id) => this.companyRolesOf(user).find((r) => r.companyId === id)?.role === 'Admin');
-        if (groupAdmins.has(user.id) || adminEverywhere) this.addCompanyMembership(user.id, parent.id, 'Admin');
-      }
+      const groupAdmins = (this.db.prepare('SELECT userId FROM holding_group_admins WHERE holdingGroupId = ?').all(group.id) as Array<{ userId: string }>)
+        .map((r) => r.userId);
+      for (const userId of new Set([...groupAdmins, ...this.adminsOfAll(memberIds)])) this.addCompanyMembership(userId, parent.id, 'Admin');
     }
+  }
+
+  /** People who are Admin in every one of these companies (none when the list is empty). */
+  private adminsOfAll(companyIds: string[]): string[] {
+    if (!companyIds.length) return [];
+    return this.listUsers()
+      .filter((user) => companyIds.every((id) => this.companyRolesOf(user).find((r) => r.companyId === id)?.role === 'Admin'))
+      .map((user) => user.id);
+  }
+
+  /**
+   * A new group over existing companies: its company, the companies under it,
+   * and Admin there for whoever is Admin in all of them. A company already in
+   * a group is refused, never moved by this.
+   */
+  groupUp(name: string, companyIds: string[], actorId: string | null): Company {
+    return this.db.transaction(() => {
+      const taken = companyIds.find((id) => {
+        const c = this.getCompanyById(id);
+        if (!c) throw new HttpError(404, `Company ${id} not found.`);
+        return c.parentCompanyId || childIds(this.companyTreeNodes(), id).length;
+      });
+      if (taken) throw new HttpError(409, `${this.getCompanyById(taken)?.name ?? taken} is already part of a group.`);
+      const { company } = this.createGroupCompany(name, actorId);
+      companyIds.forEach((id) => this.setCompanyParent(id, company.id, actorId));
+      this.adminsOfAll(companyIds).forEach((userId) => this.addCompanyMembership(userId, company.id, 'Admin'));
+      return this.getCompanyById(company.id)!;
+    })();
   }
 
   /** A person's role per company, read the way every other check reads it. */
