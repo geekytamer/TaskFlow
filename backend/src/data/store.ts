@@ -24,7 +24,7 @@ import { buildWpsFile } from '../hr/wps';
 import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
-import { ApprovalStore, levelsFor, type ApprovalDocType } from '../approvals/approvals';
+import { ApprovalStore, levelsFor, type ApprovalLevel, type ApprovalDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
 import { WorkspaceStore } from '../workspace/workspace-store';
@@ -5709,6 +5709,15 @@ export class DataStore {
                           SELECT docType, docId, level, 0, CASE status WHEN 'approved' THEN 'approved' ELSE 'rejected' END, decidedByUserId, NULL, note, decidedAt
                             FROM approval_steps WHERE status IN ('approved', 'rejected') AND decidedAt IS NOT NULL
                              AND NOT EXISTS (SELECT 1 FROM approval_decisions d WHERE d.docType = approval_steps.docType AND d.docId = approval_steps.docId AND d.level = approval_steps.level)`);
+        },
+      },
+      {
+        // Group sign-off: a group step also for every company below, decided by the group's people.
+        id: '156_approval_group_signoff',
+        run: () => {
+          const has = (t: string, c: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).some((x) => x.name === c);
+          if (!has('approval_rules', 'alsoBelow')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN alsoBelow INTEGER NOT NULL DEFAULT 0');
+          if (!has('approval_steps', 'ownerCompanyId')) this.db.exec('ALTER TABLE approval_steps ADD COLUMN ownerCompanyId TEXT');
         },
       },
     ];
@@ -17168,25 +17177,66 @@ export class DataStore {
     return row ? this.decodeExpense(row) : undefined;
   }
 
-  /** Approval levels a document of this amount needs under the company's rules (empty: none, or no rules). */
+  /** Approval levels a document of this amount needs: its policy's steps, then each group's sign-off above. */
   approvalLevels(companyId: string, docType: ApprovalDocType, amount: number) {
-    return levelsFor(this.approvals.rules(this.approvalPolicyCompany(companyId, docType), docType), amount);
+    return this.approvalChain(companyId, docType, amount);
   }
 
-  /** The company whose policy applies: its own, else the nearest group company above with one. */
+  /** The groups above a company, nearest first. */
+  private ancestorsOf(companyId: string): string[] {
+    const byId = new Map(this.companyTreeNodes().map((n) => [n.id, n]));
+    const out: string[] = [];
+    for (let id = byId.get(companyId)?.parentCompanyId ?? null; id && out.length < 32 && !out.includes(id); id = byId.get(id)?.parentCompanyId ?? null) out.push(id);
+    return out;
+  }
+
+  /**
+   * A company's steps for a document type. Its own documents follow all of
+   * them; a company below that falls back to them follows only the ordinary
+   * ones (its sign-off steps reach it anyway, once, as group sign-off).
+   */
+  private policySteps(companyId: string, docType: ApprovalDocType, forOwnDocuments: boolean) {
+    const rules = this.approvals.rules(companyId, docType);
+    return forOwnDocuments ? rules : rules.filter((r) => !r.alsoBelow);
+  }
+
+  /** The company whose policy applies: its own, else the nearest group company above with ordinary steps. */
   approvalPolicyCompany(companyId: string, docType: ApprovalDocType): string {
-    const nodes = this.companyTreeNodes();
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    for (let id: string | null = companyId, hops = 0; id && hops < 32; id = byId.get(id)?.parentCompanyId ?? null, hops += 1) {
-      if (this.approvals.rules(id, docType).length) return id;
+    for (const id of [companyId, ...this.ancestorsOf(companyId)]) {
+      if (this.policySteps(id, docType, id === companyId).length) return id;
     }
     return companyId;
   }
 
-  /** Starts a document's approval under the policy that applies (own or the group's). */
+  /**
+   * Every step a document of this amount goes through: the policy that applies
+   * (decided by the document's company), then the sign-off steps of each group
+   * above it, nearest first (decided by that group's people). A group band in
+   * another currency can't be compared yet (no exchange rates before
+   * consolidation), so such a step applies and the trail says why.
+   */
+  approvalChain(companyId: string, docType: ApprovalDocType, amount: number): ApprovalLevel[] {
+    const policy = this.approvalPolicyCompany(companyId, docType);
+    const own = levelsFor(this.policySteps(policy, docType, policy === companyId), amount);
+    const currency = this.getCompanyFinanceSettings(companyId).currencyCode;
+    const above = this.ancestorsOf(companyId).flatMap((groupId) => {
+      const signOff = this.approvals.rules(groupId, docType).filter((r) => r.alsoBelow);
+      if (!signOff.length) return [];
+      const groupCurrency = this.getCompanyFinanceSettings(groupId).currencyCode;
+      if (groupCurrency === currency) return levelsFor(signOff, amount).map((l) => ({ ...l, ownerCompanyId: groupId }));
+      const name = this.getCompanyById(groupId)?.name ?? 'The group';
+      return levelsFor(signOff.map((r) => ({ ...r, minAmount: 0, maxAmount: null })), 0).map((l) => ({
+        ...l, ownerCompanyId: groupId,
+        note: `${name} sets its sign-off amounts in ${groupCurrency}, but this document is in another currency (${currency}), so they can't be compared yet and the group signs off.`,
+      }));
+    });
+    return [...own, ...above];
+  }
+
+  /** Starts a document's approval under the policy that applies (own or the group's), then the groups' sign-off. */
   startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null }) {
     const policyCompany = this.approvalPolicyCompany(companyId, docType);
-    const levels = levelsFor(this.approvals.rules(policyCompany, docType), input.amount);
+    const levels = this.approvalChain(companyId, docType, input.amount);
     if (!levels.length) {
       this.approvals.clear(docType, docId);
       return 'not_required' as const;
@@ -17228,7 +17278,7 @@ export class DataStore {
     const view = this.approvals.view(docType, docId);
     const step = this.approvals.steps(docType, docId).find((s) => s.status === 'pending');
     if (!step) return;
-    const people = new Set(step.approvers.flatMap((a) => this.approvals.candidates(a, companyId, view.requesterId)));
+    const people = new Set(step.approvers.flatMap((a) => this.approvals.candidates(a, step.ownerCompanyId, view.requesterId, companyId)));
     for (const id of [...people]) {
       const d = this.approvals.delegation(id);
       const today = new Date().toISOString().slice(0, 10);
@@ -17236,8 +17286,9 @@ export class DataStore {
     }
     if (view.requesterId) people.delete(view.requesterId);
     if (!people.size) return;
+    // A group's sign-off reaches its people in the group's name.
     this.notify({
-      companyId, userIds: [...people], type: 'approval_needed',
+      companyId: step.ownerCompanyId, userIds: [...people], type: 'approval_needed',
       title: kind === 'reminder' ? `Still waiting: a ${APPROVAL_LABEL[docType]} needs your approval` : `A ${APPROVAL_LABEL[docType]} needs your approval`,
       link: '/approvals', entityType: docType, entityId: docId,
     });
@@ -17256,10 +17307,10 @@ export class DataStore {
       reminded += 1;
     }
     for (const r of this.approvals.overdue('escalated')) {
-      const admins = this.approvals.people!.usersWithRole(r.companyId, 'Admin');
+      const admins = this.approvals.people!.usersWithRole(r.ownerCompanyId, 'Admin');
       if (admins.length) {
         this.notify({
-          companyId: r.companyId, userIds: admins, type: 'approval_needed',
+          companyId: r.ownerCompanyId, userIds: admins, type: 'approval_needed',
           title: `A ${APPROVAL_LABEL[r.docType]} has been waiting for approval too long`,
           body: 'Nobody has decided its current step. Ask the approvers, or change who decides in Settings → Approvals.',
           link: '/approvals', entityType: r.docType, entityId: r.docId,
@@ -17281,7 +17332,9 @@ export class DataStore {
 
   /** Whether this company (or its group) has a policy for this type of document. */
   approvalApplies(companyId: string, docType: ApprovalDocType): boolean {
-    return this.approvals.rules(this.approvalPolicyCompany(companyId, docType), docType).length > 0;
+    const policy = this.approvalPolicyCompany(companyId, docType);
+    return this.policySteps(policy, docType, policy === companyId).length > 0
+      || this.ancestorsOf(companyId).some((g) => this.approvals.rules(g, docType).some((r) => r.alsoBelow));
   }
 
   /** Who asked: the request's first requester when it restarts, else whoever is acting now. */

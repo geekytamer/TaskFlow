@@ -71,6 +71,18 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
   const runApprovals = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof ApprovalError) throw new HttpError(409, e.message); throw e; }
   };
+  /**
+   * The document's company, or, while its current step is a group's sign-off,
+   * that group: a group's people decide its sign-off without a place below.
+   */
+  const requireDocOrStepAccess = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string) => {
+    const owner = store.approvals.steps(docType, docId).find((x) => x.status === 'pending')?.ownerCompanyId;
+    if (owner && owner !== companyId) {
+      try { requireCompanyAccess(req, companyId); return; } catch { requireCompanyAccess(req, owner); return; }
+    }
+    requireCompanyAccess(req, companyId);
+  };
+
   /** This company and the group companies above it: whose teams a policy may name. */
   const lineage = (companyId: string): string[] => {
     const nodes = store.companyTreeNodes();
@@ -147,7 +159,18 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       out[docType] = {
         ...store.approvals.policy(from, docType),
         inheritedFrom: from !== req.params.companyId && rules.length ? { id: from, name: store.getCompanyById(from)?.name ?? from } : null,
-        steps: rules.map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount })),
+        steps: rules
+          // A fallback to the group's policy shows its ordinary steps; its sign-off is listed below.
+          .filter((r) => from === req.params.companyId || !r.alsoBelow)
+          .map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount, alsoBelow: r.alsoBelow })),
+        // What each group above adds after this company's own steps.
+        groupSignOff: lineage(req.params.companyId).slice(1).flatMap((groupId) => {
+          const signOff = store.approvals.rules(groupId, docType).filter((r) => r.alsoBelow);
+          return signOff.length ? [{
+            companyId: groupId, name: store.getCompanyById(groupId)?.name ?? groupId,
+            steps: signOff.map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount })),
+          }] : [];
+        }),
       };
     }
     res.json(out);
@@ -168,7 +191,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       return {
         approvers: parseApprovers(req.params.companyId, st.approvers, `steps[${i}].approvers`),
         need: enumValue(st.need ?? 'any', `steps[${i}].need`, ['any', 'all'] as const),
-        minAmount, maxAmount,
+        minAmount, maxAmount, alsoBelow: st.alsoBelow === true,
       };
     });
     const hours = (v: unknown, fallback: number) => {
@@ -239,7 +262,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
       const doc = docSummary(docType, req.params.docId);
       if (!doc) throw new HttpError(404, 'Document not found.');
-      requireCompanyAccess(req, doc.companyId);
+      requireDocOrStepAccess(req, docType, req.params.docId, doc.companyId);
       res.json(store.approvals.steps(docType, req.params.docId));
     }),
   );
@@ -264,7 +287,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
         requirePermission(req, doc.companyId, key, undefined, { amount: doc.amount });
       } else {
         // Elsewhere the policy is the permission: being on the current step decides (checked by the engine).
-        requireCompanyAccess(req, doc.companyId);
+        requireDocOrStepAccess(req, docType, req.params.docId, doc.companyId);
       }
       const body = asRecord(req.body, 'body');
       const decision = enumValue(body.decision, 'decision', ['approve', 'reject', 'send_back'] as const) as 'approve' | 'reject' | 'send_back';
