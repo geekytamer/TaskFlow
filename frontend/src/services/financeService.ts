@@ -385,14 +385,24 @@ export async function updateCompanyNumberingSetting(
   return mapNumberingSetting(setting);
 }
 
+/**
+ * Several parts of one screen ask for the same settings at once (a page's
+ * currency, each company's currency in a group): one request answers them
+ * all for a few seconds. Saving settings forgets the answer.
+ */
+const settingsAsked = new Map<string, { at: number; answer: Promise<CompanyFinanceSettings | null> }>();
+const SETTINGS_SHARE_MS = 3000;
+
 export async function getCompanyFinanceSettings(
   companyId: string,
 ): Promise<CompanyFinanceSettings | null> {
   if (!companyId) return null;
-  const settings = await apiFetch<CompanyFinanceSettings>(
-    `/companies/${companyId}/finance/settings`,
-  );
-  return mapCompanyFinanceSettings(settings);
+  const recent = settingsAsked.get(companyId);
+  if (recent && Date.now() - recent.at < SETTINGS_SHARE_MS) return recent.answer;
+  const answer = apiFetch<CompanyFinanceSettings>(`/companies/${companyId}/finance/settings`).then(mapCompanyFinanceSettings);
+  settingsAsked.set(companyId, { at: Date.now(), answer });
+  answer.catch(() => settingsAsked.delete(companyId));
+  return answer;
 }
 
 export async function updateCompanyFinanceSettings(
@@ -404,6 +414,7 @@ export async function updateCompanyFinanceSettings(
     poApprovalThreshold: number;
   }>,
 ): Promise<CompanyFinanceSettings> {
+  settingsAsked.delete(companyId);
   const settings = await apiFetch<CompanyFinanceSettings>(
     `/companies/${companyId}/finance/settings`,
     {

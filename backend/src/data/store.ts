@@ -5636,8 +5636,9 @@ export class DataStore {
       const memberIds = (this.db.prepare('SELECT id FROM companies WHERE holdingGroupId = ?').all(group.id) as Array<{ id: string }>)
         .map((r) => r.id);
       const parent = this.createCompany({ name: group.name });
-      this.db.prepare('UPDATE companies SET holdingGroupId = ? WHERE id = ?').run(group.id, parent.id);
       this.db.prepare('UPDATE holding_groups SET companyId = ? WHERE id = ?').run(parent.id, group.id);
+      // Attached the usual way (role copies, audit), and only when it has companies under it.
+      if (memberIds.length) this.authz.attachCompany(group.id, parent.id, null);
       const setParent = this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?');
       memberIds.forEach((id) => setParent.run(parent.id, id));
 
@@ -5657,10 +5658,10 @@ export class DataStore {
   }
 
   /** A person's role per company, read the way every other check reads it. */
-  private companyRolesOf(user: { role: string; companyIds?: string[]; companyRoles?: Array<{ companyId: string; role: string }> }) {
+  private companyRolesOf(user: { role: string; positionId?: string; companyIds?: string[]; companyRoles?: Array<{ companyId: string; role: string; positionId?: string }> }) {
     return user.companyRoles?.length
       ? user.companyRoles
-      : (user.companyIds ?? []).map((companyId) => ({ companyId, role: user.role }));
+      : (user.companyIds ?? []).map((companyId) => ({ companyId, role: user.role, positionId: user.positionId }));
   }
 
   /** Ends a person's membership in one company; their other memberships stay. */
@@ -6505,7 +6506,12 @@ export class DataStore {
 
   }
 
+  /** All or nothing: a group company's rename also renames its group, and a clash undoes both. */
   updateCompany(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
+    return this.db.transaction(() => this.updateCompanyRow(id, updates))();
+  }
+
+  private updateCompanyRow(id: string, updates: Partial<Omit<Company, 'id'>>): Company | undefined {
     const existing = this.getCompanyById(id);
     if (!existing) return undefined;
     // Absent fields keep their value. The route passes every field, with
@@ -6557,7 +6563,21 @@ export class DataStore {
     // Clients refetch their permission feed when the version moves, which is
     // how an open browser learns a module was switched off.
     if (modulesChanged) this.bumpAuthzVersion();
+    // A group and the company that stands for it keep one name.
+    const groupId = updated.name !== existing.name ? this.authz.holdingGroupForCompany(id) : null;
+    if (groupId) this.authz.updateHoldingGroup(groupId, { name: updated.name }, null);
     return this.getCompanyById(id);
+  }
+
+  /** Renames a group and the company that stands for it together. */
+  renameGroup(holdingGroupId: string, input: { name?: string; nameAr?: string | null }, actorId: string | null) {
+    return this.db.transaction(() => {
+      const view = this.authz.updateHoldingGroup(holdingGroupId, input, actorId);
+      if (view.companyId && input.name !== undefined) {
+        this.db.prepare('UPDATE companies SET name = ? WHERE id = ?').run(view.name, view.companyId);
+      }
+      return view;
+    })();
   }
 
   /**
@@ -6565,6 +6585,11 @@ export class DataStore {
    * source of truth; each top company with children keeps one holding group
    * covering its whole subtree, so group-wide roles follow every move.
    */
+  /** The tree alone (id and parent), without the rest of each row (logos are data URIs). */
+  companyTreeNodes(): Array<{ id: string; parentCompanyId: string | null }> {
+    return this.db.prepare('SELECT id, parentCompanyId FROM companies').all() as Array<{ id: string; parentCompanyId: string | null }>;
+  }
+
   setCompanyParent(childId: string, parentId: string | null, actorId: string | null): Company {
     const child = this.getCompanyById(childId);
     if (!child) throw new HttpError(404, 'Company not found.');
@@ -6573,17 +6598,17 @@ export class DataStore {
       const parent = this.getCompanyById(parentId);
       if (!parent) throw new HttpError(400, 'The parent company does not exist.');
       if (parent.isTraining) throw new HttpError(400, 'A practice company cannot be part of a group.');
-      if (wouldCycle(this.listCompanies(), childId, parentId)) {
+      if (wouldCycle(this.companyTreeNodes(), childId, parentId)) {
         throw new HttpError(400, 'A company cannot sit under itself or under a company below it.');
       }
     }
     this.db.transaction(() => {
-      const oldTop = topOf(this.listCompanies(), childId);
+      const oldTop = topOf(this.companyTreeNodes(), childId);
       // A group company moved under another group stops standing for its old
       // holding group: that group's people must not come back with a later move.
       const ownGroup = parentId !== null ? this.authz.holdingGroupForCompany(childId) : null;
       this.db.prepare('UPDATE companies SET parentCompanyId = ? WHERE id = ?').run(parentId, childId);
-      const companies = this.listCompanies();
+      const companies = this.companyTreeNodes();
       const newTop = topOf(companies, childId);
       // The moved companies leave any group that isn't their new top's.
       const keep = this.authz.holdingGroupForCompany(newTop);
@@ -6601,7 +6626,7 @@ export class DataStore {
 
   /** Brings a top company's holding group in line with its subtree. */
   private syncHoldingGroup(topId: string, actorId: string | null) {
-    const companies = this.listCompanies();
+    const companies = this.companyTreeNodes();
     const members = subtreeIds(companies, topId);
     const hasChildren = childIds(companies, topId).length > 0;
     const current = this.authz.holdingGroupForCompany(topId);
@@ -6609,8 +6634,7 @@ export class DataStore {
       if (current && this.groupOfCompany(topId) === current) this.authz.detachCompany(topId, actorId);
       return;
     }
-    const top = companies.find((c) => c.id === topId)!;
-    const groupId = this.authz.ensureHoldingGroupFor(topId, top.name, actorId);
+    const groupId = this.authz.ensureHoldingGroupFor(topId, this.getCompanyById(topId)?.name ?? 'Group', actorId);
     for (const id of members) {
       const now = this.groupOfCompany(id);
       if (now === groupId) continue;
@@ -6671,14 +6695,14 @@ export class DataStore {
 
   deleteCompany(id: string, options: { cascade?: boolean } = {}) {
     // The tree first: a group keeps its companies, so it can't go before they do.
-    const companies = this.listCompanies();
+    const companies = this.companyTreeNodes();
     if (childIds(companies, id).length) {
       throw new HttpError(409, 'Move the companies under this group out first, then delete it.');
     }
     const parentId = companies.find((c) => c.id === id)?.parentCompanyId ?? null;
     this.deleteCompanyRows(id, options);
     this.db.prepare('UPDATE holding_groups SET companyId = NULL WHERE companyId = ?').run(id);
-    if (parentId && this.getCompanyById(parentId)) this.syncHoldingGroup(topOf(this.listCompanies(), parentId), null);
+    if (parentId && this.getCompanyById(parentId)) this.syncHoldingGroup(topOf(this.companyTreeNodes(), parentId), null);
   }
 
   private deleteCompanyRows(id: string, options: { cascade?: boolean }) {

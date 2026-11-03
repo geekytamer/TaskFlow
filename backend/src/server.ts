@@ -144,6 +144,7 @@ import { createTeamChatRouter } from './teamchat/routes';
 import { LiveHub, topicsFromPath } from './live/hub';
 import { registerAdminRoutes } from './routes/admin';
 import { registerHoldingRoutes } from './authz/holding-routes';
+import { registerGroupPeopleRoutes } from './companies/people-routes';
 import { registerAuthzRoutes } from './authz/routes';
 import { registerCustomFieldRoutes } from './routes/custom-fields';
 import { registerWarehouseRoutes } from './routes/warehouses';
@@ -2618,6 +2619,8 @@ export function createServer(options: CreateServerOptions = {}) {
   registerAdminRoutes(app, routeContext);
 
   registerHoldingRoutes(app, routeContext);
+  // A wrapper: updateUserFromRequest is declared further down and only called per request.
+  registerGroupPeopleRoutes(app, routeContext, { updateUser: (req, userId, body) => updateUserFromRequest(req, userId, body) });
   registerAuthzRoutes(app, routeContext, {
     // The same locks requireAcademyUnlocked applies, so the UI need not guess.
     academyLocked: (user, companyId) => (!academyEnforce || user.isSuperAdmin || store.isTrainingCompany(companyId)
@@ -3152,177 +3155,198 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /**
+   * PUT /users/:id, as a function: the one place a person's details and
+   * company access change, with every guard. The group's people screen
+   * (companies/people-routes.ts) changes access through it too.
+   */
+  const updateUserFromRequest = async (req: AuthedRequest, targetId: string, rawBody: unknown) => {
+      const existing = store.getUserById(targetId);
+    if (!existing) throw new HttpError(404, 'User not found.');
+    const payload = parseUserPayload(rawBody, { partial: true });
+    const existingAssignments =
+      existing.companyRoles
+      || existing.companyIds.map((companyId) => ({
+        companyId,
+        role: existing.role,
+        positionId: existing.positionId,
+      }));
+    if (!req.user!.isSuperAdmin) {
+      // A company admin edits only people already in a company they manage,
+      // and never the platform's super admin. Sign-in details (name, email,
+      // password) are shared by every company the person works in, so they
+      // change only when the admin manages all of them.
+      const manages = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
+      const isSelf = req.user!.id === existing.id;
+      if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.', { code: 'SUPER_ADMIN_ONLY' });
+      if (!isSelf && !existingAssignments.some((a) => manages(a.companyId))) {
+        throw new HttpError(403, 'You can only edit people in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
+      }
+      const identityChange =
+        (payload.name !== undefined && payload.name !== existing.name)
+        || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
+        || payload.password !== undefined;
+      if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
+        throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.', { code: 'IDENTITY_SHARED' });
+      }
+    }
+    let targetAssignments =
+      payload.companyRoles
+      || existingAssignments;
+    if (!req.user!.isSuperAdmin && payload.companyRoles) {
+      // A company admin sends only the companies they can see. Assignments in
+      // other companies are kept exactly as they are, and touching one is refused.
+      const manageable = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
+      const existingByCompany = new Map(existingAssignments.map((a) => [a.companyId, a]));
+      const foreignChange = payload.companyRoles.find((a) => {
+        if (manageable(a.companyId)) return false;
+        const before = existingByCompany.get(a.companyId);
+        return !before || before.role !== a.role || (before.positionId ?? undefined) !== (a.positionId ?? undefined);
+      });
+      if (foreignChange) {
+        throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
+      }
+      targetAssignments = [
+        ...payload.companyRoles.filter((a) => manageable(a.companyId)),
+        ...existingAssignments.filter((a) => !manageable(a.companyId)),
+      ];
+    }
+    assertNoForeignPractice(existing.id, [...targetAssignments.map((a) => a.companyId), ...(payload.companyIds ?? [])]);
+    if (req.user!.isSuperAdmin) {
+      // Super-admins have role 'Employee' but full user-management power via
+      // the isSuperAdmin flag, so route them through the simple check (which
+      // early-returns) instead of the per-company branch below.
+      assertUserManagementPermission(req, targetAssignments);
+    } else {
+      const existingByCompany = new Map(
+        existingAssignments.map((assignment) => [assignment.companyId, assignment]),
+      );
+      const targetByCompany = new Map(
+        targetAssignments.map((assignment) => [assignment.companyId, assignment]),
+      );
+      const canManageAssignment = (companyId: string) =>
+        allowsRule(req, companyId, 'USERS_WRITE');
+      const changedAssignments = targetAssignments.filter((assignment) => {
+        const existingAssignment = existingByCompany.get(assignment.companyId);
+        return (
+          canManageAssignment(assignment.companyId) &&
+          (
+            !existingAssignment ||
+            existingAssignment.role !== assignment.role ||
+            (existingAssignment.positionId ?? undefined) !== (assignment.positionId ?? undefined)
+          )
+        );
+      });
+      const unmanagedTargetChange = targetAssignments.find((assignment) => {
+        if (canManageAssignment(assignment.companyId)) return false;
+        const existingAssignment = existingByCompany.get(assignment.companyId);
+        return (
+          !existingAssignment ||
+          existingAssignment.role !== assignment.role ||
+          (existingAssignment.positionId ?? undefined) !== (assignment.positionId ?? undefined)
+        );
+      });
+      const unmanagedRemoval = existingAssignments.find(
+        (assignment) =>
+          !canManageAssignment(assignment.companyId) &&
+          !targetByCompany.has(assignment.companyId),
+      );
+      if (unmanagedTargetChange || unmanagedRemoval) {
+        throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
+      }
+      const managedRemovals = existingAssignments.filter(
+        (assignment) => canManageAssignment(assignment.companyId) && !targetByCompany.has(assignment.companyId),
+      );
+      const assignmentsToAuthorize =
+        changedAssignments.length > 0
+          ? changedAssignments
+          // Only removals: what needs authorising is ending those, in companies the caller manages.
+          : managedRemovals.length > 0
+            ? managedRemovals
+            : targetAssignments.filter((assignment) => canManageAssignment(assignment.companyId));
+      if (!assignmentsToAuthorize.length) {
+        throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
+      }
+      // Changing or ending someone's role is also a decision about the role
+      // they hold now: a Manager can't demote or remove an Admin (all engines;
+      // v2 also checks requireTargetWithin). Removals alongside changes count too.
+      const previousRoles = [...changedAssignments, ...managedRemovals]
+        .map((a) => existingByCompany.get(a.companyId))
+        .filter((a): a is CompanyRoleAssignment => Boolean(a));
+      assertUserManagementPermission(req, [...assignmentsToAuthorize, ...managedRemovals, ...previousRoles]);
+    }
+    // isSuperAdmin can only be toggled by an existing super-admin.
+    // For non-super-admin callers, drop the field entirely from the patch.
+    const safePayload = req.user?.isSuperAdmin === true
+      ? payload
+      : { ...payload, isSuperAdmin: undefined };
+    // Only a new or changed role must still be available; an unchanged one
+    // stays, so a user can be edited after their role's group was deleted.
+    const existingRoleByCompany = new Map(
+      existingAssignments.map((assignment) => [assignment.companyId, assignment.role]),
+    );
+    assertRolesAvailable(
+      targetAssignments.filter(
+        (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
+      ),
+    );
+    const roleChanges = targetAssignments.filter(
+      (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
+    );
+    assertRolesWithin(req, roleChanges);
+    // C-1: companies whose role for this person changes or goes.
+    // The membership kept is what write() stores in companyIds (the super
+    // admin may send companyIds alone): a company dropped there counts too (N-7).
+    const keptCompanyIds = new Set(req.user!.isSuperAdmin && payload.companyIds
+      ? payload.companyIds
+      : targetAssignments.map((a) => a.companyId));
+    const touched = [...new Set([
+      ...roleChanges.map((a) => a.companyId).filter((id) => existingRoleByCompany.has(id)),
+      ...existingAssignments.filter((a) => !targetAssignments.some((t) => t.companyId === a.companyId)).map((a) => a.companyId),
+      ...[...new Set([...existing.companyIds, ...existingAssignments.map((a) => a.companyId)])].filter((id) => !keptCompanyIds.has(id)),
+    ])];
+    requireTargetWithin(req, existing.id, touched);
+    const write = () => store.updateUser(targetId, {
+      ...safePayload,
+      companyIds: req.user!.isSuperAdmin && payload.companyIds
+        ? payload.companyIds
+        : targetAssignments.map((assignment) => assignment.companyId),
+      companyRoles: targetAssignments,
+      role: payload.role || targetAssignments[0]?.role || existing.role,
+    });
+    // v2: a role given here is the person's main role in that company (a
+    // custom main role is replaced; add-ons stay), and companyRoles, written
+    // above, matches it. Legacy and shadow keep the legacy sync's answer.
+    const updated = withActor(req, () => userGuards.guarded(touched, () => (engine === 'v2'
+      ? store.transaction(() => {
+        const prior = new Map(roleChanges.map((a) => [a.companyId, store.authz.assignments(existing.id, a.companyId)]));
+        const out = write();
+        if (!out) return out;
+        for (const assignment of roleChanges) {
+          const main = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
+          if (!main) continue;
+          const addOnRoleIds = (prior.get(assignment.companyId) ?? [])
+            .filter((r) => !r.isMain && !r.viaHoldingGroupId && !r.endsAt && r.roleId !== main.id && !store.authz.getRole(r.roleId)?.isSystem)
+            .map((r) => r.roleId);
+          store.authz.setAssignments(existing.id, assignment.companyId, { mainRoleId: main.id, addOnRoleIds }, req.user!.id);
+        }
+        return store.getUserById(existing.id) ?? out;
+      })
+      : write())));
+    if (!updated) throw new HttpError(404, 'User not found.');
+    // A new password ends the person's other sign-ins (an admin's change ends all of them).
+    if (payload.password !== undefined) {
+      const here = req.user!.id === updated.id ? (req.headers.authorization ?? '').replace('Bearer ', '').trim() : undefined;
+      store.revokeUserTokens(updated.id, here);
+    }
+    return updated;
+  };
+
   app.put(
     '/users/:id',
     authMiddleware,
     handler(async (req, res) => {
-      const existing = store.getUserById(req.params.id);
-      if (!existing) throw new HttpError(404, 'User not found.');
-      const payload = parseUserPayload(req.body, { partial: true });
-      const existingAssignments =
-        existing.companyRoles
-        || existing.companyIds.map((companyId) => ({
-          companyId,
-          role: existing.role,
-          positionId: existing.positionId,
-        }));
-      if (!req.user!.isSuperAdmin) {
-        // A company admin edits only people already in a company they manage,
-        // and never the platform's super admin. Sign-in details (name, email,
-        // password) are shared by every company the person works in, so they
-        // change only when the admin manages all of them.
-        const manages = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
-        const isSelf = req.user!.id === existing.id;
-        if (existing.isSuperAdmin && !isSelf) throw new HttpError(403, 'Only the super admin can change this user.', { code: 'SUPER_ADMIN_ONLY' });
-        if (!isSelf && !existingAssignments.some((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'You can only edit people in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
-        }
-        const identityChange =
-          (payload.name !== undefined && payload.name !== existing.name)
-          || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
-          || payload.password !== undefined;
-        if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
-          throw new HttpError(403, 'This person also works in other companies, so only the super admin can change their name, email or password.', { code: 'IDENTITY_SHARED' });
-        }
-      }
-      let targetAssignments =
-        payload.companyRoles
-        || existingAssignments;
-      if (!req.user!.isSuperAdmin && payload.companyRoles) {
-        // A company admin sends only the companies they can see. Assignments in
-        // other companies are kept exactly as they are, and touching one is refused.
-        const manageable = (companyId: string) => allowsRule(req, companyId, 'USERS_WRITE');
-        const existingByCompany = new Map(existingAssignments.map((a) => [a.companyId, a]));
-        const foreignChange = payload.companyRoles.find((a) => {
-          if (manageable(a.companyId)) return false;
-          const before = existingByCompany.get(a.companyId);
-          return !before || before.role !== a.role || (before.positionId ?? undefined) !== (a.positionId ?? undefined);
-        });
-        if (foreignChange) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
-        }
-        targetAssignments = [
-          ...payload.companyRoles.filter((a) => manageable(a.companyId)),
-          ...existingAssignments.filter((a) => !manageable(a.companyId)),
-        ];
-      }
-      assertNoForeignPractice(existing.id, [...targetAssignments.map((a) => a.companyId), ...(payload.companyIds ?? [])]);
-      if (req.user!.isSuperAdmin) {
-        // Super-admins have role 'Employee' but full user-management power via
-        // the isSuperAdmin flag, so route them through the simple check (which
-        // early-returns) instead of the per-company branch below.
-        assertUserManagementPermission(req, targetAssignments);
-      } else {
-        const existingByCompany = new Map(
-          existingAssignments.map((assignment) => [assignment.companyId, assignment]),
-        );
-        const targetByCompany = new Map(
-          targetAssignments.map((assignment) => [assignment.companyId, assignment]),
-        );
-        const canManageAssignment = (companyId: string) =>
-          allowsRule(req, companyId, 'USERS_WRITE');
-        const changedAssignments = targetAssignments.filter((assignment) => {
-          const existingAssignment = existingByCompany.get(assignment.companyId);
-          return (
-            canManageAssignment(assignment.companyId) &&
-            (
-              !existingAssignment ||
-              existingAssignment.role !== assignment.role ||
-              existingAssignment.positionId !== assignment.positionId
-            )
-          );
-        });
-        const unmanagedTargetChange = targetAssignments.find((assignment) => {
-          if (canManageAssignment(assignment.companyId)) return false;
-          const existingAssignment = existingByCompany.get(assignment.companyId);
-          return (
-            !existingAssignment ||
-            existingAssignment.role !== assignment.role ||
-            existingAssignment.positionId !== assignment.positionId
-          );
-        });
-        const unmanagedRemoval = existingAssignments.find(
-          (assignment) =>
-            !canManageAssignment(assignment.companyId) &&
-            !targetByCompany.has(assignment.companyId),
-        );
-        if (unmanagedTargetChange || unmanagedRemoval) {
-          throw new HttpError(403, 'You can only change user assignments in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
-        }
-        const assignmentsToAuthorize =
-          changedAssignments.length > 0
-            ? changedAssignments
-            : targetAssignments.filter((assignment) => canManageAssignment(assignment.companyId));
-        if (!assignmentsToAuthorize.length) {
-          throw new HttpError(403, 'You can only manage users in companies you administer or manage.', { code: 'USER_OUTSIDE_COMPANY' });
-        }
-        assertUserManagementPermission(req, assignmentsToAuthorize);
-      }
-      // isSuperAdmin can only be toggled by an existing super-admin.
-      // For non-super-admin callers, drop the field entirely from the patch.
-      const safePayload = req.user?.isSuperAdmin === true
-        ? payload
-        : { ...payload, isSuperAdmin: undefined };
-      // Only a new or changed role must still be available; an unchanged one
-      // stays, so a user can be edited after their role's group was deleted.
-      const existingRoleByCompany = new Map(
-        existingAssignments.map((assignment) => [assignment.companyId, assignment.role]),
-      );
-      assertRolesAvailable(
-        targetAssignments.filter(
-          (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
-        ),
-      );
-      const roleChanges = targetAssignments.filter(
-        (assignment) => existingRoleByCompany.get(assignment.companyId) !== assignment.role,
-      );
-      assertRolesWithin(req, roleChanges);
-      // C-1: companies whose role for this person changes or goes.
-      // The membership kept is what write() stores in companyIds (the super
-      // admin may send companyIds alone): a company dropped there counts too (N-7).
-      const keptCompanyIds = new Set(req.user!.isSuperAdmin && payload.companyIds
-        ? payload.companyIds
-        : targetAssignments.map((a) => a.companyId));
-      const touched = [...new Set([
-        ...roleChanges.map((a) => a.companyId).filter((id) => existingRoleByCompany.has(id)),
-        ...existingAssignments.filter((a) => !targetAssignments.some((t) => t.companyId === a.companyId)).map((a) => a.companyId),
-        ...[...new Set([...existing.companyIds, ...existingAssignments.map((a) => a.companyId)])].filter((id) => !keptCompanyIds.has(id)),
-      ])];
-      requireTargetWithin(req, existing.id, touched);
-      const write = () => store.updateUser(req.params.id, {
-        ...safePayload,
-        companyIds: req.user!.isSuperAdmin && payload.companyIds
-          ? payload.companyIds
-          : targetAssignments.map((assignment) => assignment.companyId),
-        companyRoles: targetAssignments,
-        role: payload.role || targetAssignments[0]?.role || existing.role,
-      });
-      // v2: a role given here is the person's main role in that company (a
-      // custom main role is replaced; add-ons stay), and companyRoles, written
-      // above, matches it. Legacy and shadow keep the legacy sync's answer.
-      const updated = withActor(req, () => userGuards.guarded(touched, () => (engine === 'v2'
-        ? store.transaction(() => {
-          const prior = new Map(roleChanges.map((a) => [a.companyId, store.authz.assignments(existing.id, a.companyId)]));
-          const out = write();
-          if (!out) return out;
-          for (const assignment of roleChanges) {
-            const main = store.authz.systemRole(assignment.companyId, String(assignment.role).toLowerCase());
-            if (!main) continue;
-            const addOnRoleIds = (prior.get(assignment.companyId) ?? [])
-              .filter((r) => !r.isMain && !r.viaHoldingGroupId && !r.endsAt && r.roleId !== main.id && !store.authz.getRole(r.roleId)?.isSystem)
-              .map((r) => r.roleId);
-            store.authz.setAssignments(existing.id, assignment.companyId, { mainRoleId: main.id, addOnRoleIds }, req.user!.id);
-          }
-          return store.getUserById(existing.id) ?? out;
-        })
-        : write())));
-      if (!updated) throw new HttpError(404, 'User not found.');
-      // A new password ends the person's other sign-ins (an admin's change ends all of them).
-      if (payload.password !== undefined) {
-        const here = req.user!.id === updated.id ? (req.headers.authorization ?? '').replace('Bearer ', '').trim() : undefined;
-        store.revokeUserTokens(updated.id, here);
-      }
-      res.json(updated);
+      res.json(await updateUserFromRequest(req, req.params.id, req.body));
     }),
   );
 
@@ -8009,7 +8033,7 @@ export function createServer(options: CreateServerOptions = {}) {
       // A group company's dashboard can cover its whole tree; the filter only narrows it.
       if (req.query.scope === 'tree') {
         const asked = askedCompanyIds(req.query.companyIds);
-        const tree = subtreeIds(store.listCompanies(), req.params.companyId).filter((id) => !asked || asked.has(id));
+        const tree = subtreeIds(store.companyTreeNodes(), req.params.companyId).filter((id) => !asked || asked.has(id));
         return res.json(groupDashboard(
           { store, allowsRule, viewerOf, accessibleCompanyIds }, req, req.params.companyId, tree,
         ));

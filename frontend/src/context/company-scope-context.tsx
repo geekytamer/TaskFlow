@@ -53,18 +53,23 @@ const write = (key: string, value: string | null) => {
   }
 };
 
+/** A company's remembered scope and filter. */
+const stored = (id: string): { scope: CompanyScope; filter: string[] } => {
+  const saved = read(FILTER_KEY + id);
+  return { scope: read(SCOPE_KEY + id) === 'self' ? 'self' : 'tree', filter: saved ? saved.split(',').filter(Boolean) : [] };
+};
+
 export function CompanyScopeProvider({ children }: { children: React.ReactNode }) {
   const { companies, selectedCompany } = useCompany();
   const selectedId = selectedCompany?.id ?? null;
-  const [scope, setScopeState] = React.useState<CompanyScope>('tree');
-  const [filter, setFilterState] = React.useState<string[]>([]);
-
-  React.useEffect(() => {
-    if (!selectedId) return;
-    setScopeState(read(SCOPE_KEY + selectedId) === 'self' ? 'self' : 'tree');
-    const saved = read(FILTER_KEY + selectedId);
-    setFilterState(saved ? saved.split(',').filter(Boolean) : []);
-  }, [selectedId]);
+  // Each company's choice, read from storage the first time it is needed: a
+  // switch never renders once with the previous company's scope or filter.
+  const [chosen, setChosen] = React.useState<Record<string, { scope: CompanyScope; filter: string[] }>>({});
+  const current = selectedId ? chosen[selectedId] ?? stored(selectedId) : { scope: 'tree' as CompanyScope, filter: [] as string[] };
+  const { scope, filter } = current;
+  const choose = React.useCallback((id: string, patch: Partial<{ scope: CompanyScope; filter: string[] }>) => {
+    setChosen((prev) => ({ ...prev, [id]: { ...(prev[id] ?? stored(id)), ...patch } }));
+  }, []);
 
   const value = React.useMemo<CompanyScopeContextType>(() => {
     const isGroup = Boolean(selectedId) && isGroupCompany(companies, selectedId!);
@@ -77,7 +82,7 @@ export function CompanyScopeProvider({ children }: { children: React.ReactNode }
       inTree: isGroup && scope === 'tree',
       scope,
       setScope: (next) => {
-        setScopeState(next);
+        if (selectedId) choose(selectedId, { scope: next });
         if (selectedId) write(SCOPE_KEY + selectedId, next === 'self' ? 'self' : null);
       },
       companyIds: selectedId ? scopeCompanyIds(companies, selectedId, scope, liveFilter) : [],
@@ -85,12 +90,13 @@ export function CompanyScopeProvider({ children }: { children: React.ReactNode }
       treeCompanyIds,
       filter: liveFilter,
       setFilter: (ids) => {
-        setFilterState(ids);
+        if (selectedId) choose(selectedId, { filter: ids });
         if (selectedId) write(FILTER_KEY + selectedId, ids.length ? ids.join(',') : null);
       },
       companyName: (id) => names.get(id) ?? id,
     };
-  }, [companies, selectedId, scope, filter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies, selectedId, scope, filter.join(','), choose]);
 
   return <CompanyScopeContext.Provider value={value}>{children}</CompanyScopeContext.Provider>;
 }

@@ -2,6 +2,7 @@
 
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { useModuleSkip } from '@/modules/groups/hooks/use-module-skip';
 import { sumByCurrency } from '@/lib/money-by-currency';
 import { CompanyLabel } from '@/modules/groups/components/company-cell';
 import { CurrencyTotals } from '@/modules/groups/components/currency-totals';
@@ -129,6 +130,7 @@ export function PurchasesPage() {
   const createTarget = useCreateTarget('purchasing.create');
   const currencyOf = useCurrencyOf();
   const loadTicket = React.useRef(0);
+  const skipOff = useModuleSkip();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
@@ -174,8 +176,8 @@ export function PurchasesPage() {
       // Each company answers for itself; one with inventory or contacts off just has none.
       const [orderData, itemData, supplierData, receiptData, payableData] = await Promise.all([
         fanOut(ids, (id) => getPurchaseOrders(id)),
-        fanOut(ids, (id) => getInventoryItems(id)),
-        fanOut(ids, (id) => getContacts(id, 'Vendor')),
+        fanOut(ids, (id) => getInventoryItems(id), { skip: skipOff('inventory') }),
+        fanOut(ids, (id) => getContacts(id, 'Vendor'), { skip: skipOff('contacts') }),
         fanOut(ids, (id) => getPurchaseReceipts(id)),
         fanOut(ids, (id) => getPurchaseOrderPayables(id)),
       ]);
@@ -196,7 +198,7 @@ export function PurchasesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, scopeKey, toast]);
+  }, [selectedCompany, scopeKey, skipOff, toast]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['purchase-orders', 'purchase-receipts', 'purchase-requisitions', 'rfqs', 'vendor-bills', 'bill-matches', 'payables', 'inventory-items', 'contacts'], () => load({ quiet: true }));

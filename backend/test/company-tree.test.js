@@ -276,3 +276,81 @@ test('removing a group admin takes back the Admin they got in the group company'
   assert.equal((store.getUserById(aide.id).companyIds ?? []).includes(created.body.companyId), false);
   server.close();
 });
+
+// ── Stage-1 leftovers ────────────────────────────────────────────────
+
+const migrateAgain = (dbPath) => {
+  const s = new DataStore({ dbPath, seedOnEmpty: false });
+  s.db.prepare("DELETE FROM schema_migrations WHERE id = '154_company_tree'").run();
+  s.db.close();
+  return new DataStore({ dbPath, seedOnEmpty: false });
+};
+
+test('migration 154 with no holding groups adds no company', () => {
+  const dbPath = path.join(makeTmpDir('taskflow-tree-none-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: false });
+  store.createCompany({ name: 'Solo' });
+  const before = store.listCompanies().length;
+  store.db.close();
+  const again = migrateAgain(dbPath);
+  assert.equal(again.listCompanies().length, before);
+  again.db.close();
+});
+
+test('migration 154 attaches the parent properly (role copies), and leaves an empty group\'s company unattached', () => {
+  const dbPath = path.join(makeTmpDir('taskflow-tree-copies-'), 'taskflow.db');
+  let store = new DataStore({ dbPath, seedOnEmpty: false });
+  const acme = store.createCompany({ name: 'Acme' });
+  const ceo = makeUser(store, [acme.id], 'Employee');
+  const group = store.authz.createHoldingGroup({ name: 'Copy Group' }, null);
+  store.authz.attachCompany(group.id, acme.id, null);
+  store.authz.setHoldingAssignment(group.id, ceo.id, { mainRoleKey: 'owner', addOnRoleKeys: [] }, null);
+  const empty = store.authz.createHoldingGroup({ name: 'Empty Group' }, null);
+  store.db.prepare('UPDATE companies SET parentCompanyId = NULL').run();
+  store.db.prepare('UPDATE holding_groups SET companyId = NULL').run();
+  store.db.close();
+  store = migrateAgain(dbPath);
+  const parent = store.listCompanies().find((c) => c.name === 'Copy Group');
+  assert.ok(store.authz.listRoles(parent.id).some((r) => r.key === 'group:owner'), 'the group role is copied into the parent');
+  assert.ok(effective(store, ceo.id).byCompany.get(parent.id), 'group-wide people reach the parent');
+  const emptyCompany = store.authz.holdingGroup(empty.id).companyId;
+  assert.ok(emptyCompany, 'an empty group still gets its company');
+  assert.equal(groupOf(store, emptyCompany), null, 'but with no companies under it, it is not attached');
+  store.db.close();
+});
+
+test('a group and its company keep one name', () => {
+  const store = freshStore();
+  const { company, holdingGroupId } = store.createGroupCompany('Old Name', null);
+  store.updateCompany(company.id, { name: 'New Name' });
+  assert.equal(store.authz.holdingGroup(holdingGroupId).name, 'New Name');
+  store.renameGroup(holdingGroupId, { name: 'Newer Name' }, null);
+  assert.equal(store.getCompanyById(company.id).name, 'Newer Name');
+});
+
+test('joining a group company keeps a person\'s position in their other companies', () => {
+  const store = freshStore();
+  const a = store.createCompany({ name: 'A' });
+  const g = store.createCompany({ name: 'G' });
+  const person = store.createUser({ name: 'P', email: 'p@tree.test', role: 'Manager', companyIds: [a.id], password: 'x', positionId: 'pos-x' });
+  store.db.prepare('UPDATE users SET companyRoles = NULL WHERE id = ?').run(person.id);
+  store.addCompanyMembership(person.id, g.id, 'Admin');
+  const roles = store.getUserById(person.id).companyRoles;
+  assert.equal(roles.find((r) => r.companyId === a.id).positionId, 'pos-x');
+  assert.equal(roles.find((r) => r.companyId === a.id).role, 'Manager');
+});
+
+test('GET /companies does not reveal a parent the viewer cannot open', async () => {
+  const store = freshStore();
+  const quiet = { info() {}, warn() {}, error() {} };
+  const server = createServer({ store, dbPath: ':memory:', seedOnEmpty: false, allowSeedReset: false, permissionsEngine: 'legacy', logger: quiet }).listen(0);
+  server.unref();
+  const g = store.createCompany({ name: 'G' });
+  const a = store.createCompany({ name: 'A' });
+  store.setCompanyParent(a.id, g.id, null);
+  const member = makeUser(store, [a.id], 'Employee');
+  const res = await request(server).get('/companies').set('Authorization', `Bearer ${store.issueToken(member.id)}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.find((c) => c.id === a.id).parentCompanyId, undefined);
+  server.close();
+});

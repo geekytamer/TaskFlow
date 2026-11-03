@@ -1,4 +1,5 @@
 import { WpsDataError } from '../hr/wps';
+import { subtreeIds, topOf } from '../companies/tree';
 import type { Employee, PayrollRun } from '../types';
 import { HttpError, canAccessCompany } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber, requiredString } from '../validation';
@@ -50,12 +51,30 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
    * a write of all three fields, and the person linked must belong to the
    * company. Unlinking takes access away and needs neither.
    */
+  /** One employer within a group: an active record in another company of the same tree must end first (group stage 3). */
+  const requireOneEmployer = (companyId: string, userId: string) => {
+    const nodes = store.companyTreeNodes();
+    for (const otherId of subtreeIds(nodes, topOf(nodes, companyId))) {
+      if (otherId === companyId) continue;
+      const active = store.listEmployees(otherId).find((e) => e.userId === userId && e.status !== 'Terminated');
+      if (active) {
+        const name = store.getCompanyById(otherId)?.name ?? otherId;
+        const person = store.getUserById(userId)?.name ?? 'This person';
+        throw new HttpError(409, `${person} already works for ${name} in this group. End that employment first.`, { code: 'ALREADY_EMPLOYED' });
+      }
+    }
+  };
   const requireUserLink = (req: AuthedRequest, companyId: string, body: Record<string, unknown> | undefined, existing?: Employee) => {
+    // Bringing back an ended employment that carries a login is a new employment too.
+    const reviving = existing?.userId && existing.status === 'Terminated'
+      && typeof body?.status === 'string' && body.status !== 'Terminated';
+    if (reviving && (body?.userId === undefined || body.userId === existing.userId)) requireOneEmployer(companyId, existing.userId!);
     if (!body || body.userId === undefined) return;
     const next = typeof body.userId === 'string' && body.userId.trim() ? body.userId.trim() : null;
     if (next === null || next === (existing?.userId ?? null)) return;
     const user = store.getUserById(next);
     if (!user || !canAccessCompany(user, companyId)) throw new HttpError(400, 'The linked user is not a member of this company.');
+    requireOneEmployer(companyId, next);
     for (const field of ['salary', 'personal_ids', 'bank_details'] as const) requireFieldEdit(req, companyId, field);
   };
 

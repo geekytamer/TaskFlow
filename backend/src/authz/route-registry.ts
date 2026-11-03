@@ -817,6 +817,9 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/holding-groups', permission: 'per_record', note: 'the groups the person administers; super admin sees all' },
   { method: 'GET', path: '/holding-groups/:id', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
   { method: 'PUT', path: '/holding-groups/:id/admins', permission: 'super_admin' },
+  { method: 'GET', path: '/companies/:companyId/group-people', permission: 'per_record', note: 'USERS_WRITE in the group company; lists the tree' },
+  { method: 'PUT', path: '/companies/:companyId/group-people/:userId/access', permission: 'per_record', note: 'the PUT /users/:id guards decide' },
+  { method: 'POST', path: '/companies/:companyId/group-people/:userId/remove', permission: 'per_record', note: 'the PUT /users/:id guards decide' },
   { method: 'GET', path: '/holding-groups/:id/dashboard', permission: 'per_record', note: 'the group rolled up; each company still decided by its own dashboard rules' },
   { method: 'GET', path: '/holding-groups/:id/people', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
   { method: 'PUT', path: '/holding-groups/:id/assignments/:userId', permission: 'per_record', note: 'holding group admin or super admin (holding-routes.ts requireGroupAdmin)' },
@@ -857,7 +860,7 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
   ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 1, 'src/routes/password.ts': 1 } },
-  USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1 } },
+  USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1, 'src/companies/people-routes.ts': 3 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
   PORTAL_ACCESS_MANAGE: { becomes: 'portal.* / influencers.review (portal staff router gate)', sites: { 'src/server.ts': 1 } },
