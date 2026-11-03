@@ -1,5 +1,5 @@
-import { APPROVAL_DOC_TYPES, APPROVER_ROLES, rolesActingAs, type ApprovalDocType, type ApproverRole } from '../approvals/approvals';
-import { HttpError, getEffectiveRole } from '../http';
+import { APPROVAL_DOC_TYPES, APPROVER_ROLES, type ApprovalDocType, type ApproverRole } from '../approvals/approvals';
+import { HttpError } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber } from '../validation';
 import type { RouteContext } from './context';
 import { type AuthedRequest, companyManagementRoles, handler } from './shared';
@@ -8,18 +8,18 @@ import type { Express } from 'express';
 /** Deciding a document stays in server.ts, where the purchase-order and expense routes use it too. */
 export interface ApprovalDecisions {
   docSummary: (docType: ApprovalDocType, docId: string) => { companyId: string; number: string; amount: number; party: string | null; date: Date } | undefined;
-  decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject', note?: string) => object;
+  decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => object;
 }
 
 /** The permission that lets someone decide a step, per kind of document (route-registry HANDLER_CHECKED). */
-const DECISION_KEYS: Record<ApprovalDocType, string> = {
+const DECISION_KEYS: Partial<Record<ApprovalDocType, string>> = {
   purchase_order: 'purchasing.approve_step',
   expense: 'finance.approve_expenses',
 };
 
 /** Approval chains. */
 export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSummary, decideDocument }: ApprovalDecisions): void {
-  const { store, authMiddleware, requireCompanyRoles, allowsRule, requirePermission, forbidden } = ctx;
+  const { store, authMiddleware, requireCompanyRoles, requireCompanyAccess, allowsRule, requirePermission, forbidden } = ctx;
 
   app.get(
     '/companies/:companyId/approvals/rules',
@@ -60,14 +60,20 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
     '/companies/:companyId/approvals',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const roles = rolesActingAs(getEffectiveRole(req.user!, req.params.companyId) ?? undefined);
-      const items = store.approvals.waiting(req.params.companyId, roles).map((w) => {
-        const steps = store.approvals.steps(w.docType, w.docId);
+      // Anyone can be on a step (a Legal team member may be an Employee): the
+      // inbox lists only what this person, or someone they stand in for, decides.
+      requireCompanyAccess(req, req.params.companyId);
+      const box = req.query.box === 'mine' || req.query.box === 'decided' ? req.query.box : 'waiting';
+      const me = req.user!.id;
+      const list = box === 'waiting'
+        ? store.approvalsWaitingFor(req.params.companyId, me)
+        : box === 'mine' ? store.approvals.requestedBy(req.params.companyId, me) : store.approvals.decidedBy(req.params.companyId, me);
+      const items = list.map((w) => {
+        const view = store.approvalView(w.docType, w.docId);
         return {
-          ...w, ...docSummary(w.docType, w.docId), levels: steps.length,
-          // Someone who approved an earlier level cannot approve this one.
-          canDecide: !steps.some((s) => s.status === 'approved' && s.decidedByUserId === req.user!.id),
+          ...w, ...docSummary(w.docType, w.docId), levels: view.steps.length,
+          status: view.status, steps: view.steps, requesterId: view.requesterId,
+          canDecide: box === 'waiting',
         };
       }).filter((w) => w.number !== undefined);
       res.json(items);
@@ -81,7 +87,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
       const doc = docSummary(docType, req.params.docId);
       if (!doc) throw new HttpError(404, 'Document not found.');
-      requireCompanyRoles(req, doc.companyId, companyManagementRoles);
+      requireCompanyAccess(req, doc.companyId);
       res.json(store.approvals.steps(docType, req.params.docId));
     }),
   );
@@ -93,12 +99,21 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
       const doc = docSummary(docType, req.params.docId);
       if (!doc) throw new HttpError(404, 'Document not found.');
-      // v2: the step permission of this kind of document; the chain step's role is checked after.
-      requireCompanyRoles(req, doc.companyId, companyManagementRoles, DECISION_KEYS[docType]);
-      // v2: a limited step permission covers documents up to its limit.
-      requirePermission(req, doc.companyId, DECISION_KEYS[docType], undefined, { amount: doc.amount });
+      const key = DECISION_KEYS[docType];
+      // A step of roles (the classic chain) keeps the step permission; a step
+      // naming a team, a person or the manager is decided by being on it.
+      const current = store.approvals.steps(docType, req.params.docId).find((x) => x.status === 'pending');
+      const roleStep = !current || current.approvers.every((a) => a.kind === 'role');
+      if (key && roleStep) {
+        // Purchase orders and expenses keep their step permission (v2) and its limit.
+        requireCompanyRoles(req, doc.companyId, companyManagementRoles, key);
+        requirePermission(req, doc.companyId, key, undefined, { amount: doc.amount });
+      } else {
+        // Elsewhere the policy is the permission: being on the current step decides (checked by the engine).
+        requireCompanyAccess(req, doc.companyId);
+      }
       const body = asRecord(req.body, 'body');
-      const decision = enumValue(body.decision, 'decision', ['approve', 'reject'] as const) as 'approve' | 'reject';
+      const decision = enumValue(body.decision, 'decision', ['approve', 'reject', 'send_back'] as const) as 'approve' | 'reject' | 'send_back';
       res.json(decideDocument(req, docType, req.params.docId, doc.companyId, decision, optionalString(body.note)));
     }),
   );

@@ -807,6 +807,22 @@ export class DataStore {
     this.coldChain = new ColdChainStore(this.db);
     this.shipments = new ShipmentStore(this.db);
     this.approvals = new ApprovalStore(this.db);
+    this.approvals.people = {
+      roleOf: (userId, companyId) => {
+        const u = this.getUserById(userId);
+        return u ? this.companyRolesOf(u).find((r) => r.companyId === companyId)?.role : undefined;
+      },
+      managerOf: (userId, companyId) => {
+        const row = this.db.prepare(
+          `SELECT m.userId FROM employees e JOIN employees m ON m.id = e.managerId
+            WHERE e.userId = ? AND e.companyId = ? AND e.status != 'Terminated' AND m.userId IS NOT NULL`,
+        ).get(userId, companyId) as { userId: string } | undefined;
+        return row?.userId ?? null;
+      },
+      usersWithRole: (companyId, role) => this.listUsersByCompany(companyId)
+        .filter((u) => this.companyRolesOf(u).find((r) => r.companyId === companyId)?.role === role).map((u) => u.id),
+      nameOf: (userId) => this.getUserById(userId)?.name ?? 'Someone',
+    };
     this.clientEmail = new ClientEmailStore(this.db);
     this.workspace = new WorkspaceStore(this.db);
     this.mediaKits = new MediaKitStore(this.db);
@@ -5608,6 +5624,70 @@ export class DataStore {
           if (!has('companies', 'parentCompanyId')) this.db.exec('ALTER TABLE companies ADD COLUMN parentCompanyId TEXT');
           if (!has('holding_groups', 'companyId')) this.db.exec('ALTER TABLE holding_groups ADD COLUMN companyId TEXT');
           this.holdingGroupsToTree();
+        },
+      },
+      {
+        // Approvals by teams, people and the requester's manager (spec 2026-11-03-approvals-design).
+        id: '155_approvals_v2',
+        run: () => {
+          const cols = (t: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
+          const rules = cols('approval_rules');
+          if (!rules.includes('approvers')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN approvers TEXT');
+          if (!rules.includes('need')) this.db.exec("ALTER TABLE approval_rules ADD COLUMN need TEXT NOT NULL DEFAULT 'any'");
+          if (!rules.includes('maxAmount')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN maxAmount REAL');
+          if (!rules.includes('position')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+          const steps = cols('approval_steps');
+          if (!steps.includes('approvers')) this.db.exec('ALTER TABLE approval_steps ADD COLUMN approvers TEXT');
+          if (!steps.includes('need')) this.db.exec("ALTER TABLE approval_steps ADD COLUMN need TEXT NOT NULL DEFAULT 'any'");
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS approval_policies (
+              companyId TEXT NOT NULL, docType TEXT NOT NULL,
+              allowSelf INTEGER NOT NULL DEFAULT 0, reminderHours INTEGER NOT NULL DEFAULT 24, escalateHours INTEGER NOT NULL DEFAULT 72,
+              PRIMARY KEY (companyId, docType)
+            );
+            CREATE TABLE IF NOT EXISTS approval_teams (
+              id TEXT PRIMARY KEY, companyId TEXT NOT NULL, name TEXT NOT NULL, createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_teams_company ON approval_teams(companyId);
+            CREATE TABLE IF NOT EXISTS approval_team_members (
+              teamId TEXT NOT NULL REFERENCES approval_teams(id) ON DELETE CASCADE, kind TEXT NOT NULL, value TEXT NOT NULL,
+              PRIMARY KEY (teamId, kind, value)
+            );
+            CREATE TABLE IF NOT EXISTS approval_requests (
+              docType TEXT NOT NULL, docId TEXT NOT NULL, companyId TEXT NOT NULL, requesterId TEXT,
+              status TEXT NOT NULL, policyCompanyId TEXT, startedAt TEXT NOT NULL, endedAt TEXT,
+              PRIMARY KEY (docType, docId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_requests_company ON approval_requests(companyId, status);
+            CREATE TABLE IF NOT EXISTS approval_decisions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, docType TEXT NOT NULL, docId TEXT NOT NULL,
+              level INTEGER, slot INTEGER, kind TEXT NOT NULL, userId TEXT, onBehalfOf TEXT, note TEXT, at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_decisions_doc ON approval_decisions(docType, docId);
+            CREATE TABLE IF NOT EXISTS approval_delegations (
+              fromUserId TEXT PRIMARY KEY, toUserId TEXT NOT NULL, startsAt TEXT NOT NULL, endsAt TEXT NOT NULL
+            );
+          `);
+          // Today's rules keep today's behaviour: the requester may approve too.
+          this.db.exec(`INSERT OR IGNORE INTO approval_policies (companyId, docType, allowSelf)
+                          SELECT DISTINCT companyId, docType, 1 FROM approval_rules`);
+          // Rules become steps in amount order.
+          const inOrder = this.db.prepare('SELECT id FROM approval_rules WHERE companyId = ? AND docType = ? ORDER BY minAmount');
+          const byPolicy = (companyId: string, docType: string) => inOrder.all(companyId, docType);
+          const setPos = this.db.prepare('UPDATE approval_rules SET position = ? WHERE id = ?');
+          for (const p of this.db.prepare('SELECT DISTINCT companyId, docType FROM approval_rules').all() as Array<{ companyId: string; docType: string }>) {
+            (byPolicy(p.companyId, p.docType) as Array<{ id: string }>).forEach((r, i) => setPos.run(i, r.id));
+          }
+          // Chains in flight become requests (who asked is unknown: null).
+          this.db.exec(`INSERT OR IGNORE INTO approval_requests (docType, docId, companyId, requesterId, status, policyCompanyId, startedAt)
+                          SELECT docType, docId, MIN(companyId), NULL,
+                                 CASE WHEN SUM(status = 'rejected') > 0 THEN 'rejected' WHEN SUM(status = 'pending') > 0 THEN 'pending' ELSE 'approved' END,
+                                 MIN(companyId), COALESCE(MIN(decidedAt), '${new Date().toISOString()}')
+                            FROM approval_steps GROUP BY docType, docId`);
+          this.db.exec(`INSERT INTO approval_decisions (docType, docId, level, slot, kind, userId, onBehalfOf, note, at)
+                          SELECT docType, docId, level, 0, CASE status WHEN 'approved' THEN 'approved' ELSE 'rejected' END, decidedByUserId, NULL, note, decidedAt
+                            FROM approval_steps WHERE status IN ('approved', 'rejected') AND decidedAt IS NOT NULL
+                             AND NOT EXISTS (SELECT 1 FROM approval_decisions d WHERE d.docType = approval_steps.docType AND d.docId = approval_steps.docId AND d.level = approval_steps.level)`);
         },
       },
     ];
@@ -17040,7 +17120,40 @@ export class DataStore {
 
   /** Approval levels a document of this amount needs under the company's rules (empty: none, or no rules). */
   approvalLevels(companyId: string, docType: ApprovalDocType, amount: number) {
-    return levelsFor(this.approvals.rules(companyId, docType), amount);
+    return levelsFor(this.approvals.rules(this.approvalPolicyCompany(companyId, docType), docType), amount);
+  }
+
+  /** The company whose policy applies: its own, else the nearest group company above with one. */
+  approvalPolicyCompany(companyId: string, docType: ApprovalDocType): string {
+    const nodes = this.companyTreeNodes();
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    for (let id: string | null = companyId, hops = 0; id && hops < 32; id = byId.get(id)?.parentCompanyId ?? null, hops += 1) {
+      if (this.approvals.rules(id, docType).length) return id;
+    }
+    return companyId;
+  }
+
+  /** Starts a document's approval under the policy that applies (own or the group's). */
+  startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null }) {
+    const policyCompany = this.approvalPolicyCompany(companyId, docType);
+    const levels = levelsFor(this.approvals.rules(policyCompany, docType), input.amount);
+    if (!levels.length) {
+      this.approvals.clear(docType, docId);
+      return 'not_required' as const;
+    }
+    return this.approvals.start(companyId, docType, docId, levels, input.requesterId, policyCompany);
+  }
+
+  decideApproval(docType: ApprovalDocType, docId: string, actor: { id: string; name: string }, decision: 'approve' | 'reject' | 'send_back', note?: string) {
+    return this.approvals.decide(docType, docId, actor, decision, note);
+  }
+
+  approvalView(docType: ApprovalDocType, docId: string) {
+    return this.approvals.view(docType, docId);
+  }
+
+  approvalsWaitingFor(companyId: string, userId: string) {
+    return this.approvals.waitingFor(companyId, userId);
   }
 
   createExpense(input: CreateExpenseInput): Expense {
