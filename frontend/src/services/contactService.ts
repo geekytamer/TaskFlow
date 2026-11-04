@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { ApiError, apiFetch } from '@/lib/api-client';
 
 export type ContactKind = 'Organization' | 'Person';
 export type ContactRoleType = 'Lead' | 'Client' | 'Vendor' | 'Influencer' | 'Partner';
@@ -179,4 +179,21 @@ export async function removeContactRole(id: string, role: ContactRoleType): Prom
 
 export async function deleteContact(id: string): Promise<void> {
   await apiFetch<void>(`/contacts/${id}`, { method: 'DELETE' });
+}
+
+export type QuickAddStatus = 'created' | 'existing' | 'invalid';
+export interface QuickAddResult { line: string; status: QuickAddStatus; contact?: { id: string; name: string } }
+
+/** One influencer per pasted line; handles already on a record answer with that record. */
+export const quickAddInfluencers = (companyId: string, text: string) =>
+  apiFetch<{ results: QuickAddResult[]; fetching: boolean }>(`/companies/${encodeURIComponent(companyId)}/influencers/quick-add`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+
+/** The record that already has a handle, when a save was refused for it. */
+export function duplicateHandleOf(error: unknown): { id: string; name: string } | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const details = error.details as { code?: string; duplicateOf?: { id: string; name: string } } | undefined;
+  return details?.code === 'duplicate_handle' && details.duplicateOf ? details.duplicateOf : null;
 }

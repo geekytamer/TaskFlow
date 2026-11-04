@@ -67,6 +67,7 @@ const KNOWN_UNGATED = new Set([
     'GET /projects/:id',
     'GET /tasks',
     'GET /tasks/:id',
+    'DELETE /tasks/:id', // per record, like viewing it (requireTaskViewAccess); was misread as gated by the code after it
     'GET /tasks/:taskId/comments',
     'GET /tasks/:taskId/time-entries',
     'POST /tasks/:taskId/comments',
