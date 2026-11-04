@@ -160,6 +160,7 @@ POST,/tasks/mark-invoiced,tasks,invoice,"",3123,none,tasks.mark-invoiced
 DELETE,/time-entries/:id,time-entries,delete,"",3217,none,time-entries
 POST,/companies/:companyId/contacts/import,contacts,create,"Accountant Admin Manager",3268,roles,contacts.import
 POST,/companies/:companyId/influencers/import,contacts,create,"Accountant Admin Manager",3338,roles,influencers.import
+POST,/companies/:companyId/influencers/quick-add,contacts,create,"Accountant Admin Manager",8125,roles,influencers.quick-add
 POST,/contacts/:id/roles,contacts,create,"Accountant Admin Manager",3487,roles,contacts.roles
 POST,/contacts/:id/activities,contacts,create,"Accountant Admin Manager",3622,roles,contacts.activities
 POST,/clients,contacts,create,"Accountant Admin Manager",5131,roles,clients

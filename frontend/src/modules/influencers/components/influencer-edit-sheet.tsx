@@ -27,6 +27,7 @@ import { PortalListingSwitch } from '@/modules/portal-access/components/portal-l
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import {
   updateContact,
+  duplicateHandleOf,
   influencerPlatforms,
   type Contact,
   type InfluencerAccount,
@@ -128,8 +129,15 @@ export function InfluencerEditSheet({
       onSaved(updated);
       toast({ title: t('contacts.updated') });
       onOpenChange(false);
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
+    } catch (error) {
+      const owner = duplicateHandleOf(error);
+      toast({
+        title: owner
+          ? language === 'ar' ? `هذا الحساب موجود في سجل ${owner.name}` : `That account is already on ${owner.name}'s record`
+          : t('common.error'),
+        description: owner ? (language === 'ar' ? 'احذفه من هنا أو عدّل السجل الثاني.' : 'Remove it here, or edit the other record.') : undefined,
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
