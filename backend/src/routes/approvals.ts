@@ -81,14 +81,18 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       client: (id) => store.getClientById(id)?.companyId === companyId,
       project: (id) => store.getProjectById(id)?.companyId === companyId,
       leaveType: (id) => store.getLeaveTypeById(id)?.companyId === companyId,
-      template: (id) => store.getDocumentTemplateById(id)?.companyId === companyId,
+      // Documents are made from the generic templates or the typed ones.
+      template: (id) => (store.getDocumentTemplateById(id) ?? store.getInvoiceTemplateById(id))?.companyId === companyId,
     };
     return raw.map((c, j) => {
       const cond = asRecord(c, `steps[${i}].conditions[${j}]`);
       const field = enumValue(cond.field, `steps[${i}].conditions[${j}].field`, allowed as readonly ConditionField[]) as ConditionField;
       const op = enumValue(cond.op ?? 'is', `steps[${i}].conditions[${j}].op`, ['is', 'is_not'] as const) as 'is' | 'is_not';
       if (!Array.isArray(cond.values) || !cond.values.length || cond.values.length > 50) throw new HttpError(400, `Step ${i + 1}: each condition needs from 1 to 50 values.`);
-      const values = [...new Set(cond.values.map((v) => String(v ?? '').trim()).filter(Boolean))].map((v) => v.slice(0, 120));
+      const seen = new Set<string>();
+      // Typed text matches ignoring case, so "Meals" and "meals" are one value.
+      const values = cond.values.map((v) => String(v ?? '').trim().slice(0, 120)).filter(Boolean)
+        .filter((v) => { const k = TEXT_FIELDS.includes(field) ? v.toLowerCase() : v; if (seen.has(k)) return false; seen.add(k); return true; });
       if (!values.length) throw new HttpError(400, `Step ${i + 1}: each condition needs a value.`);
       if (TEXT_FIELDS.includes(field)) return { field, op, values };
       if (alsoBelow) throw new HttpError(400, `Step ${i + 1}: a group sign-off runs for other companies' documents, so it can only use category or department conditions.`);

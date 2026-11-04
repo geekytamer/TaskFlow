@@ -55,8 +55,9 @@ function createOne(store: DataStore, schedule: RecurringDocument, runDate: strin
         notes: content.notes,
       });
       if (schedule.mode === 'draft') return { status: 'created', documentId: make('Draft').id, message: null };
-      // Invoices need approval in this company: issue it as a draft, which goes for approval.
-      if (store.approvalApplies(schedule.companyId, 'invoice')) {
+      // This invoice needs approval (its policy fits its client and amount): issue it as a draft, which goes for approval.
+      const gross = (content.lineItems || []).reduce((sum, l) => sum + (Number((l as { amount?: number }).amount) || 0), 0) * (1 + (Number(content.taxRate) || 0) / 100);
+      if (store.approvalNeeded(schedule.companyId, 'invoice', gross, { client: schedule.partyId })) {
         return { status: 'held', documentId: make('Draft').id, message: 'Held as a draft: invoices need approval before they are sent.' };
       }
       try {

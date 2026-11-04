@@ -40,6 +40,7 @@ describe('condition wording', () => {
     assert.equal(conditionText([{ field: 'category', op: 'is_not', values: ['Meals'] }, { field: 'project', op: 'is', values: ['p'] }], name, en),
       'Only when the category is not Meals, and the project is p');
     assert.equal(conditionText([{ field: 'leaveType', op: 'is', values: ['Annual'] }], name, ar), 'فقط عندما يكون نوع الإجازة Annual');
+    assert.equal(conditionText([{ field: 'category', op: 'is_not', values: ['Meals', 'Travel'] }], name, en), 'Only when the category is none of Meals, Travel');
     assert.equal(conditionText([], name, en), '');
   });
 });

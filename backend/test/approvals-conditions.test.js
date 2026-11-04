@@ -127,3 +127,28 @@ test('a group sign-off step takes only text conditions', async () => {
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   server.close();
 });
+
+// ── Review fixes: a narrow policy doesn't slow down what it doesn't cover ──
+
+test('a policy for one client: other clients\' invoices are created Sent; that client\'s must start as drafts', () => {
+  const { store, co, step } = setup();
+  const acme = store.listClients(co)[0];
+  const other = store.createClient({ companyId: co, name: 'Other', email: 'other@apcond.test', address: 'Muscat' });
+  store.approvals.setPolicy(co, 'invoice', { steps: [step([{ field: 'client', op: 'is', values: [acme.id] }])] });
+  const lines = [{ description: 'W', quantity: 1, unitPrice: 10, amount: 10, itemType: 'Manual' }];
+  const make = (client) => store.createInvoice({ companyId: co, clientId: client.id, issueDate: new Date(), dueDate: new Date(), status: 'Sent', lineItems: lines });
+  assert.equal(make(other).status, 'Sent');
+  assert.throws(() => make(acme), (e) => e.status === 409 && e.details?.code === 'APPROVAL_REQUIRED');
+});
+
+test('a payment policy for one supplier: other suppliers\' bills are paid and marked Paid as before', () => {
+  const { store, co, step } = setup();
+  const globex = store.createSupplier({ companyId: co, name: 'Globex', email: 'g3@x.example' });
+  const initech = store.createSupplier({ companyId: co, name: 'Initech', email: 'i3@x.example' });
+  store.approvals.setPolicy(co, 'vendor_payment', { steps: [step([{ field: 'supplier', op: 'is', values: [globex.id] }])] });
+  const bill = (s, status = 'Approved') => store.createVendorBill({ companyId: co, vendorName: s.name, supplierId: s.id, amount: 100, issueDate: new Date(), dueDate: new Date(), status });
+  assert.equal(bill(initech, 'Paid').status, 'Paid', 'created Paid');
+  assert.equal(store.updateVendorBillStatus(bill(initech).id, 'Paid').status, 'Paid', 'marked Paid');
+  assert.ok(store.requestVendorPayment({ billId: bill(initech).id, amount: 10, paidAt: new Date() }).payment, 'paid at once');
+  assert.ok(store.requestVendorPayment({ billId: bill(globex).id, amount: 10, paidAt: new Date() }).hold, 'Globex: held');
+});

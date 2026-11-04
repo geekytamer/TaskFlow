@@ -9221,7 +9221,7 @@ export class DataStore {
     const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     // The policy that applies here (own, or the group's) and every group's sign-off above.
     const poPolicy = this.approvalApplies(existing.companyId, 'purchase_order');
-    const levels = this.approvalLevels(existing.companyId, 'purchase_order', totalAmount, { supplier: updates.supplierId !== undefined ? updates.supplierId : existing.supplierId });
+    const levels = this.approvalLevels(existing.companyId, 'purchase_order', totalAmount, { supplier: updates.supplierId ?? existing.supplierId });
     const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
     const requiresApproval = poPolicy ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     // What is being ordered changed: other lines, other amounts or another supplier.
@@ -10701,7 +10701,7 @@ export class DataStore {
     templateId: string; title?: string; recordType?: DocumentDataSource; recordId?: string;
     fieldValues?: Record<string, string>; status?: DocumentStatus;
   }): DocumentRecord {
-    this.requireDraftWhileApproving(companyId, 'document', (input.status ?? 'draft') === 'draft', 'Documents');
+    this.requireDraftWhileApproving(companyId, 'document', (input.status ?? 'draft') === 'draft', 'Documents', { amount: 0, facts: { template: input.templateId } });
     const legacyTemplate = this.getDocumentTemplateById(input.templateId);
     const typedTemplate = this.getInvoiceTemplateById(input.templateId);
     const genericDocumentTypes = new Set<TemplateDocType>([
@@ -10875,7 +10875,9 @@ export class DataStore {
     const start = new Date(input.startDate);
     const end = new Date(input.endDate);
     if (end < start) throw new Error('Leave end date cannot be before the start date.');
-    this.requireDraftWhileApproving(input.companyId, 'leave_request', (input.status ?? 'Pending') === 'Pending', 'Leave requests', 'record it as Pending, then it goes for approval');
+    this.requireDraftWhileApproving(input.companyId, 'leave_request', (input.status ?? 'Pending') === 'Pending', 'Leave requests',
+      { amount: input.days && input.days > 0 ? Number(input.days) : this.leaveDayCount(start, end), facts: { leaveType: input.leaveTypeId } },
+      'record it as Pending, then it goes for approval');
     const now = new Date().toISOString();
     const row = {
       id: uuid(),
@@ -17517,6 +17519,20 @@ export class DataStore {
       || this.ancestorsOf(companyId).some((g) => this.approvals.rules(g, docType).some((r) => r.alsoBelow));
   }
 
+  /**
+   * Whether a document with this amount and these facts would actually go for
+   * approval: some step of the chain applies to it (a policy whose conditions
+   * don't fit it asks nothing). Gates that refuse or hold use this.
+   */
+  approvalNeeded(companyId: string, docType: ApprovalDocType, amount: number, facts: ApprovalFacts): boolean {
+    return this.approvalApplies(companyId, docType) && this.approvalChain(companyId, docType, Number(amount) || 0, facts).length > 0;
+  }
+
+  /** What a credit note's conditions see before it exists: its client (given, or its invoice's). */
+  private creditNoteFacts(input: { clientId?: string; invoiceId?: string }): ApprovalFacts {
+    return { client: input.clientId ?? (input.invoiceId ? this.getInvoiceById(input.invoiceId)?.clientId : undefined) };
+  }
+
   /** Who asked: the request's first requester when it restarts, else whoever is acting now. */
   private requesterFor(docType: ApprovalDocType, docId: string): string | null {
     return this.approvals.view(docType, docId).requesterId ?? this.currentActor?.userId ?? null;
@@ -17573,8 +17589,8 @@ export class DataStore {
   }
 
   /** A document whose type needs approval starts as a draft, never past it. */
-  private requireDraftWhileApproving(companyId: string, docType: ApprovalDocType, draft: boolean, what: string, how = 'create it as a draft, then it goes for approval') {
-    if (!draft && this.approvalApplies(companyId, docType)) {
+  private requireDraftWhileApproving(companyId: string, docType: ApprovalDocType, draft: boolean, what: string, doc: { amount: number; facts: ApprovalFacts }, how = 'create it as a draft, then it goes for approval') {
+    if (!draft && this.approvalNeeded(companyId, docType, doc.amount, doc.facts)) {
       throw new HttpError(409, `${what} need approval in this company: ${how}.`, { code: 'APPROVAL_REQUIRED' });
     }
   }
@@ -17640,7 +17656,8 @@ export class DataStore {
 
   /** A credit note now, or held for approval when this company's credit notes need it. */
   requestCreditNote(input: Parameters<DataStore['createCreditNote']>[0], link: { customerReturnId?: string } = {}): { creditNote?: CreditNote; hold?: ApprovalHold } {
-    if (!this.approvalApplies(input.companyId, 'credit_note')) return { creditNote: this.createCreditNote(input) };
+    const asked = (input.lineItems || []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+    if (!this.approvalNeeded(input.companyId, 'credit_note', asked, this.creditNoteFacts(input))) return { creditNote: this.createCreditNote(input) };
     const total = (input.lineItems || []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
     const invoice = input.invoiceId ? this.getInvoiceById(input.invoiceId) : undefined;
     const clientId = input.clientId ?? invoice?.clientId;
@@ -17654,7 +17671,7 @@ export class DataStore {
   requestVendorPayment(input: CreateVendorBillPaymentInput): { payment?: VendorBillPayment; bill: VendorBill; hold?: ApprovalHold } {
     const bill = this.getVendorBillById(input.billId);
     if (!bill) throw new Error('Vendor bill not found.');
-    if (!this.approvalApplies(bill.companyId, 'vendor_payment')) return this.createVendorBillPayment(input);
+    if (!this.approvalNeeded(bill.companyId, 'vendor_payment', Number(input.amount) || 0, { supplier: bill.supplierId })) return this.createVendorBillPayment(input);
     const hold = this.holdAction(bill.companyId, 'vendor_payment', bill.id, { ...input }, Number(input.amount) || 0,
       `Payment of ${bill.billNumber}`, bill.vendorName ?? null, () => this.createVendorBillPayment(input));
     if (hold.status === 'approved' && hold.resultId) {
@@ -18690,8 +18707,9 @@ export class DataStore {
       dueDate: Date | string;
     },
   ) {
-    this.requireDraftWhileApproving(invoice.companyId, 'invoice', !invoice.status || invoice.status === 'Draft', 'Invoices');
     const normalizedLineItems = this.normalizeInvoiceLineItems(invoice.lineItems);
+    this.requireDraftWhileApproving(invoice.companyId, 'invoice', !invoice.status || invoice.status === 'Draft', 'Invoices',
+      { amount: this.computeInvoiceTotals(normalizedLineItems, invoice.taxRate).gross, facts: { client: invoice.clientId } });
     const computedTotal = this.computeInvoiceTotals(normalizedLineItems, invoice.taxRate).gross;
     const money = this.resolveTransactionCurrency(
       invoice.companyId,
@@ -19075,7 +19093,7 @@ export class DataStore {
     reason?: string;
   }): CreditNote {
     // With a credit-note policy a credit note is held first (requestCreditNote) and recorded on approval.
-    if (!this.releasingHold && this.approvalApplies(input.companyId, 'credit_note')) {
+    if (!this.releasingHold && this.approvalNeeded(input.companyId, 'credit_note', (input.lineItems || []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0), this.creditNoteFacts(input))) {
       throw new HttpError(409, 'Credit notes need approval in this company: it is sent for approval and recorded once approved.', { code: 'APPROVAL_REQUIRED' });
     }
     const lineItems = (input.lineItems || [])
@@ -20159,10 +20177,10 @@ export class DataStore {
 
     const requestedStatus: VendorBillStatus = input.status ?? 'Draft';
     // A bill created already paid would skip its approval: with a policy, it is paid after.
-    if (requestedStatus === 'Paid' && this.approvalApplies(input.companyId, 'vendor_bill')) {
+    if (requestedStatus === 'Paid' && this.approvalNeeded(input.companyId, 'vendor_bill', Number(input.amount) || 0, { supplier: input.supplierId })) {
       throw new HttpError(409, 'Vendor bills need approval in this company: record the bill first, then pay it once approved.', { code: 'APPROVAL_REQUIRED' });
     }
-    if (requestedStatus === 'Paid' && this.approvalApplies(input.companyId, 'vendor_payment')) {
+    if (requestedStatus === 'Paid' && this.approvalNeeded(input.companyId, 'vendor_payment', Number(input.amount) || 0, { supplier: input.supplierId })) {
       throw new HttpError(409, 'Payments need approval in this company: record the bill, then record its payment and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
     }
     const bill: VendorBill = {
@@ -20249,7 +20267,8 @@ export class DataStore {
   updateVendorBillStatus(id: string, status: VendorBillStatus): VendorBill | undefined {
     const existing = this.getVendorBillById(id);
     if (!existing) return undefined;
-    if (status === 'Paid' && (existing.outstandingAmount ?? existing.amount) > 0 && this.approvalApplies(existing.companyId, 'vendor_payment')) {
+    if (status === 'Paid' && (existing.outstandingAmount ?? existing.amount) > 0
+      && this.approvalNeeded(existing.companyId, 'vendor_payment', existing.outstandingAmount ?? existing.amount, { supplier: existing.supplierId })) {
       throw new HttpError(409, 'Payments need approval in this company: use Record payment on the bill and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
     }
 
@@ -20308,7 +20327,7 @@ export class DataStore {
     }
     this.requireApproved('vendor_bill', bill.id, 'paid');
     // With a payment policy a payment is held first (requestVendorPayment) and recorded on approval.
-    if (!this.releasingHold && this.approvalApplies(bill.companyId, 'vendor_payment')) {
+    if (!this.releasingHold && this.approvalNeeded(bill.companyId, 'vendor_payment', Number(input.amount) || 0, { supplier: bill.supplierId })) {
       throw new HttpError(409, 'Payments need approval in this company: record the payment on the bill and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
     }
     if (bill.status === 'Draft') {

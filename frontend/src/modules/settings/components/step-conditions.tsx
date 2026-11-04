@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getDocumentTemplates } from '@/services/documentService';
-import { getClients } from '@/services/financeService';
+import { getClients, getInvoiceTemplates } from '@/services/financeService';
 import { getLeaveTypes } from '@/services/hrService';
 import { getSuppliers } from '@/services/operationsService';
 import { getProjects } from '@/services/projectService';
@@ -32,13 +32,15 @@ export function useConditionOptions(companyId: string | undefined): ConditionOpt
     const safe = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
     Promise.all([
       safe(getSuppliers(companyId)), safe(getClients(companyId)), safe(getProjects()), safe(getLeaveTypes(companyId)), safe(getDocumentTemplates(companyId)),
-    ]).then(([suppliers, clients, projects, leaveTypes, templates]) => {
+      // Documents are also made from the typed templates of the generic kinds.
+      ...(['quote', 'letter', 'memo', 'certificate', 'statement', 'custom'] as const).map((k) => safe(getInvoiceTemplates(companyId, k))),
+    ]).then(([suppliers, clients, projects, leaveTypes, templates, ...typed]) => {
       if (!live) return;
       const list = (rows: Array<{ id: string; name?: string; title?: string }>) => rows.map((r) => ({ value: r.id, label: r.name ?? r.title ?? r.id }));
       setOptions({
         supplier: list(suppliers), client: list(clients),
-        project: list((projects as Array<{ id: string; name: string; companyId?: string }>).filter((p) => !p.companyId || p.companyId === companyId)),
-        leaveType: list(leaveTypes), template: list(templates as Array<{ id: string; name: string }>),
+        project: list((projects as Array<{ id: string; name: string; companyId?: string }>).filter((p) => p.companyId === companyId)),
+        leaveType: list(leaveTypes), template: list([...(templates as Array<{ id: string; name: string }>), ...(typed.flat() as Array<{ id: string; name: string }>)]),
       });
     });
     return () => { live = false; };

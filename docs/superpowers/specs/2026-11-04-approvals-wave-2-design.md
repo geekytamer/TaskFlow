@@ -214,3 +214,19 @@ project and type as well as amount. Decided:
   group's own records: an *is* step never applies to it and an *is not*
   step always does (more approval rather than less). Settings says so on a
   group company's steps.
+
+### Conditions: review fixes (2026-11-04)
+
+- Gates ask whether *this* document needs approval (`approvalNeeded`:
+  some step of its chain applies to its amount and facts), not whether a
+  policy exists: a policy for one client no longer turns every recurring
+  invoice into a draft, and one for one supplier no longer refuses *Mark
+  as Paid* or a bill created Paid for the others. Payments and credit
+  notes are held only when they need it.
+- Taking over an inherited policy leaves out conditions naming the group's
+  own records, and says so.
+- Documents made from typed templates (quote, letter, memo, certificate,
+  statement, custom) can be named in a template condition.
+- "Is not" over several values reads "is none of A, B"; text values are
+  de-duplicated ignoring case; a purchase order's facts follow the saved
+  supplier.

@@ -63,10 +63,13 @@ export function conditionFieldName(field: ConditionField, tr: Tr): string {
 export function conditionText(conditions: StepCondition[] | undefined, name: (field: ConditionField, value: string) => string, tr: Tr): string {
   if (!conditions?.length) return '';
   const parts = conditions.map((c) => {
-    const values = c.values.map((v) => name(c.field, v)).join(c.op === 'is' ? tr(' or ', ' أو ') : tr(' or ', ' أو '));
-    return c.op === 'is'
-      ? tr(`${conditionFieldName(c.field, tr)} is ${values}`, `${conditionFieldName(c.field, tr)} ${values}`)
-      : tr(`${conditionFieldName(c.field, tr)} is not ${values}`, `${conditionFieldName(c.field, tr)} ليس ${values}`);
+    const names = c.values.map((v) => name(c.field, v));
+    if (c.op === 'is') return tr(`${conditionFieldName(c.field, tr)} is ${names.join(' or ')}`, `${conditionFieldName(c.field, tr)} ${names.join(' أو ')}`);
+    // "is not" over several values reads as "none of", never an ambiguous "not A or B".
+    const listed = names.join(tr(', ', '، '));
+    return names.length > 1
+      ? tr(`${conditionFieldName(c.field, tr)} is none of ${listed}`, `${conditionFieldName(c.field, tr)} ليس من ${listed}`)
+      : tr(`${conditionFieldName(c.field, tr)} is not ${listed}`, `${conditionFieldName(c.field, tr)} ليس ${listed}`);
   });
   return tr(`Only when ${parts.join(', and ')}`, `فقط عندما يكون ${parts.join('، و')}`);
 }

@@ -72,8 +72,27 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
 
   const policyOf = (t: ApprovalDocType): ApprovalPolicy =>
     drafts[t] ?? policies?.[t] ?? { steps: [], allowSelf: false, reminderHours: 24, escalateHours: 72, inheritedFrom: null };
-  const edit = (t: ApprovalDocType, change: (p: ApprovalPolicy) => ApprovalPolicy) =>
-    setDrafts((d) => ({ ...d, [t]: change(structuredClone(policyOf(t))) }));
+  const edit = (t: ApprovalDocType, change: (p: ApprovalPolicy) => ApprovalPolicy) => {
+    const current = structuredClone(policyOf(t));
+    // Taking over the group's policy: its supplier, client… conditions name the group's own records,
+    // which this company can't use. Keep the rest and say what was left out.
+    if (current.inheritedFrom) {
+      let dropped = 0;
+      current.steps = current.steps.map((st) => {
+        const kept = (st.conditions ?? []).filter((c) => TEXT_FIELDS.includes(c.field) || c.values.every((v) => conditionOptions[c.field]?.some((o) => o.value === v)));
+        dropped += (st.conditions ?? []).length - kept.length;
+        return { ...st, conditions: kept };
+      });
+      if (dropped) {
+        toast({
+          title: tr('Some conditions were left out', 'تم ترك بعض الشروط'),
+          description: tr(`${dropped} condition(s) named ${current.inheritedFrom.name}'s own suppliers, clients or other records. Choose this company's instead if you need them.`,
+            `${dropped} شرط/شروط تشير إلى سجلات ${current.inheritedFrom.name} الخاصة. اختر سجلات هذه الشركة إن احتجت إليها.`),
+        });
+      }
+    }
+    setDrafts((d) => ({ ...d, [t]: change(current) }));
+  };
 
   const savePolicy = async (t: ApprovalDocType) => {
     try {
