@@ -4,8 +4,13 @@ import { apiFetch } from '@/lib/api-client';
 export type ApprovalDocType =
   | 'purchase_order' | 'expense' | 'vendor_bill' | 'vendor_payment' | 'invoice' | 'credit_note'
   | 'quotation' | 'payroll_run' | 'document' | 'purchase_requisition' | 'leave_request';
-/** The document types a policy can be set for today (wave 1). */
-export const POLICY_DOC_TYPES: ApprovalDocType[] = ['purchase_order', 'expense', 'vendor_bill', 'invoice', 'quotation', 'payroll_run', 'document'];
+/** The document types a policy can be set for (wave 1 and wave 2), in the order Settings lists them. */
+export const POLICY_DOC_TYPES: ApprovalDocType[] = [
+  'purchase_requisition', 'purchase_order', 'vendor_bill', 'vendor_payment', 'expense',
+  'quotation', 'invoice', 'credit_note', 'payroll_run', 'leave_request', 'document',
+];
+/** Leave is measured in days, not money: its bands are numbers of days. */
+export const amountIsDays = (t: ApprovalDocType) => t === 'leave_request';
 export type ApproverRole = 'Manager' | 'Accountant' | 'Admin';
 export type Approver =
   | { kind: 'role'; id: ApproverRole; label?: string }
@@ -42,9 +47,41 @@ export interface ApprovalItem {
   docType: ApprovalDocType; docId: string; companyId: string; status: ApprovalStatus;
   number: string; amount: number; party: string | null; date: string;
   level?: number; levels: number; steps: RequestStep[]; requesterId: string | null;
-  onBehalfOf?: string | null; canDecide: boolean;
+  onBehalfOf?: string | null; canDecide: boolean; canReassign?: boolean;
 }
-export type ApprovalBox = 'waiting' | 'mine' | 'decided';
+export type ApprovalBox = 'waiting' | 'mine' | 'decided' | 'open';
+
+export type TrailKind = 'started' | 'skipped' | 'noted' | 'approved' | 'rejected' | 'changes_requested' | 'reminded' | 'escalated' | 'restarted' | 'reassigned';
+export interface TrailEntry { level: number | null; kind: TrailKind; userId: string | null; userName: string | null; onBehalfOf: string | null; note: string | null; at: string }
+/** One document's request, as its reader sees it. */
+export interface ApprovalView {
+  docType: ApprovalDocType; docId: string; companyId: string; number: string; amount: number; party: string | null;
+  status: ApprovalStatus; requesterId: string | null; steps: RequestStep[]; trail: TrailEntry[];
+  canDecide: boolean; canReassign: boolean;
+}
+/** Where one document stands, for the chip on its list. */
+export interface ApprovalStatusRow { docId: string; status: ApprovalStatus; level: number | null; levels: number; need: Need | null; approvers: Array<Approver & { label: string }>; stuck: boolean }
+
+export const getApprovalStatuses = (companyId: string, docType: ApprovalDocType) =>
+  apiFetch<ApprovalStatusRow[]>(`/companies/${companyId}/approvals/status?docType=${docType}`);
+export const getApprovalView = (docType: ApprovalDocType, docId: string) => apiFetch<ApprovalView>(`/approvals/${docType}/${docId}/view`);
+export const reassignApproval = (docType: ApprovalDocType, docId: string, toUserId: string, reason: string) =>
+  apiFetch<unknown>(`/approvals/${docType}/${docId}/reassign`, { method: 'POST', body: JSON.stringify({ toUserId, reason }) });
+
+/** A credit note or payment waiting for approval before it posts. */
+export interface ApprovalHold {
+  id: string; companyId: string; docType: 'credit_note' | 'vendor_payment'; targetId: string | null;
+  amount: number; label: string; party: string | null; status: 'pending' | 'approved' | 'failed' | 'rejected' | 'withdrawn';
+  resultId: string | null; error: string | null; note: string | null; requesterId: string | null; createdAt: string;
+}
+/** What a recording answers when it was held for approval (HTTP 202). */
+export interface HeldAnswer { held: true; hold: ApprovalHold }
+export const isHeld = (x: unknown): x is HeldAnswer => Boolean(x && typeof x === 'object' && (x as { held?: unknown }).held === true);
+export const getApprovalHolds = (companyId: string, filter: { docType?: ApprovalHold['docType']; targetId?: string; status?: ApprovalHold['status'] } = {}) => {
+  const q = new URLSearchParams(Object.entries(filter).filter(([, v]) => v) as Array<[string, string]>).toString();
+  return apiFetch<ApprovalHold[]>(`/companies/${companyId}/approval-holds${q ? `?${q}` : ''}`);
+};
+export const withdrawApprovalHold = (id: string) => apiFetch<ApprovalHold>(`/approval-holds/${id}/withdraw`, { method: 'POST' });
 
 export const getApprovals = (companyId: string, box: ApprovalBox = 'waiting') =>
   apiFetch<ApprovalItem[]>(`/companies/${companyId}/approvals?box=${box}`);
@@ -81,10 +118,14 @@ export const docTypeLabel = (t: ApprovalDocType, tr: (en: string, ar: string) =>
 /** What waits for approval on each kind of document. */
 export const docTypeGate = (t: ApprovalDocType, tr: (en: string, ar: string) => string): string => ({
   purchase_order: tr('Approved before it is ordered', 'يُعتمد قبل الطلب'), expense: tr('Approved before it is posted', 'يُعتمد قبل الترحيل'),
-  vendor_bill: tr('Approved before it is paid', 'تُعتمد قبل الدفع'), vendor_payment: '', invoice: tr('Approved before it is sent', 'تُعتمد قبل الإرسال'),
-  credit_note: '', quotation: tr('Approved before it is sent or converted', 'يُعتمد قبل الإرسال أو التحويل'),
+  vendor_bill: tr('Approved before it is paid', 'تُعتمد قبل الدفع'),
+  vendor_payment: tr('Each payment approved before money goes out (after the bill\'s own approval)', 'تُعتمد كل دفعة قبل خروج المال (بعد اعتماد الفاتورة نفسها)'),
+  invoice: tr('Approved before it is sent', 'تُعتمد قبل الإرسال'),
+  credit_note: tr('Approved before it is recorded in the books', 'يُعتمد قبل تسجيله في الدفاتر'),
+  quotation: tr('Approved before it is sent or converted', 'يُعتمد قبل الإرسال أو التحويل'),
   payroll_run: tr('Approved before it is approved for payment', 'يُعتمد قبل اعتماده للدفع'), document: tr('Approved before it is finalised', 'يُعتمد قبل اعتماده نهائيًا'),
-  purchase_requisition: '', leave_request: '',
+  purchase_requisition: tr('Approved before it can become a purchase order', 'يُعتمد قبل أن يتحول إلى أمر شراء'),
+  leave_request: tr('Approved before the leave is granted', 'تُعتمد قبل منح الإجازة'),
 }[t]);
 
 export const roleLabel = (r: string, tr: (en: string, ar: string) => string) =>

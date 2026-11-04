@@ -56,8 +56,11 @@ import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 export function InvoiceTable() {
+  const approvalStatus = useApprovalStatuses('invoice');
   const { selectedCompany } = useCompany();
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
@@ -495,6 +498,7 @@ export function InvoiceTable() {
                     ) : (
                       <Badge variant="outline">{t(`invoiceTable.status${invoice.status}`)}</Badge>
                     )}
+                    <ApprovalChip docType="invoice" row={approvalStatus.statusOf(invoice.id)} onChanged={() => { void approvalStatus.reload(); void fetchData({ quiet: true }); }} />
                     {invoice.status !== 'Paid' && invoice.dueDate < new Date() && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertTriangle className="h-3 w-3" />

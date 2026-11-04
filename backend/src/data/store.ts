@@ -24,7 +24,7 @@ import { buildWpsFile } from '../hr/wps';
 import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
-import { ApprovalStore, levelsFor, type ApprovalLevel, type ApprovalDocType } from '../approvals/approvals';
+import { ApprovalStore, levelsFor, type ApprovalLevel, type ApprovalDocType, type ApprovalHold, type HoldDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
 import { WorkspaceStore } from '../workspace/workspace-store';
@@ -16792,10 +16792,11 @@ export class DataStore {
           total = available;
         }
         if (total > 0) {
-          creditNoteId = this.createCreditNote({
+          // With a credit-note policy the goods come back now and the credit waits for approval.
+          creditNoteId = this.requestCreditNote({
             companyId: record.companyId, invoiceId: invoice.id, issueDate: receivedAt,
             lineItems: lineItems.filter((l) => l.amount > 0), reason: `Goods returned on ${record.returnNumber}${record.reason ? `: ${record.reason}` : ''}`,
-          }).id;
+          }, { customerReturnId: record.id }).creditNote?.id;
         }
       }
       this.db.prepare("UPDATE customer_returns SET status = 'Received', items = ?, receivedAt = ?, creditNoteId = ? WHERE id = ?")
@@ -17376,11 +17377,26 @@ export class DataStore {
     return outcome;
   }
 
+  /** Hands the current step to one person (logged with the reason) and tells them it waits for them. */
+  reassignApproval(docType: ApprovalDocType, docId: string, by: { id: string }, toUserId: string, reason: string) {
+    const step = this.approvals.reassign(docType, docId, by, toUserId, reason);
+    this.notify({
+      companyId: step.ownerCompanyId, userIds: [toUserId], type: 'approval_needed',
+      title: `A ${APPROVAL_LABEL[docType]} was handed to you for approval`, body: reason.trim(),
+      link: '/approvals', entityType: docType, entityId: docId,
+    });
+    return step;
+  }
+
   /** Documents whose state the store itself moves when their approval ends. */
   private settleApproval(docType: ApprovalDocType, docId: string, outcome: 'approved' | 'rejected' | 'changes_requested' | 'not_required', actor: { id: string; name: string }, note?: string) {
     if (outcome === 'not_required') return;
     if (docType === 'leave_request') this.settleLeaveApproval(docId, outcome, actor, note);
     else if (docType === 'purchase_requisition') this.settleRequisitionApproval(docId, outcome, actor, note);
+    else if (docType === 'credit_note' || docType === 'vendor_payment') {
+      if (outcome === 'approved') this.releaseHold(docId);
+      else this.endHold(docId, 'rejected', note);
+    }
   }
 
   private approvalCompanyOf(docType: ApprovalDocType, docId: string): string | null {
@@ -17512,6 +17528,140 @@ export class DataStore {
     if (!draft && this.approvalApplies(companyId, docType)) {
       throw new HttpError(409, `${what} need approval in this company: ${how}.`, { code: 'APPROVAL_REQUIRED' });
     }
+  }
+
+  // ── Held actions: credit notes and vendor payments wait for approval before they post ──
+
+  /** Set while an approved hold is being recorded: the gates let it through. */
+  private releasingHold: string | null = null;
+
+  private decodeHold(row: any): ApprovalHold {
+    return { ...row, payload: this.parseJson<Record<string, unknown>>(row.payload) ?? {}, amount: Number(row.amount) || 0 };
+  }
+
+  getApprovalHold(id: string): ApprovalHold | undefined {
+    const row = this.db.prepare('SELECT * FROM approval_holds WHERE id = ?').get(id);
+    return row ? this.decodeHold(row) : undefined;
+  }
+
+  listApprovalHolds(companyId: string, filter: { docType?: HoldDocType; targetId?: string; status?: ApprovalHold['status'] } = {}): ApprovalHold[] {
+    let sql = 'SELECT * FROM approval_holds WHERE companyId = ?';
+    const params: unknown[] = [companyId];
+    if (filter.docType) { sql += ' AND docType = ?'; params.push(filter.docType); }
+    if (filter.targetId) { sql += ' AND targetId = ?'; params.push(filter.targetId); }
+    if (filter.status) { sql += ' AND status = ?'; params.push(filter.status); }
+    return (this.db.prepare(`${sql} ORDER BY createdAt DESC LIMIT 200`).all(...params) as any[]).map((r) => this.decodeHold(r));
+  }
+
+  /** What waits for approval against this invoice or bill (so two can't take the same money). */
+  private heldAmount(docType: HoldDocType, targetId: string): number {
+    const row = this.db.prepare("SELECT COALESCE(SUM(amount), 0) total FROM approval_holds WHERE docType = ? AND targetId = ? AND status = 'pending' AND id != ?")
+      .get(docType, targetId, this.releasingHold ?? '') as { total: number };
+    return Number(row.total) || 0;
+  }
+
+  /** Runs the real recording and undoes it: the same checks the approval will meet later. */
+  private dryRun(run: () => unknown) {
+    const undo = new Error('dry run');
+    try {
+      this.db.transaction(() => { run(); throw undo; })();
+    } catch (error) {
+      if (error !== undo) throw error;
+    }
+  }
+
+  private holdAction(companyId: string, docType: HoldDocType, targetId: string | null, payload: Record<string, unknown>, amount: number, label: string, party: string | null, record: () => unknown): ApprovalHold {
+    const prev = this.releasingHold;
+    this.releasingHold = 'dry-run';
+    try { this.dryRun(record); } finally { this.releasingHold = prev; }
+    const hold = {
+      id: uuid(), companyId, docType, targetId, payload: JSON.stringify(payload), amount: Number(amount.toFixed(2)), label, party,
+      requesterId: this.currentActor?.userId ?? null, createdAt: new Date().toISOString(),
+    };
+    this.db.prepare('INSERT INTO approval_holds (id, companyId, docType, targetId, payload, amount, label, party, status, requesterId, createdAt) VALUES (@id, @companyId, @docType, @targetId, @payload, @amount, @label, @party, \'pending\', @requesterId, @createdAt)').run(hold);
+    this.createActivityEvent({ companyId, entityType: docType === 'credit_note' ? 'invoice' : 'vendor_bill', entityId: targetId ?? hold.id, action: 'held', summary: `${label} sent for approval.`, metadata: { targetId, amount: hold.amount } });
+    const outcome = this.beginApproval(companyId, docType, hold.id, amount, { requesterId: hold.requesterId });
+    // Every step fell away (a manager step with no manager): nothing to wait for.
+    if (outcome === 'not_required') this.releaseHold(hold.id);
+    return this.getApprovalHold(hold.id)!;
+  }
+
+  /** A credit note now, or held for approval when this company's credit notes need it. */
+  requestCreditNote(input: Parameters<DataStore['createCreditNote']>[0], link: { customerReturnId?: string } = {}): { creditNote?: CreditNote; hold?: ApprovalHold } {
+    if (!this.approvalApplies(input.companyId, 'credit_note')) return { creditNote: this.createCreditNote(input) };
+    const total = (input.lineItems || []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+    const invoice = input.invoiceId ? this.getInvoiceById(input.invoiceId) : undefined;
+    const clientId = input.clientId ?? invoice?.clientId;
+    const party = clientId ? this.getClientById(clientId)?.name ?? null : null;
+    const hold = this.holdAction(input.companyId, 'credit_note', input.invoiceId ?? null, { ...input, ...link }, total,
+      invoice ? `Credit note on ${invoice.invoiceNumber}` : 'Credit note', party, () => this.createCreditNote(input));
+    return hold.status === 'approved' && hold.resultId ? { creditNote: this.getCreditNoteById(hold.resultId) } : { hold };
+  }
+
+  /** A vendor-bill payment now, or held for approval when this company's payments need it. */
+  requestVendorPayment(input: CreateVendorBillPaymentInput): { payment?: VendorBillPayment; bill: VendorBill; hold?: ApprovalHold } {
+    const bill = this.getVendorBillById(input.billId);
+    if (!bill) throw new Error('Vendor bill not found.');
+    if (!this.approvalApplies(bill.companyId, 'vendor_payment')) return this.createVendorBillPayment(input);
+    const hold = this.holdAction(bill.companyId, 'vendor_payment', bill.id, { ...input }, Number(input.amount) || 0,
+      `Payment of ${bill.billNumber}`, bill.vendorName ?? null, () => this.createVendorBillPayment(input));
+    if (hold.status === 'approved' && hold.resultId) {
+      return { payment: this.listVendorBillPayments(bill.id).find((p) => p.id === hold.resultId), bill: this.getVendorBillById(bill.id)! };
+    }
+    return { hold, bill: this.getVendorBillById(bill.id)! };
+  }
+
+  /**
+   * Approved: records the held credit note or payment exactly as asked. When
+   * the books refuse it now (period closed, already credited or paid), the
+   * hold is marked failed with the reason and the requester is told.
+   */
+  private releaseHold(id: string) {
+    const hold = this.getApprovalHold(id);
+    if (!hold || hold.status !== 'pending') return;
+    const now = new Date().toISOString();
+    const prev = this.releasingHold;
+    this.releasingHold = id;
+    try {
+      const p = hold.payload as any;
+      let resultId: string;
+      if (hold.docType === 'credit_note') {
+        const { customerReturnId, ...input } = p;
+        const note = this.createCreditNote(input);
+        resultId = note.id;
+        if (customerReturnId) this.db.prepare('UPDATE customer_returns SET creditNoteId = ? WHERE id = ? AND creditNoteId IS NULL').run(note.id, customerReturnId);
+      } else {
+        resultId = this.createVendorBillPayment({ ...p, paidAt: p.paidAt ? new Date(p.paidAt) : new Date() }).payment.id;
+      }
+      this.db.prepare("UPDATE approval_holds SET status = 'approved', resultId = ?, endedAt = ? WHERE id = ?").run(resultId, now, id);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'It could not be recorded.';
+      this.db.prepare("UPDATE approval_holds SET status = 'failed', error = ?, endedAt = ? WHERE id = ?").run(reason, now, id);
+      if (hold.requesterId) {
+        this.notify({
+          companyId: hold.companyId, userIds: [hold.requesterId], type: 'approval_result',
+          title: `${hold.label} was approved but could not be recorded`, body: `${reason} Record it again.`,
+          link: '/approvals?box=mine', entityType: hold.docType, entityId: hold.id,
+        });
+      }
+    } finally {
+      this.releasingHold = prev;
+    }
+  }
+
+  private endHold(id: string, status: 'rejected' | 'withdrawn', note?: string) {
+    this.db.prepare("UPDATE approval_holds SET status = ?, note = ?, endedAt = ? WHERE id = ? AND status = 'pending'").run(status, note?.trim() || null, new Date().toISOString(), id);
+  }
+
+  /** The requester (or an Admin) takes back a held credit note or payment that still waits. */
+  withdrawApprovalHold(id: string, userId: string, isAdmin: boolean): ApprovalHold {
+    const hold = this.getApprovalHold(id);
+    if (!hold) throw new HttpError(404, 'Not found.');
+    if (hold.status !== 'pending') throw new HttpError(409, 'Only something still waiting for approval can be withdrawn.');
+    if (hold.requesterId !== userId && !isAdmin) throw new HttpError(403, 'Only whoever asked, or an Admin, can withdraw it.');
+    this.endHold(id, 'withdrawn');
+    this.forgetApproval(hold.docType, id);
+    return this.getApprovalHold(id)!;
   }
 
   createExpense(input: CreateExpenseInput): Expense {
@@ -18870,6 +19020,10 @@ export class DataStore {
     lineItems: CreditNoteLineItem[];
     reason?: string;
   }): CreditNote {
+    // With a credit-note policy a credit note is held first (requestCreditNote) and recorded on approval.
+    if (!this.releasingHold && this.approvalApplies(input.companyId, 'credit_note')) {
+      throw new HttpError(409, 'Credit notes need approval in this company: it is sent for approval and recorded once approved.', { code: 'APPROVAL_REQUIRED' });
+    }
     const lineItems = (input.lineItems || [])
       .map((l) => ({ description: String(l.description ?? '').trim(), amount: Number(l.amount) || 0 }))
       .filter((l) => l.amount !== 0 || l.description);
@@ -18888,9 +19042,9 @@ export class DataStore {
         throw new Error('Invoice not found for this company.');
       }
       clientId = clientId ?? invoice.clientId;
-      const alreadyCredited = this.getInvoiceCreditedAmount(invoice.id);
+      const alreadyCredited = this.getInvoiceCreditedAmount(invoice.id) + this.heldAmount('credit_note', invoice.id);
       if (total > invoice.total - alreadyCredited + 0.0001) {
-        throw new Error('Credit note exceeds the invoice amount available to credit.');
+        throw new Error('Credit note exceeds the invoice amount available to credit (credit notes waiting for approval count).');
       }
     }
     if (!clientId) throw new Error('A client is required.');
@@ -20038,6 +20192,9 @@ export class DataStore {
   updateVendorBillStatus(id: string, status: VendorBillStatus): VendorBill | undefined {
     const existing = this.getVendorBillById(id);
     if (!existing) return undefined;
+    if (status === 'Paid' && (existing.outstandingAmount ?? existing.amount) > 0 && this.approvalApplies(existing.companyId, 'vendor_payment')) {
+      throw new HttpError(409, 'Payments need approval in this company: use Record payment on the bill and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
+    }
 
     if (status === 'Paid') {
       const outstandingAmount = existing.outstandingAmount ?? existing.amount;
@@ -20093,6 +20250,10 @@ export class DataStore {
       throw new Error('Vendor bill not found.');
     }
     this.requireApproved('vendor_bill', bill.id, 'paid');
+    // With a payment policy a payment is held first (requestVendorPayment) and recorded on approval.
+    if (!this.releasingHold && this.approvalApplies(bill.companyId, 'vendor_payment')) {
+      throw new HttpError(409, 'Payments need approval in this company: record the payment on the bill and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
+    }
     if (bill.status === 'Draft') {
       throw new Error('Draft vendor bills cannot receive payments.');
     }
@@ -20100,10 +20261,11 @@ export class DataStore {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('Vendor bill payment amount must be greater than zero.');
     }
-    const outstandingAmount = bill.outstandingAmount ?? bill.amount;
+    const held = this.heldAmount('vendor_payment', bill.id);
+    const outstandingAmount = Number(((bill.outstandingAmount ?? bill.amount) - held).toFixed(2));
     if (amount > outstandingAmount + 0.0001) {
       throw new Error(
-        `Vendor bill payment exceeds the outstanding amount (${outstandingAmount.toFixed(2)}).`,
+        `Vendor bill payment exceeds the outstanding amount (${outstandingAmount.toFixed(2)}${held > 0 ? ', after payments waiting for approval' : ''}).`,
       );
     }
 
@@ -20319,11 +20481,12 @@ export class DataStore {
     campaignId: string,
     confirm = false,
   ): {
-    status: 'resynced' | 'up_to_date' | 'needs_confirmation' | 'supplemented' | 'credited';
+    status: 'resynced' | 'up_to_date' | 'needs_confirmation' | 'supplemented' | 'credited' | 'credit_held';
     delta?: number;
     kind?: 'supplementary' | 'credit';
     invoice?: Invoice;
     creditNote?: CreditNote;
+    hold?: ApprovalHold;
     message?: string;
   } {
     const campaign = this.getCrmCampaignById(campaignId);
@@ -20414,14 +20577,15 @@ export class DataStore {
       return { status: 'supplemented', delta, kind, invoice };
     }
 
-    const creditNote = this.createCreditNote({
+    const asked = this.requestCreditNote({
       companyId,
       invoiceId: primary.id,
       clientId: primary.clientId,
       lineItems: [{ description: `Campaign ${campaign.name} — scope reduction`, amount: Math.abs(delta) }],
       reason: `Campaign scope reduced after invoicing`,
     });
-    return { status: 'credited', delta, kind, creditNote };
+    if (asked.hold) return { status: 'credit_held', delta, kind, hold: asked.hold };
+    return { status: 'credited', delta, kind, creditNote: asked.creditNote };
   }
 
   getFinanceOverview(companyId: string): FinanceOverview {

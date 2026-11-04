@@ -65,6 +65,8 @@ import { VendorBillDocument } from './vendor-bill-document';
 import type { VendorBillDocumentPayload } from '@/services/financeService';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { useI18n } from '@/context/i18n-context';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const vendorPaymentMethods = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'] as const;
 
@@ -113,6 +115,7 @@ function BillSourceCell({ bill }: { bill: VendorBill }) {
 }
 
 export function VendorBillTable() {
+  const approvalStatus = useApprovalStatuses('vendor_bill');
   const { selectedCompany } = useCompany();
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -914,6 +917,7 @@ export function VendorBillTable() {
                       </Select>
                       ) : null}
                       <Badge className={statusColor[bill.status]}>{vendorStatusLabel(bill.status)}</Badge>
+                      <ApprovalChip docType="vendor_bill" row={approvalStatus.statusOf(bill.id)} onChanged={() => { void approvalStatus.reload(); void load(); }} />
                     </div>
                   </TableCell>
                   <TableCell className="text-end">

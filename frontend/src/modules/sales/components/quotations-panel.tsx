@@ -35,6 +35,8 @@ import {
   setQuotationStatus, updateQuotation,
 } from '@/services/quotationService';
 import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const statusStyles: Record<QuotationStatus, string> = {
   Draft: 'bg-muted text-foreground/80 border-border',
@@ -71,6 +73,7 @@ const blankForm = (): QuoteForm => ({
  * `opportunityId` is given (the client then comes from the opportunity).
  */
 export function QuotationsPanel({ opportunityId, compact = false }: { opportunityId?: string; compact?: boolean }) {
+  const approvalStatus = useApprovalStatuses('quotation');
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
   const { toast } = useToast();
@@ -288,6 +291,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={statusStyles[quote.status]}>{statusLabel(quote.status)}</Badge>
+                    <div className="mt-1"><ApprovalChip docType="quotation" row={approvalStatus.statusOf(quote.id)} onChanged={() => { void approvalStatus.reload(); void load(); }} /></div>
                     {quote.salesOrderId && <div className="mt-1 text-xs text-muted-foreground">{t('quotes.convertedOrder')}</div>}
                     {quote.invoiceId && <div className="mt-1 text-xs text-muted-foreground">{t('quotes.convertedInvoice')}</div>}
                     {quote.status === 'Expired' && <div className="mt-1 max-w-[14rem] text-xs text-muted-foreground">{t('quotes.expiredHint')}</div>}

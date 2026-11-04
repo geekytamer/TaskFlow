@@ -132,3 +132,115 @@ test('without a requisition policy the old buttons work as before', () => {
   store.submitPurchaseRequisition(r.id);
   assert.equal(store.approvePurchaseRequisition(r.id).status, 'Approved');
 });
+
+// ── Held credit notes and vendor payments ───────────────────────────
+
+const moneySetup = (docType) => {
+  const ctx = setup();
+  const { store, co, mk } = ctx;
+  const clerk = mk('Accountant', 'Clerk');
+  const cfo = mk('Employee', 'CFO');
+  store.approvals.setPolicy(co, docType, { steps: [{ approvers: [{ kind: 'user', id: cfo.id }], need: 'any' }] });
+  const bill = () => store.createVendorBill({ companyId: co, vendorName: 'Globex', amount: 500, issueDate: new Date(), dueDate: new Date(), status: 'Approved' });
+  const invoice = () => {
+    const client = store.listClients(co)[0];
+    const inv = store.createInvoice({ companyId: co, clientId: client.id, issueDate: new Date(), dueDate: new Date(), status: 'Draft', lineItems: [{ description: 'W', quantity: 1, unitPrice: 300, amount: 300, itemType: 'Manual' }] });
+    return store.updateInvoiceStatus(inv.id, 'Sent');
+  };
+  return { ...ctx, clerk, cfo, bill, invoice };
+};
+
+test('a held payment posts nothing until approved, then posts once', () => {
+  const { store, as, acting, clerk, cfo, bill, refused } = moneySetup('vendor_payment');
+  const b = bill();
+  refused(() => store.createVendorBillPayment({ billId: b.id, amount: 100, paidAt: new Date() }), 'APPROVAL_REQUIRED');
+  const asked = acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 100, paidAt: new Date(), method: 'Bank Transfer' }));
+  assert.ok(asked.hold, 'held');
+  assert.equal(asked.hold.status, 'pending');
+  assert.equal(store.listVendorBillPayments(b.id).length, 0, 'nothing posted');
+  assert.equal(store.approvalView('vendor_payment', asked.hold.id).requesterId, clerk.id);
+  assert.equal(store.decideApproval('vendor_payment', asked.hold.id, as(cfo), 'approve'), 'approved');
+  const payments = store.listVendorBillPayments(b.id);
+  assert.equal(payments.length, 1);
+  assert.equal(payments[0].amount, 100);
+  const hold = store.getApprovalHold(asked.hold.id);
+  assert.equal(hold.status, 'approved');
+  assert.equal(hold.resultId, payments[0].id);
+  refused(() => store.updateVendorBillStatus(b.id, 'Paid'), 'APPROVAL_REQUIRED');
+});
+
+test('payments waiting for approval count: two can\'t pay more than the bill', () => {
+  const { store, acting, clerk, bill } = moneySetup('vendor_payment');
+  const b = bill();
+  acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 400, paidAt: new Date() }));
+  assert.throws(() => acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 200, paidAt: new Date() })), /outstanding/);
+  assert.ok(acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 100, paidAt: new Date() })).hold);
+});
+
+test('approved after its period was locked: the hold fails, nothing posts, the requester is told', () => {
+  const { store, co, as, acting, clerk, cfo, bill } = moneySetup('vendor_payment');
+  const b = bill();
+  const paidAt = new Date(Date.now() - 86_400_000);
+  const asked = acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 300, paidAt }));
+  store.updateCompanyFinanceSettings(co, { lockedThroughDate: new Date() });
+  store.decideApproval('vendor_payment', asked.hold.id, as(cfo), 'approve');
+  const hold = store.getApprovalHold(asked.hold.id);
+  assert.equal(hold.status, 'failed');
+  assert.match(hold.error, /locked/);
+  assert.equal(store.listVendorBillPayments(b.id).length, 0);
+  assert.ok(store.listNotifications(clerk.id).some((n) => /could not be recorded/.test(n.title)));
+});
+
+test('a rejected payment posts nothing; the requester can withdraw a waiting one', () => {
+  const { store, as, acting, clerk, cfo, bill } = moneySetup('vendor_payment');
+  const b = bill();
+  const one = acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 100, paidAt: new Date() })).hold;
+  store.decideApproval('vendor_payment', one.id, as(cfo), 'reject', 'Wrong account');
+  assert.equal(store.getApprovalHold(one.id).status, 'rejected');
+  assert.equal(store.getApprovalHold(one.id).note, 'Wrong account');
+  const two = acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 100, paidAt: new Date() })).hold;
+  assert.throws(() => store.withdrawApprovalHold(two.id, cfo.id, false), (e) => e.status === 403);
+  assert.equal(store.withdrawApprovalHold(two.id, clerk.id, false).status, 'withdrawn');
+  assert.equal(store.approvals.outcome('vendor_payment', two.id), 'not_required');
+  assert.equal(store.listVendorBillPayments(b.id).length, 0);
+});
+
+test('a credit note is held and recorded on approval; holds count against the invoice', () => {
+  const { store, co, as, acting, clerk, cfo, invoice, refused } = moneySetup('credit_note');
+  const inv = invoice();
+  const lines = (n) => [{ description: 'Refund', amount: n }];
+  refused(() => store.createCreditNote({ companyId: co, invoiceId: inv.id, lineItems: lines(10) }), 'APPROVAL_REQUIRED');
+  const asked = acting(clerk, () => store.requestCreditNote({ companyId: co, invoiceId: inv.id, lineItems: lines(200) }));
+  assert.ok(asked.hold);
+  assert.equal(store.listCreditNotes(co).length, 0);
+  assert.throws(() => acting(clerk, () => store.requestCreditNote({ companyId: co, invoiceId: inv.id, lineItems: lines(150) })), /available to credit/);
+  store.decideApproval('credit_note', asked.hold.id, as(cfo), 'approve');
+  const notes = store.listCreditNotes(co);
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].total, 200);
+});
+
+test('without a policy credit notes and payments post at once, as before', () => {
+  const { store, co, mk } = setup();
+  const b = store.createVendorBill({ companyId: co, vendorName: 'G', amount: 50, issueDate: new Date(), dueDate: new Date(), status: 'Approved' });
+  assert.ok(store.requestVendorPayment({ billId: b.id, amount: 50, paidAt: new Date() }).payment);
+  assert.ok(mk);
+});
+
+// ── Handing a step on ────────────────────────────────────────────────
+
+test('a step can\'t be handed to someone who already approved, or to someone outside the company', () => {
+  const { store, co, mk, as, acting } = setup();
+  const a = mk('Employee');
+  const b = mk('Employee');
+  const asker = mk('Employee');
+  const outsider = store.createUser({ name: 'Out', email: 'out@apw2.test', password: 'x', role: 'Admin', companyIds: [store.createCompany({ name: 'Other' }).id] });
+  store.approvals.setPolicy(co, 'vendor_bill', { steps: [{ approvers: [{ kind: 'user', id: a.id }], need: 'any' }, { approvers: [{ kind: 'user', id: b.id }], need: 'any' }] });
+  const bill = acting(asker, () => store.createVendorBill({ companyId: co, vendorName: 'G', amount: 10, issueDate: new Date(), dueDate: new Date(), status: 'Approved' }));
+  store.decideApproval('vendor_bill', bill.id, as(a), 'approve');
+  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: a.id }, a.id, 'b is away'), /already approved/);
+  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: a.id }, outsider.id, 'b is away'), /can't open/);
+  const step = store.reassignApproval('vendor_bill', bill.id, { id: a.id }, mk('Employee').id, 'b is away');
+  assert.equal(step.level, 2);
+  assert.equal(step.need, 'any');
+});

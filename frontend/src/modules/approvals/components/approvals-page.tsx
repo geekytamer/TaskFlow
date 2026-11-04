@@ -8,12 +8,13 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { AlertTriangle, CheckCircle2, CircleDashed, ClipboardCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, CircleDashed, ClipboardCheck, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
 import { useCompanyScope } from '@/context/company-scope-context';
+import { useCan } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/currency';
@@ -25,6 +26,8 @@ import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import {
   decideApproval, docLink, docTypeLabel, getApprovals, type ApprovalBox, type ApprovalItem,
 } from '@/services/approvalService';
+import { approverText } from '../lib/wording';
+import { ApprovalPanel } from './approval-panel';
 import { DelegationCard } from './delegation-card';
 
 export function ApprovalsPage() {
@@ -34,8 +37,12 @@ export function ApprovalsPage() {
   const tr = React.useCallback((en: string, ar: string) => (language === 'ar' ? ar : en), [language]);
   const { toast } = useToast();
   const currencyOf = useCurrencyOf();
-  const [box, setBox] = React.useState<ApprovalBox>(() =>
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('box') === 'mine' ? 'mine' : 'waiting');
+  const canManage = useCan('settings.manage_approvals');
+  const [box, setBox] = React.useState<ApprovalBox>(() => {
+    const asked = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('box') : null;
+    return asked === 'mine' || asked === 'decided' || asked === 'open' ? asked : 'waiting';
+  });
+  const [expanded, setExpanded] = React.useState<string | null>(null);
   const [items, setItems] = React.useState<ApprovalItem[] | null>(null);
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const [notes, setNotes] = React.useState<Record<string, string>>({});
@@ -95,6 +102,7 @@ export function ApprovalsPage() {
             <TabsTrigger value="waiting">{tr('Waiting for me', 'بانتظاري')}</TabsTrigger>
             <TabsTrigger value="mine">{tr('My requests', 'طلباتي')}</TabsTrigger>
             <TabsTrigger value="decided">{tr('Decided', 'ما قررته')}</TabsTrigger>
+            {canManage && <TabsTrigger value="open">{tr('All open', 'كل المفتوح')}</TabsTrigger>}
           </TabsList>
         </Tabs>
         <DelegationCard />
@@ -103,7 +111,7 @@ export function ApprovalsPage() {
       {items === null ? <p className="text-sm text-muted-foreground">{tr('Loading…', 'جارٍ التحميل…')}</p> : items.length === 0 ? (
         <div className="rounded-lg border border-dashed py-14 text-center text-muted-foreground">
           <CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-          {box === 'waiting' ? tr('Nothing is waiting for you.', 'لا شيء ينتظرك.') : tr('Nothing here yet.', 'لا شيء هنا بعد.')}
+          {box === 'waiting' ? tr('Nothing is waiting for you.', 'لا شيء ينتظرك.') : box === 'open' ? tr('Nothing is waiting for approval in this company.', 'لا شيء بانتظار الموافقة في هذه الشركة.') : tr('Nothing here yet.', 'لا شيء هنا بعد.')}
         </div>
       ) : (
         <ul className="space-y-3">
@@ -129,7 +137,7 @@ export function ApprovalsPage() {
                       {s.status === 'approved' ? <CheckCircle2 className="h-3 w-3 text-emerald-600" aria-hidden="true" />
                         : s.status === 'rejected' ? <XCircle className="h-3 w-3 text-destructive" aria-hidden="true" />
                         : <CircleDashed className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                      <span>{s.approvers.map((a) => a.label).join(s.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))}</span>
+                      <span dir="auto">{approverText(s.approvers, s.need, tr)}</span>
                       {s.ownerCompanyId && s.ownerCompanyId !== w.companyId && <span className="text-muted-foreground">· {companyName(s.ownerCompanyId) !== s.ownerCompanyId ? companyName(s.ownerCompanyId) : tr('the group', 'المجموعة')}</span>}
                       {s.decidedByName && <span className="text-muted-foreground">· {s.decidedByName}</span>}
                       {s.stuck && (
@@ -144,7 +152,7 @@ export function ApprovalsPage() {
                   <p className="mt-1 text-xs text-muted-foreground" dir="auto">“{w.steps.filter((s) => s.note).map((s) => s.note).join(' · ')}”</p>
                 )}
 
-                {w.canDecide && (
+                {w.canDecide && box !== 'open' && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     {w.onBehalfOf && <span className="text-xs text-muted-foreground">{tr('You are standing in for a colleague.', 'أنت تنوب عن زميل.')}</span>}
                     <Input className="min-w-48 flex-1" placeholder={tr('Note (needed to reject or send back)', 'ملاحظة (مطلوبة للرفض أو الإعادة)')} aria-label={tr('Note', 'ملاحظة')} value={notes[key] ?? ''} onChange={(e) => setNotes((n) => ({ ...n, [key]: e.target.value }))} />
@@ -153,9 +161,21 @@ export function ApprovalsPage() {
                     <Button disabled={busy === key} onClick={() => act(w, 'approve')}>{tr('Approve', 'موافقة')}</Button>
                   </div>
                 )}
-                <div className="mt-1">
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
                   <Button variant="link" className="h-auto p-0 text-xs" asChild><Link href={docLink(w.docType)}>{tr('Open', 'فتح')}</Link></Button>
+                  <Button
+                    variant="link" className="h-auto gap-1 p-0 text-xs" aria-expanded={expanded === key}
+                    onClick={() => setExpanded((k) => (k === key ? null : key))}
+                  >
+                    {box === 'open' && w.canReassign ? tr('History and hand on', 'السجل والتسليم') : tr('History', 'السجل')}
+                    <ChevronDown className={`h-3 w-3 transition-transform ${expanded === key ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </Button>
                 </div>
+                {expanded === key && (
+                  <div className="mt-3 border-t pt-3">
+                    <ApprovalPanel docType={w.docType} docId={w.docId} onChanged={() => void load()} />
+                  </div>
+                )}
               </li>
             );
           })}

@@ -73,6 +73,16 @@ export interface ApprovalPeople {
   reaches: (userId: string, companyId: string) => boolean;
 }
 
+/** Credit notes and vendor payments post when recorded, so with a policy they are held until approved. */
+export type HoldDocType = 'credit_note' | 'vendor_payment';
+export interface ApprovalHold {
+  id: string; companyId: string; docType: HoldDocType; targetId: string | null;
+  payload: Record<string, unknown>; amount: number; label: string; party: string | null;
+  status: 'pending' | 'approved' | 'failed' | 'rejected' | 'withdrawn';
+  resultId: string | null; error: string | null; note: string | null; requesterId: string | null;
+  createdAt: string; endedAt: string | null;
+}
+
 export class ApprovalError extends Error {}
 
 const parse = <T>(text: unknown, fallback: T): T => {
@@ -455,6 +465,11 @@ export class ApprovalStore {
       .get(docType, docId, userId, userId));
   }
 
+  /** Whether this person (or someone they stand in for) can decide the current step now. */
+  canDecide(docType: ApprovalDocType, docId: string, userId: string): boolean {
+    return this.seat(docType, docId, userId).ok;
+  }
+
   /** Whether this person decides the current step for someone else (a delegation), or for themselves. */
   actingFor(docType: ApprovalDocType, docId: string, userId: string): string | null {
     const seat = this.seat(docType, docId, userId);
@@ -560,15 +575,16 @@ export class ApprovalStore {
   }
 
   /** Each document of this type with a request in this company: where it stands, for list chips. */
-  statuses(companyId: string, docType: ApprovalDocType): Array<{ docId: string; status: ApprovalOutcome; level: number | null; levels: number; current: string | null }> {
+  statuses(companyId: string, docType: ApprovalDocType): Array<{ docId: string; status: ApprovalOutcome; level: number | null; levels: number; need: Need | null; approvers: Array<Approver & { label: string }>; stuck: boolean }> {
     const rows = this.db.prepare('SELECT docId FROM approval_requests WHERE companyId = ? AND docType = ?').all(companyId, docType) as Array<{ docId: string }>;
     return rows.map(({ docId }) => {
       const steps = this.steps(docType, docId);
       const status = this.outcome(docType, docId);
       const step = status === 'pending' ? steps.find((s) => s.status === 'pending') : undefined;
+      const viewed = step ? this.view(docType, docId).steps.find((x) => x.level === step.level) : undefined;
       return {
-        docId, status, level: step?.level ?? null, levels: steps.length,
-        current: step ? [...new Set(step.approvers.map((a) => this.label(a)))].join(step.need === 'all' ? ' and ' : ' or ') : null,
+        docId, status, level: step?.level ?? null, levels: steps.length, need: step?.need ?? null,
+        approvers: viewed?.approvers ?? [], stuck: viewed?.stuck ?? false,
       };
     }).filter((r) => r.status !== 'not_required');
   }

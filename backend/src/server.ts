@@ -7052,6 +7052,23 @@ export function createServer(options: CreateServerOptions = {}) {
     const d = store.getDocumentById(id);
     return d ? { companyId: d.companyId, number: d.title, amount: 0, party: null, date: new Date(d.createdAt) } : undefined;
   }, (id) => store.getDocumentById(id));
+  // Wave 2: the store moves these documents when their approval ends (leave, requisitions, held credit notes and payments).
+  approvalDocs.leave_request = followsRequest((id) => {
+    const l = store.getLeaveRequestById(id);
+    const e = l ? store.getEmployeeById(l.employeeId) : undefined;
+    return l ? { companyId: l.companyId, number: `${l.days} day${l.days === 1 ? '' : 's'} leave`, amount: Number(l.days) || 0, party: e?.name ?? null, date: new Date(l.startDate) } : undefined;
+  }, (id) => store.getLeaveRequestById(id));
+  approvalDocs.purchase_requisition = followsRequest((id) => {
+    const r = store.getPurchaseRequisitionById(id);
+    const total = r ? r.items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.estimatedUnitCost) || 0), 0) : 0;
+    return r ? { companyId: r.companyId, number: r.requisitionNumber, amount: Number(total.toFixed(2)), party: r.department ?? null, date: new Date(r.createdAt) } : undefined;
+  }, (id) => store.getPurchaseRequisitionById(id));
+  const heldDoc = followsRequest((id) => {
+    const h = store.getApprovalHold(id);
+    return h ? { companyId: h.companyId, number: h.label, amount: h.amount, party: h.party, date: new Date(h.createdAt) } : undefined;
+  }, (id) => store.getApprovalHold(id));
+  approvalDocs.credit_note = heldDoc;
+  approvalDocs.vendor_payment = heldDoc;
   const docSummary = (docType: ApprovalDocType, docId: string) => approvalDocs[docType]?.summary(docId);
   /** One person's decision on a document's request; when the request ends, the document follows. */
   const decideDocument = (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => {
@@ -7207,8 +7224,8 @@ export function createServer(options: CreateServerOptions = {}) {
         };
       });
       try {
-        const note = withActor(req, () =>
-          store.createCreditNote({
+        const asked = withActor(req, () =>
+          store.requestCreditNote({
             companyId: req.params.companyId,
             invoiceId: optionalString(body.invoiceId),
             clientId: optionalString(body.clientId),
@@ -7217,10 +7234,39 @@ export function createServer(options: CreateServerOptions = {}) {
             reason: optionalString(body.reason),
           }),
         );
-        res.status(201).json(note);
+        // Held for approval: 202, nothing posted yet.
+        if (asked.hold) res.status(202).json({ held: true, hold: asked.hold });
+        else res.status(201).json(asked.creditNote);
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error instanceof Error ? error.message : 'Could not create credit note.');
       }
+    }),
+  );
+
+  // ─── Held credit notes and payments (waiting for approval) ─────────────────
+
+  app.get(
+    '/companies/:companyId/approval-holds',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const docType = req.query.docType === 'credit_note' || req.query.docType === 'vendor_payment' ? req.query.docType : undefined;
+      const statuses = ['pending', 'approved', 'failed', 'rejected', 'withdrawn'] as const;
+      const status = statuses.find((x) => x === req.query.status);
+      res.json(store.listApprovalHolds(req.params.companyId, { docType, targetId: optionalString(req.query.targetId), status }));
+    }),
+  );
+
+  app.post(
+    '/approval-holds/:id/withdraw',
+    authMiddleware,
+    handler((req, res) => {
+      const hold = store.getApprovalHold(req.params.id);
+      if (!hold) throw new HttpError(404, 'Not found.');
+      requireCompanyAccess(req, hold.companyId);
+      const isAdmin = store.approvals.people?.roleOf(req.user!.id, hold.companyId) === 'Admin';
+      res.json(withActor(req, () => store.withdrawApprovalHold(hold.id, req.user!.id, isAdmin)));
     }),
   );
 
@@ -7811,7 +7857,7 @@ export function createServer(options: CreateServerOptions = {}) {
       let result;
       try {
         result = withActor(req, () =>
-          store.createVendorBillPayment({
+          store.requestVendorPayment({
             billId: req.params.id,
             amount,
             method: optionalString(body.method),
@@ -7822,9 +7868,12 @@ export function createServer(options: CreateServerOptions = {}) {
           }),
         );
       } catch (error: any) {
+        if (error instanceof HttpError) throw error;
         throw new HttpError(400, error?.message || 'Could not create vendor bill payment.');
       }
-      res.status(201).json(result);
+      // Held for approval: 202, nothing paid yet.
+      if (result.hold) res.status(202).json({ held: true, hold: result.hold, bill: result.bill });
+      else res.status(201).json(result);
     }),
   );
 
