@@ -138,3 +138,36 @@ Trail kind `reassigned`.
 - Conditions other than amount (category, department, vendor).
 - Parallel branches; out-of-office auto-delegation from HR leave.
 - Approving several documents at once.
+
+## As built (2026-11-04)
+
+- **Mark as Paid** (single or bulk) with a payment policy is refused with a
+  pointer to *Record payment*, which holds the payment. Holding a payment
+  for the whole outstanding amount from a bulk action would send many
+  requests no one asked for one by one; refusing is clearer.
+- Leave has no edit route, so "more days asks again" has nothing to hook
+  into; *Cancelled → Pending* asks again, and *Approved/Rejected* by hand is
+  refused while leave needs approval (only a leave still Pending from
+  before the policy is decided by hand).
+- Leave recorded for someone without a login by their own line manager:
+  nobody counts as the requester, so that manager can decide it.
+- Leave bands are days, so a group's leave sign-off ignores currencies.
+- The status list and a request's details: leave is listed to everyone
+  in the company; other documents need the document's own view permission
+  (`purchasing.view`, `invoices.view`, `vendor-bills.view`, …). Details are
+  open to whoever is on the request.
+- A step counts as stuck when its only possible approver is the requester
+  (and the policy doesn't allow your own). Nobody can hand a step to
+  themselves.
+- Holds: the hold and its request are saved together; credits waiting on an
+  invoice trim a later return's credit; a release the books refuse tells
+  the requester once.
+
+### Review fixes (2026-11-04)
+
+Fresh review found: cancelled leave approvable by hand (critical); an
+administrator handing a step to themselves; a bill created Paid half-saved
+under a payment policy; a second return blocked by a waiting credit;
+amounts readable by any member through the details route; a manager who
+recorded leave for their own staff unable to decide it; a hold saved
+without its request on failure. All fixed with regression tests.

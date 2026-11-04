@@ -238,9 +238,65 @@ test('a step can\'t be handed to someone who already approved, or to someone out
   store.approvals.setPolicy(co, 'vendor_bill', { steps: [{ approvers: [{ kind: 'user', id: a.id }], need: 'any' }, { approvers: [{ kind: 'user', id: b.id }], need: 'any' }] });
   const bill = acting(asker, () => store.createVendorBill({ companyId: co, vendorName: 'G', amount: 10, issueDate: new Date(), dueDate: new Date(), status: 'Approved' }));
   store.decideApproval('vendor_bill', bill.id, as(a), 'approve');
-  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: a.id }, a.id, 'b is away'), /already approved/);
-  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: a.id }, outsider.id, 'b is away'), /can't open/);
-  const step = store.reassignApproval('vendor_bill', bill.id, { id: a.id }, mk('Employee').id, 'b is away');
+  const boss = mk('Admin');
+  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: boss.id }, a.id, 'b is away'), /already approved/);
+  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: boss.id }, outsider.id, 'b is away'), /can't open/);
+  const step = store.reassignApproval('vendor_bill', bill.id, { id: boss.id }, mk('Employee').id, 'b is away');
   assert.equal(step.level, 2);
   assert.equal(step.need, 'any');
+});
+
+// ── Review fixes (2026-11-04) ────────────────────────────────────────
+
+test('cancelled leave can\'t be approved by hand; back to Pending asks again', () => {
+  const { store, co, acting, hr, workerRec, refused } = leaveSetup();
+  const leave = acting(hr, () => store.createLeaveRequest({ companyId: co, employeeId: workerRec.id, startDate: day(1), endDate: day(2) }));
+  store.setLeaveRequestStatus(leave.id, 'Cancelled', { userId: hr.id, name: hr.name });
+  refused(() => store.setLeaveRequestStatus(leave.id, 'Approved', { userId: hr.id, name: hr.name }), 'APPROVAL_REQUIRED');
+  store.setLeaveRequestStatus(leave.id, 'Pending', { userId: hr.id, name: hr.name });
+  assert.equal(store.approvals.outcome('leave_request', leave.id), 'pending');
+  refused(() => store.setLeaveRequestStatus(leave.id, 'Approved', { userId: hr.id, name: hr.name }), 'APPROVAL_PENDING');
+});
+
+test('a manager recording leave for their own staff without a login can still decide it', () => {
+  const { store, co, as, acting, boss, workerRec } = leaveSetup(false);
+  const leave = acting(boss, () => store.createLeaveRequest({ companyId: co, employeeId: workerRec.id, startDate: day(1), endDate: day(2) }));
+  assert.equal(store.approvalView('leave_request', leave.id).steps[0].stuck, false);
+  assert.equal(store.decideApproval('leave_request', leave.id, as(boss), 'approve'), 'approved');
+});
+
+test('a step whose only approver is the requester shows as stuck', () => {
+  const { store, co, mk, acting } = setup();
+  const solo = mk('Employee');
+  store.approvals.setPolicy(co, 'vendor_bill', { steps: [{ approvers: [{ kind: 'user', id: solo.id }], need: 'any' }] });
+  const bill = acting(solo, () => store.createVendorBill({ companyId: co, vendorName: 'G', amount: 5, issueDate: new Date(), dueDate: new Date(), status: 'Approved' }));
+  assert.equal(store.approvalView('vendor_bill', bill.id).steps[0].stuck, true);
+  assert.equal(store.approvals.statuses(co, 'vendor_bill')[0].stuck, true);
+});
+
+test('nobody can hand a step to themselves', () => {
+  const { store, co, mk, acting } = setup();
+  const admin = mk('Admin');
+  const other = mk('Employee');
+  store.approvals.setPolicy(co, 'vendor_bill', { steps: [{ approvers: [{ kind: 'user', id: other.id }], need: 'any' }] });
+  const bill = acting(mk('Employee'), () => store.createVendorBill({ companyId: co, vendorName: 'G', amount: 5, issueDate: new Date(), dueDate: new Date(), status: 'Approved' }));
+  assert.throws(() => store.reassignApproval('vendor_bill', bill.id, { id: admin.id }, admin.id, 'I will do it'), /yourself/);
+});
+
+test('a bill can\'t be created already Paid while payments need approval, and nothing is half-saved', () => {
+  const { store, co, refused } = moneySetup('vendor_payment');
+  const before = store.listVendorBills(co).length;
+  refused(() => store.createVendorBill({ companyId: co, vendorName: 'G', amount: 50, issueDate: new Date(), dueDate: new Date(), status: 'Paid' }), 'APPROVAL_REQUIRED');
+  assert.equal(store.listVendorBills(co).length, before);
+});
+
+test('a failed release tells the requester once, not "approved" as well', () => {
+  const { store, co, as, acting, clerk, cfo, bill } = moneySetup('vendor_payment');
+  const b = bill();
+  const asked = acting(clerk, () => store.requestVendorPayment({ billId: b.id, amount: 100, paidAt: new Date(Date.now() - 864e5) }));
+  store.updateCompanyFinanceSettings(co, { lockedThroughDate: new Date() });
+  store.decideApproval('vendor_payment', asked.hold.id, as(cfo), 'approve');
+  const titles = store.listNotifications(clerk.id).map((n) => n.title);
+  assert.equal(titles.filter((t) => /could not be recorded/.test(t)).length, 1);
+  assert.equal(titles.filter((t) => /was approved$/.test(t)).length, 0);
 });

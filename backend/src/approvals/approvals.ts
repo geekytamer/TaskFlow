@@ -504,16 +504,26 @@ export class ApprovalStore {
     ).all(companyId, companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
   }
 
+  /**
+   * Nobody can decide this waiting step: no one fills an approver ("any":
+   * every approver; "all": any one of them), counting that the requester
+   * can't decide their own request unless its policy allows it.
+   */
+  private stuck(s: ApprovalStep, req: NonNullable<ReturnType<ApprovalStore['request']>>, docType: ApprovalDocType): boolean {
+    if (s.status !== 'pending' || this.people === null) return false;
+    const policy = this.policy(s.ownerCompanyId !== req.companyId ? s.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
+    const empty = (a: Approver) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId, req.managerUserId)
+      .filter((id) => policy.allowSelf || id !== req.requesterId).length === 0;
+    return s.need === 'all' ? s.approvers.some(empty) : s.approvers.every(empty);
+  }
+
   /** The request as a reader sees it: steps with who and whether anyone can fill them, and the trail. */
   view(docType: ApprovalDocType, docId: string) {
     const req = this.request(docType, docId);
     const steps = this.steps(docType, docId).map((s) => ({
       level: s.level, status: s.status, need: s.need, minAmount: s.minAmount, ownerCompanyId: s.ownerCompanyId,
       approvers: s.approvers.map((a) => ({ ...a, label: this.label(a) })),
-      stuck: s.status === 'pending' && this.people !== null && req !== undefined
-        && (s.need === 'all'
-          ? s.approvers.some((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId, req.managerUserId).length === 0)
-          : s.approvers.every((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId, req.managerUserId).length === 0)),
+      stuck: req !== undefined && this.stuck(s, req, docType),
       decidedByName: s.decidedByName, decidedAt: s.decidedAt, note: s.note,
     }));
     return {
@@ -552,6 +562,8 @@ export class ApprovalStore {
       const steps = this.steps(docType, docId);
       if (!req || req.status === 'changes_requested' || outcomeOf(steps) !== 'pending') throw new ApprovalError('Nothing is waiting for approval on this document.');
       const step = steps.find((s) => s.status === 'pending')!;
+      // Whoever hands a step on doesn't take it themselves: administrators reassign, they don't approve.
+      if (toUserId === by.id) throw new ApprovalError('You can\'t hand a step to yourself; choose someone else.');
       if (!this.who.reaches(toUserId, step.ownerCompanyId)) throw new ApprovalError('That person can\'t open the company that decides this step.');
       const policy = this.policy(step.ownerCompanyId !== req.companyId ? step.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
       if (!policy.allowSelf && toUserId === req.requesterId) throw new ApprovalError('The requester can\'t approve their own request.');
@@ -581,10 +593,11 @@ export class ApprovalStore {
       const steps = this.steps(docType, docId);
       const status = this.outcome(docType, docId);
       const step = status === 'pending' ? steps.find((s) => s.status === 'pending') : undefined;
-      const viewed = step ? this.view(docType, docId).steps.find((x) => x.level === step.level) : undefined;
+      const req = step ? this.request(docType, docId) : undefined;
       return {
         docId, status, level: step?.level ?? null, levels: steps.length, need: step?.need ?? null,
-        approvers: viewed?.approvers ?? [], stuck: viewed?.stuck ?? false,
+        approvers: step ? step.approvers.map((a) => ({ ...a, label: this.label(a) })) : [],
+        stuck: Boolean(step && req && this.stuck(step, req, docType)),
       };
     }).filter((r) => r.status !== 'not_required');
   }

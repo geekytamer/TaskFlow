@@ -250,6 +250,7 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
         status: body.status,
       }));
     } catch (error) {
+      if (error instanceof HttpError) throw error;
       throw new HttpError(400, error instanceof Error ? error.message : 'Could not create leave request.');
     }
   }));

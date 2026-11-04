@@ -15,6 +15,13 @@ export interface ApprovalDecisions {
 /** Document types wired so far (wave 1, and wave 2 of 2026-11-04): every type. */
 const WIRED_DOC_TYPES: ApprovalDocType[] = APPROVAL_DOC_TYPES;
 
+/** Who may read each kind of document (amounts, parties, history) without being on its request. */
+const READ_KEYS: Record<ApprovalDocType, string> = {
+  purchase_order: 'purchasing.view', purchase_requisition: 'purchasing.view', expense: 'finance.view',
+  vendor_bill: 'vendor-bills.view', vendor_payment: 'vendor-bills.view', invoice: 'invoices.view', credit_note: 'invoices.view',
+  quotation: 'sales.view', payroll_run: 'payroll.view', document: 'documents.view', leave_request: 'hr.view',
+};
+
 /** The permission that lets someone decide a step, per kind of document (route-registry HANDLER_CHECKED). */
 const DECISION_KEYS: Partial<Record<ApprovalDocType, string>> = {
   purchase_order: 'purchasing.approve_step',
@@ -271,7 +278,10 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
           ...w, ...docSummary(w.docType, w.docId), levels: view.steps.length,
           status: view.status, steps: view.steps, requesterId: view.requesterId,
           canDecide: box === 'waiting' || (box === 'open' && store.approvals.canDecide(w.docType, w.docId, me)),
-          canReassign: box === 'open' && view.status === 'pending',
+          canReassign: box === 'open' && view.status === 'pending' && (() => {
+            const current = view.steps.find((x) => x.status === 'pending');
+            return Boolean(current) && mayManageApprovals(req, current!.ownerCompanyId);
+          })(),
         };
       }).filter((w) => w.number !== undefined);
       // Stuck first: nobody can decide them until someone hands them on.
@@ -282,8 +292,10 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
 
   /** Where each document of one type stands, for the chips on its list. */
   app.get('/companies/:companyId/approvals/status', authMiddleware, handler((req, res) => {
-    requireCompanyAccess(req, req.params.companyId);
     const docType = enumValue(req.query.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    // Leave is listed to everyone in the company (as its own list is); other documents to those who run them.
+    if (docType === 'leave_request') requireCompanyAccess(req, req.params.companyId);
+    else requireCompanyRoles(req, req.params.companyId, companyManagementRoles, READ_KEYS[docType]);
     res.json(store.approvals.statuses(req.params.companyId, docType));
   }));
 
@@ -295,6 +307,12 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
     requireDocOrStepAccess(req, docType, req.params.docId, doc.companyId);
     const view = store.approvalView(docType, req.params.docId);
     const me = req.user!.id;
+    // Its amount, party and history are for whoever is on it (asked, decides, decided, hands it on)
+    // or runs the document's company; any other member sees nothing.
+    const onIt = view.requesterId === me || store.approvals.involves(docType, req.params.docId, me);
+    if (!onIt && !mayManageApprovals(req, view.steps.find((s) => s.status === 'pending')?.ownerCompanyId ?? doc.companyId)) {
+      requireCompanyRoles(req, doc.companyId, companyManagementRoles, READ_KEYS[docType]);
+    }
     const current = view.steps.find((s) => s.status === 'pending');
     const canDecide = store.approvals.canDecide(docType, req.params.docId, me);
     const canReassign = Boolean(current) && view.status === 'pending' && mayManageApprovals(req, current!.ownerCompanyId);

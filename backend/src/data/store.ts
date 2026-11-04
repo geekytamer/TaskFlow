@@ -10907,7 +10907,11 @@ export class DataStore {
       const m = employee.managerId ? this.getEmployeeById(employee.managerId) : undefined;
       return m && m.status !== 'Terminated' && m.userId ? m.userId : '';
     })();
-    this.beginApproval(leave.companyId, 'leave_request', id, Number(leave.days) || 0, { requesterId: own ?? this.currentActor?.userId ?? null, managerUserId });
+    // Recorded for someone without a login by their own manager: the manager records it on the
+    // employee's behalf and still decides it, so nobody counts as having asked.
+    const recorder = this.currentActor?.userId ?? null;
+    const requesterId = own ?? (recorder && recorder === managerUserId ? null : recorder);
+    this.beginApproval(leave.companyId, 'leave_request', id, Number(leave.days) || 0, { requesterId, managerUserId });
   }
 
   setLeaveRequestStatus(
@@ -10918,13 +10922,23 @@ export class DataStore {
   ): LeaveRequest | undefined {
     const existing = this.getLeaveRequestById(id);
     if (!existing) return undefined;
-    // Approved or Rejected come from the approval when one is running; cancelling withdraws it.
-    if ((status === 'Approved' || status === 'Rejected') && this.approvals.outcome('leave_request', id) !== 'not_required') {
-      this.requireApproved('leave_request', id, status === 'Approved' ? 'approved by hand' : 'rejected by hand');
-      if (status === 'Rejected') throw new HttpError(409, 'This leave was approved through Approvals; cancel it instead.', { code: 'APPROVAL_DECIDED' });
+    // While leave needs approval, Approved and Rejected come from the approval, never by hand.
+    // Only a leave still Pending from before the policy (it never asked) is decided by hand.
+    const outcome = this.approvals.outcome('leave_request', id);
+    if ((status === 'Approved' || status === 'Rejected') && (outcome !== 'not_required' || this.approvalApplies(existing.companyId, 'leave_request'))) {
+      if (outcome === 'not_required' && existing.status !== 'Pending') {
+        throw new HttpError(409, 'Leave needs approval in this company: set it back to Pending and it goes for approval.', { code: 'APPROVAL_REQUIRED' });
+      }
+      if (outcome !== 'not_required') {
+        this.requireApproved('leave_request', id, status === 'Approved' ? 'approved by hand' : 'rejected by hand');
+        if (status === 'Rejected') throw new HttpError(409, 'This leave was approved through Approvals; cancel it instead.', { code: 'APPROVAL_DECIDED' });
+      }
     }
-    if (status === 'Cancelled' && this.approvals.outcome('leave_request', id) === 'pending') this.forgetApproval('leave_request', id);
-    return this.writeLeaveStatus(id, status, reviewer, note);
+    if (status === 'Cancelled' && outcome === 'pending') this.forgetApproval('leave_request', id);
+    const written = this.writeLeaveStatus(id, status, reviewer, note);
+    // Back to Pending asks again.
+    if (status === 'Pending' && existing.status !== 'Pending') this.beginLeaveApproval(id);
+    return written;
   }
 
   /** What the approval decided, written to the leave. */
@@ -16783,7 +16797,8 @@ export class DataStore {
           const net = this.resolveLineDiscount(soLine.quantity * soLine.unitPrice, soLine.discount, soLine.discountType).net / soLine.quantity;
           return { description: `Return of ${line.quantity} × ${line.description}`, amount: Number((net * line.quantity * (1 + rate / 100)).toFixed(2)) };
         }).filter((l): l is { description: string; amount: number } => Boolean(l && l.amount > 0));
-        const available = Number((invoice.total - this.getInvoiceCreditedAmount(invoice.id)).toFixed(2));
+        // Credit notes waiting for approval on this invoice count as already credited.
+        const available = Number((invoice.total - this.getInvoiceCreditedAmount(invoice.id) - this.heldAmount('credit_note', invoice.id)).toFixed(2));
         let total = Number(lineItems.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
         if (total > available && lineItems.length) {
           // Cap at what is left to credit, trimming the last line.
@@ -17330,7 +17345,8 @@ export class DataStore {
       if (!signOff.length) return [];
       const groupCurrency = this.getCompanyFinanceSettings(groupId).currencyCode;
       // No amount band (from 0, no ceiling) means nothing to compare: the currency doesn't matter.
-      const banded = signOff.some((r) => r.minAmount > 0 || r.maxAmount !== null);
+      // Leave is counted in days, which mean the same in every currency.
+      const banded = docType !== 'leave_request' && signOff.some((r) => r.minAmount > 0 || r.maxAmount !== null);
       if (groupCurrency === currency || !banded) return levelsFor(signOff, amount).map((l) => ({ ...l, ownerCompanyId: groupId }));
       const name = this.getCompanyById(groupId)?.name ?? 'The group';
       return levelsFor(signOff.map((r) => ({ ...r, minAmount: 0, maxAmount: null })), 0).map((l) => ({
@@ -17363,7 +17379,9 @@ export class DataStore {
     const now = this.approvals.steps(docType, docId).find((s) => s.status === 'pending')?.level;
     if (outcome === 'pending' && now !== before) this.notifyApprovers(companyId, docType, docId);
     // Purchase orders and expenses tell their requester through their own messages.
-    if (outcome !== 'pending' && docType !== 'purchase_order' && docType !== 'expense') {
+    // A held entry the books refused has told its requester already (approved, but not recorded).
+    const failedHold = (docType === 'credit_note' || docType === 'vendor_payment') && this.getApprovalHold(docId)?.status === 'failed';
+    if (outcome !== 'pending' && docType !== 'purchase_order' && docType !== 'expense' && !failedHold) {
       const requesterId = this.approvals.view(docType, docId).requesterId;
       if (requesterId && requesterId !== actor.id) {
         const said = outcome === 'approved' ? 'approved' : outcome === 'rejected' ? 'rejected' : 'sent back for changes';
@@ -17578,9 +17596,12 @@ export class DataStore {
       id: uuid(), companyId, docType, targetId, payload: JSON.stringify(payload), amount: Number(amount.toFixed(2)), label, party,
       requesterId: this.currentActor?.userId ?? null, createdAt: new Date().toISOString(),
     };
-    this.db.prepare('INSERT INTO approval_holds (id, companyId, docType, targetId, payload, amount, label, party, status, requesterId, createdAt) VALUES (@id, @companyId, @docType, @targetId, @payload, @amount, @label, @party, \'pending\', @requesterId, @createdAt)').run(hold);
-    this.createActivityEvent({ companyId, entityType: docType === 'credit_note' ? 'invoice' : 'vendor_bill', entityId: targetId ?? hold.id, action: 'held', summary: `${label} sent for approval.`, metadata: { targetId, amount: hold.amount } });
-    const outcome = this.beginApproval(companyId, docType, hold.id, amount, { requesterId: hold.requesterId });
+    // The hold and its request stand or fall together: no hold without anyone asked to decide it.
+    const outcome = this.db.transaction(() => {
+      this.db.prepare('INSERT INTO approval_holds (id, companyId, docType, targetId, payload, amount, label, party, status, requesterId, createdAt) VALUES (@id, @companyId, @docType, @targetId, @payload, @amount, @label, @party, \'pending\', @requesterId, @createdAt)').run(hold);
+      this.createActivityEvent({ companyId, entityType: docType === 'credit_note' ? 'invoice' : 'vendor_bill', entityId: targetId ?? hold.id, action: 'held', summary: `${label} sent for approval.`, metadata: { targetId, amount: hold.amount } });
+      return this.beginApproval(companyId, docType, hold.id, amount, { requesterId: hold.requesterId });
+    })();
     // Every step fell away (a manager step with no manager): nothing to wait for.
     if (outcome === 'not_required') this.releaseHold(hold.id);
     return this.getApprovalHold(hold.id)!;
@@ -20107,6 +20128,9 @@ export class DataStore {
     // A bill created already paid would skip its approval: with a policy, it is paid after.
     if (requestedStatus === 'Paid' && this.approvalApplies(input.companyId, 'vendor_bill')) {
       throw new HttpError(409, 'Vendor bills need approval in this company: record the bill first, then pay it once approved.', { code: 'APPROVAL_REQUIRED' });
+    }
+    if (requestedStatus === 'Paid' && this.approvalApplies(input.companyId, 'vendor_payment')) {
+      throw new HttpError(409, 'Payments need approval in this company: record the bill, then record its payment and it is sent for approval.', { code: 'APPROVAL_REQUIRED' });
     }
     const bill: VendorBill = {
       ...input,

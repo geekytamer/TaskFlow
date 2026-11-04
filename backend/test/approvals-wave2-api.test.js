@@ -74,7 +74,11 @@ for (const engine of ['legacy', 'v2']) {
     const ctx = setup(engine);
     const { server, co, mk, as } = ctx;
     const { bill } = stuckBill(ctx);
-    const res = await as(mk('Employee')).get(`/companies/${co.id}/approvals/status?docType=vendor_bill`);
+    const outsider = mk('Employee');
+    assert.equal((await as(outsider).get(`/companies/${co.id}/approvals/status?docType=vendor_bill`)).status, 403, 'bills are for those who run them');
+    assert.equal((await as(outsider).get(`/companies/${co.id}/approvals/status?docType=leave_request`)).status, 200, 'leave is listed to everyone');
+    assert.equal((await as(outsider).get(`/approvals/vendor_bill/${bill.id}/view`)).status, 403, 'not on it: no amounts or history');
+    const res = await as(mk('Accountant')).get(`/companies/${co.id}/approvals/status?docType=vendor_bill`);
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.deepEqual(res.body.map((r) => [r.docId, r.status, r.level, r.levels]), [[bill.id, 'pending', 1, 1]]);
     assert.equal(res.body[0].stuck, true);

@@ -7268,7 +7268,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const hold = store.getApprovalHold(req.params.id);
       if (!hold) throw new HttpError(404, 'Not found.');
       requireCompanyAccess(req, hold.companyId);
-      const isAdmin = store.approvals.people?.roleOf(req.user!.id, hold.companyId) === 'Admin';
+      // Whoever asked, or whoever administers the company (Admin role, or ADMINISTRATION in v2).
+      const isAdmin = store.approvals.people?.roleOf(req.user!.id, hold.companyId) === 'Admin' || allowsRule(req, hold.companyId, 'ADMINISTRATION');
       res.json(withActor(req, () => store.withdrawApprovalHold(hold.id, req.user!.id, isAdmin)));
     }),
   );

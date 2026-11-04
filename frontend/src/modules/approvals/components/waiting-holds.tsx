@@ -9,6 +9,7 @@ import * as React from 'react';
 import { Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCompany } from '@/context/company-context';
+import { useCan } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency } from '@/lib/currency';
@@ -25,6 +26,8 @@ export function WaitingHolds({ companyId, docType, targetId, currency, onChanged
   const { currentUser } = useCompany();
   const { toast } = useToast();
   const currencyOf = useCurrencyOf();
+  // Whoever asked can take it back, and so can whoever runs approvals here.
+  const administers = useCan('settings.manage_approvals');
   const [holds, setHolds] = React.useState<ApprovalHold[]>([]);
   const load = React.useCallback(() => {
     getApprovalHolds(companyId, { docType, targetId, status: 'pending' })
@@ -55,7 +58,7 @@ export function WaitingHolds({ companyId, docType, targetId, currency, onChanged
         {holds.map((h) => (
           <li key={h.id} className="flex items-center justify-between gap-2">
             <span className="tabular-nums">{formatCurrency(h.amount, (currency || currencyOf(companyId)) as never)}</span>
-            {(h.requesterId === currentUser?.id) && (
+            {(h.requesterId === currentUser?.id || administers) && (
               <Button size="sm" variant="ghost" className="h-7" onClick={() => withdraw(h)}>{tr('Withdraw', 'سحب')}</Button>
             )}
           </li>

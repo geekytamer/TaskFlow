@@ -156,3 +156,21 @@ test('with a credit-note policy the goods come back now and the credit waits, th
   const note = store.getCreditNoteById(store.getApprovalHold(hold.id).resultId);
   assert.equal(store.getCustomerReturnById(created.id).creditNoteId, note.id);
 });
+
+test('a second return on an invoice is received while the first one\'s credit waits: its credit is trimmed to what is left', async () => {
+  const ctx = setup();
+  const { delivery, invoice } = await shipped(ctx);
+  const { app, store, as } = ctx;
+  const cfo = store.createUser({ name: 'CFO2', email: 'cfo2@returns.test', password: 'x', role: 'Employee', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }] });
+  store.approvals.setPolicy('1', 'credit_note', { steps: [{ approvers: [{ kind: 'user', id: cfo.id }], need: 'any' }] });
+  const ret = async (qty) => {
+    const created = (await as(request(app).post('/companies/1/customer-returns')).send({ deliveryId: delivery.id, items: [{ deliveryLineIndex: 0, quantity: qty, condition: 'Restock' }] })).body;
+    return as(request(app).post(`/customer-returns/${created.id}/receipt`)).send({ issueCredit: true });
+  };
+  assert.equal((await ret(6)).status, 200);
+  const second = await ret(4);
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  const held = store.listApprovalHolds('1', { docType: 'credit_note', targetId: invoice.id, status: 'pending' });
+  assert.equal(held.length, 2);
+  assert.ok(held.reduce((s, h) => s + h.amount, 0) <= invoice.total + 0.001, 'never more than the invoice');
+});
