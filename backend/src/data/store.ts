@@ -5720,6 +5720,35 @@ export class DataStore {
           if (!has('approval_steps', 'ownerCompanyId')) this.db.exec('ALTER TABLE approval_steps ADD COLUMN ownerCompanyId TEXT');
         },
       },
+      {
+        // Wave 2: held credit notes and payments; a request's fixed manager (leave for staff without a login).
+        id: '157_approvals_wave2',
+        run: () => {
+          const has = (t: string, c: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).some((x) => x.name === c);
+          if (!has('approval_requests', 'managerUserId')) this.db.exec('ALTER TABLE approval_requests ADD COLUMN managerUserId TEXT');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS approval_holds (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              docType TEXT NOT NULL,
+              targetId TEXT,
+              payload TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0,
+              label TEXT NOT NULL,
+              party TEXT,
+              status TEXT NOT NULL DEFAULT 'pending',
+              resultId TEXT,
+              error TEXT,
+              note TEXT,
+              requesterId TEXT,
+              createdAt TEXT NOT NULL,
+              endedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_holds_target ON approval_holds(docType, targetId, status);
+            CREATE INDEX IF NOT EXISTS idx_approval_holds_company ON approval_holds(companyId, status);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -10838,6 +10867,7 @@ export class DataStore {
     const start = new Date(input.startDate);
     const end = new Date(input.endDate);
     if (end < start) throw new Error('Leave end date cannot be before the start date.');
+    this.requireDraftWhileApproving(input.companyId, 'leave_request', (input.status ?? 'Pending') === 'Pending', 'Leave requests', 'record it as Pending, then it goes for approval');
     const now = new Date().toISOString();
     const row = {
       id: uuid(),
@@ -10858,10 +10888,53 @@ export class DataStore {
          VALUES (@id, @companyId, @employeeId, @leaveTypeId, @startDate, @endDate, @days, @reason, @status, @createdAt, @updatedAt)`,
       )
       .run(row);
+    if (row.status === 'Pending') this.beginLeaveApproval(row.id);
     return this.getLeaveRequestById(row.id)!;
   }
 
+  /**
+   * A pending leave asks for approval, its amount the number of days. The
+   * employee asked when they have a login (so their manager is the HR line
+   * manager); otherwise whoever recorded it asked, and the employee's own
+   * line manager still decides a manager step.
+   */
+  private beginLeaveApproval(id: string) {
+    const leave = this.getLeaveRequestById(id);
+    const employee = leave ? this.getEmployeeById(leave.employeeId) : undefined;
+    if (!leave || !employee) return;
+    const own = employee.userId ?? null;
+    const managerUserId = own ? undefined : (() => {
+      const m = employee.managerId ? this.getEmployeeById(employee.managerId) : undefined;
+      return m && m.status !== 'Terminated' && m.userId ? m.userId : '';
+    })();
+    this.beginApproval(leave.companyId, 'leave_request', id, Number(leave.days) || 0, { requesterId: own ?? this.currentActor?.userId ?? null, managerUserId });
+  }
+
   setLeaveRequestStatus(
+    id: string,
+    status: LeaveRequest['status'],
+    reviewer?: { userId?: string; name?: string },
+    note?: string,
+  ): LeaveRequest | undefined {
+    const existing = this.getLeaveRequestById(id);
+    if (!existing) return undefined;
+    // Approved or Rejected come from the approval when one is running; cancelling withdraws it.
+    if ((status === 'Approved' || status === 'Rejected') && this.approvals.outcome('leave_request', id) !== 'not_required') {
+      this.requireApproved('leave_request', id, status === 'Approved' ? 'approved by hand' : 'rejected by hand');
+      if (status === 'Rejected') throw new HttpError(409, 'This leave was approved through Approvals; cancel it instead.', { code: 'APPROVAL_DECIDED' });
+    }
+    if (status === 'Cancelled' && this.approvals.outcome('leave_request', id) === 'pending') this.forgetApproval('leave_request', id);
+    return this.writeLeaveStatus(id, status, reviewer, note);
+  }
+
+  /** What the approval decided, written to the leave. */
+  private settleLeaveApproval(id: string, outcome: 'approved' | 'rejected' | 'changes_requested', by: { id: string; name: string }, note?: string) {
+    const leave = this.getLeaveRequestById(id);
+    if (!leave || leave.status !== 'Pending') return;
+    this.writeLeaveStatus(id, outcome === 'approved' ? 'Approved' : 'Rejected', { userId: by.id, name: by.name }, note?.trim() || undefined);
+  }
+
+  private writeLeaveStatus(
     id: string,
     status: LeaveRequest['status'],
     reviewer?: { userId?: string; name?: string },
@@ -10888,6 +10961,7 @@ export class DataStore {
   deleteLeaveRequest(id: string): void {
     if (!this.getLeaveRequestById(id)) throw new Error('Leave request not found.');
     this.db.prepare('DELETE FROM leave_requests WHERE id = ?').run(id);
+    this.forgetApproval('leave_request', id);
   }
 
   /** Paid-leave balance for an employee in a given year (defaults to current year). */
@@ -17052,7 +17126,33 @@ export class DataStore {
     if (existing.status !== 'Draft') {
       throw new Error('Only draft requisitions can be submitted.');
     }
-    return this.setRequisitionStatus(id, 'Submitted');
+    const submitted = this.setRequisitionStatus(id, 'Submitted');
+    this.beginApproval(existing.companyId, 'purchase_requisition', id, this.requisitionTotal(existing), {
+      requesterId: this.approvals.view('purchase_requisition', id).requesterId ?? existing.requestedByUserId ?? this.currentActor?.userId ?? null,
+    });
+    return submitted;
+  }
+
+  private requisitionTotal(r: PurchaseRequisition): number {
+    return Number(r.items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.estimatedUnitCost) || 0), 0).toFixed(2));
+  }
+
+  /** While a requisition's approval runs, the engine decides it, not the Approve and Reject buttons. */
+  private requireNoRequisitionApproval(id: string) {
+    const outcome = this.approvals.outcome('purchase_requisition', id);
+    if (outcome === 'pending') throw new HttpError(409, 'This requisition is waiting for approval; decide it in Approvals.', { code: 'APPROVAL_PENDING' });
+  }
+
+  /** What the approval decided, written to the requisition. Sent back: a draft again, with the reason. */
+  private settleRequisitionApproval(id: string, outcome: 'approved' | 'rejected' | 'changes_requested', by: { id: string; name: string }, note?: string) {
+    const r = this.getPurchaseRequisitionById(id);
+    if (!r || r.status !== 'Submitted') return;
+    if (outcome === 'approved') {
+      this.createActivityEvent({ companyId: r.companyId, entityType: 'purchase_requisition', entityId: id, action: 'approved', summary: `Purchase requisition ${r.requisitionNumber} approved.` });
+      this.setRequisitionStatus(id, 'Approved', { approvedByUserId: by.id, approvedAt: new Date() });
+    } else {
+      this.setRequisitionStatus(id, outcome === 'rejected' ? 'Rejected' : 'Draft', { rejectionReason: note?.trim() || undefined });
+    }
   }
 
   approvePurchaseRequisition(id: string): PurchaseRequisition {
@@ -17061,6 +17161,7 @@ export class DataStore {
     if (existing.status !== 'Submitted') {
       throw new Error('Only submitted requisitions can be approved.');
     }
+    this.requireNoRequisitionApproval(id);
     this.createActivityEvent({
       companyId: existing.companyId,
       entityType: 'purchase_requisition',
@@ -17080,6 +17181,7 @@ export class DataStore {
     if (existing.status !== 'Submitted') {
       throw new Error('Only submitted requisitions can be rejected.');
     }
+    this.requireNoRequisitionApproval(id);
     return this.setRequisitionStatus(id, 'Rejected', { rejectionReason: reason });
   }
 
@@ -17134,6 +17236,7 @@ export class DataStore {
       throw new Error('Converted requisitions cannot be deleted.');
     }
     this.db.prepare('DELETE FROM purchase_requisitions WHERE id = ?').run(id);
+    this.forgetApproval('purchase_requisition', id);
     return true;
   }
 
@@ -17238,14 +17341,14 @@ export class DataStore {
   }
 
   /** Starts a document's approval under the policy that applies (own or the group's), then the groups' sign-off. */
-  startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null }) {
+  startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null; managerUserId?: string | null }) {
     const policyCompany = this.approvalPolicyCompany(companyId, docType);
     const levels = this.approvalChain(companyId, docType, input.amount);
     if (!levels.length) {
       this.approvals.clear(docType, docId);
       return 'not_required' as const;
     }
-    const outcome = this.approvals.start(companyId, docType, docId, levels, input.requesterId, policyCompany);
+    const outcome = this.approvals.start(companyId, docType, docId, levels, input.requesterId, policyCompany, input.managerUserId);
     if (outcome === 'pending') this.notifyApprovers(companyId, docType, docId);
     return outcome;
   }
@@ -17255,6 +17358,7 @@ export class DataStore {
     const outcome = this.approvals.decide(docType, docId, actor, decision, note);
     const companyId = this.approvalCompanyOf(docType, docId);
     if (!companyId) return outcome;
+    if (outcome !== 'pending') this.settleApproval(docType, docId, outcome, actor, note);
     const now = this.approvals.steps(docType, docId).find((s) => s.status === 'pending')?.level;
     if (outcome === 'pending' && now !== before) this.notifyApprovers(companyId, docType, docId);
     // Purchase orders and expenses tell their requester through their own messages.
@@ -17272,6 +17376,13 @@ export class DataStore {
     return outcome;
   }
 
+  /** Documents whose state the store itself moves when their approval ends. */
+  private settleApproval(docType: ApprovalDocType, docId: string, outcome: 'approved' | 'rejected' | 'changes_requested' | 'not_required', actor: { id: string; name: string }, note?: string) {
+    if (outcome === 'not_required') return;
+    if (docType === 'leave_request') this.settleLeaveApproval(docId, outcome, actor, note);
+    else if (docType === 'purchase_requisition') this.settleRequisitionApproval(docId, outcome, actor, note);
+  }
+
   private approvalCompanyOf(docType: ApprovalDocType, docId: string): string | null {
     const row = this.db.prepare('SELECT companyId FROM approval_requests WHERE docType = ? AND docId = ?').get(docType, docId) as { companyId: string } | undefined;
     return row?.companyId ?? null;
@@ -17282,7 +17393,7 @@ export class DataStore {
     const view = this.approvals.view(docType, docId);
     const step = this.approvals.steps(docType, docId).find((s) => s.status === 'pending');
     if (!step) return;
-    const people = new Set(step.approvers.flatMap((a) => this.approvals.candidates(a, step.ownerCompanyId, view.requesterId, companyId)));
+    const people = new Set(step.approvers.flatMap((a) => this.approvals.candidates(a, step.ownerCompanyId, view.requesterId, companyId, view.managerUserId)));
     for (const id of [...people]) {
       const d = this.approvals.delegation(id);
       const today = new Date().toISOString().slice(0, 10);
@@ -17362,9 +17473,11 @@ export class DataStore {
   }
 
   /** A new document asks for approval when its type has a policy; whoever is acting asked (or first asked). */
-  private beginApproval(companyId: string, docType: ApprovalDocType, docId: string, amount: number) {
-    if (!this.approvalApplies(companyId, docType)) return;
-    this.startApproval(companyId, docType, docId, { amount: Number(amount) || 0, requesterId: this.requesterFor(docType, docId) });
+  private beginApproval(companyId: string, docType: ApprovalDocType, docId: string, amount: number, who: { requesterId?: string | null; managerUserId?: string | null } = {}) {
+    if (!this.approvalApplies(companyId, docType)) return 'not_required' as const;
+    return this.startApproval(companyId, docType, docId, {
+      amount: Number(amount) || 0, requesterId: who.requesterId !== undefined ? who.requesterId : this.requesterFor(docType, docId), managerUserId: who.managerUserId,
+    });
   }
 
   /** A deleted document's request goes with it (its trail stays). */
@@ -17395,9 +17508,9 @@ export class DataStore {
   }
 
   /** A document whose type needs approval starts as a draft, never past it. */
-  private requireDraftWhileApproving(companyId: string, docType: ApprovalDocType, draft: boolean, what: string) {
+  private requireDraftWhileApproving(companyId: string, docType: ApprovalDocType, draft: boolean, what: string, how = 'create it as a draft, then it goes for approval') {
     if (!draft && this.approvalApplies(companyId, docType)) {
-      throw new HttpError(409, `${what} need approval in this company: create it as a draft, then it goes for approval.`, { code: 'APPROVAL_REQUIRED' });
+      throw new HttpError(409, `${what} need approval in this company: ${how}.`, { code: 'APPROVAL_REQUIRED' });
     }
   }
 
