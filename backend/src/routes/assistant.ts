@@ -10,7 +10,7 @@ import { runInSandbox } from '../assistant/sandbox';
 import { runAgent, systemPrompt, toolText, cleanReply, type AgentMode } from '../assistant/agent';
 import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, type ChatMessage } from '../assistant/model';
 import { ROUTES } from '../authz/route-registry';
-import { checkBody, hintFor, shapeOf } from '../assistant/hints';
+import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
@@ -95,7 +95,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       }
     }
     const byId = new Map(actions.map((a) => [a.id, a]));
-    const items: Array<{ role: 'user' | 'assistant'; text: string; actions: ReturnType<typeof actionView>[]; cards: AssistantCard[] }> = [];
+    const items: Array<{ role: 'user' | 'assistant'; text: string; actions: ReturnType<typeof actionView>[]; cards: AssistantCard[]; suggestions?: string[] }> = [];
     let carried: string[] = [];
     let carriedCards: AssistantCard[] = [];
     for (const m of thread.messages as StoredMessage[]) {
@@ -104,12 +104,12 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       if (m.ui?.hidden) continue;
       if (m.role === 'user') items.push({ role: 'user', text: m.content, actions: [], cards: [] });
       if (m.role === 'assistant' && !m.tool_calls?.length) {
-        const text = cleanReply(m.content);
+        const { text, suggestions } = splitSuggestions(cleanReply(m.content));
         const own = carried.map((id) => byId.get(id)).filter((a): a is AssistantActionRow => Boolean(a)).map(actionView);
         carried = [];
         const shown = carriedCards;
         carriedCards = [];
-        if (text || own.length || shown.length) items.push({ role: 'assistant', text, actions: own, cards: shown });
+        if (text || own.length || shown.length) items.push({ role: 'assistant', text, actions: own, cards: shown, ...(suggestions.length ? { suggestions } : {}) });
       }
     }
     return {
@@ -181,6 +181,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             const value = await callApi(token, method, path, undefined);
             remember(kindOfPath(op.path), value);
             if (reads.length < 6) reads.push(`GET ${path} → ${shapeOf(value)}`);
+            const ignored = ignoredFilters(path, value);
+            if (ignored.length) reads.push(`WARNING: GET ${path} ignored the filter ${ignored.join(', ')}: the rows include other values, so this list is NOT filtered. Drop the filter and filter in code (e.g. rows.filter(r => ...)).`);
             if (Array.isArray(value) && value.length === 0 && path.includes('?')) reads.push(`GET ${path} is empty: a query filter may not exist or may not match. Try without filters and filter in code before concluding there is nothing.`);
             return value;
           }
@@ -196,6 +198,15 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
         },
         });
+        // Records the script returned but did not show() still reach the person as cards.
+        if (outcome.ok && cards.length === cardsBefore) {
+          for (const r of recordsIn(outcome.value).slice(0, MAX_CARDS)) {
+            const known = seen.get(String(r.id));
+            if (!known) continue;
+            const card = cardOf(known.kind, { ...known.record, ...r }, lookups);
+            if (card && !cards.some((c) => c.id === card.id && c.kind === card.kind)) cards.push(card);
+          }
+        }
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
         if (outcome.ok && (outcome.value === null || outcome.value === undefined)) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
@@ -335,4 +346,15 @@ export function idsAsStrings(body: unknown): unknown {
     if (/Ids$/.test(k) && Array.isArray(v)) out[k] = v.map((x) => (typeof x === 'number' ? String(x) : x));
   }
   return out;
+}
+
+/** Replies the model offers ("» ..." lines) come off the text and become buttons. */
+export function splitSuggestions(content: string): { text: string; suggestions: string[] } {
+  const suggestions: string[] = [];
+  const kept = content.split('\n').filter((line) => {
+    const m = /^\s*[»›]\s*(.+?)\s*$/.exec(line);
+    if (m && suggestions.length < 3 && m[1].length <= 120) { suggestions.push(m[1].replace(/^["“]|["”]$/g, '')); return false; }
+    return !m;
+  });
+  return { text: kept.join('\n').trim(), suggestions };
 }

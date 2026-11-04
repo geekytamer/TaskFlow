@@ -22,7 +22,7 @@ export interface AssistantCard {
   people?: string[];
   href?: string;
 }
-export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[]; cards?: AssistantCard[] }
+export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[]; cards?: AssistantCard[]; suggestions?: string[] }
 export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number }
 export interface AssistantThreadSummary { id: string; title: string; companyId: string; updatedAt: string }
 export interface AssistantStatus { enabled: boolean; model: string | null }

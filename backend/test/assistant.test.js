@@ -278,3 +278,45 @@ test('cards: kinds come from the endpoint path', () => {
   assert.equal(kindOfPath('/companies/:companyId/opportunities'), 'opportunity');
   assert.equal(kindOfPath('/companies/:companyId/invoices'), 'invoice');
 });
+
+test('replies the model offers become buttons, not text', async () => {
+  const s = setup([say('Two tasks are open.\n» Show the overdue ones\n» أنشئ مهمة جديدة')]);
+  const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'x' });
+  const reply = res.body.items.at(-1);
+  assert.equal(reply.text, 'Two tasks are open.');
+  assert.deepEqual(reply.suggestions, ['Show the overdue ones', 'أنشئ مهمة جديدة']);
+});
+
+test('several changes in one script wait together and run together', async () => {
+  const s = setup([
+    say("```js\nfor (const t of ['Bank', 'Client', 'Materials']) await api.post('/tasks', { title: t, companyId: '1', priority: 'Medium', status: 'Done' }, 'Record ' + t);\nreturn 3;\n```"),
+    say('Three tasks are ready; confirm below.'),
+    say('All three are recorded.'),
+  ]);
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'bank, client, materials' });
+  const actions = asked.body.items.at(-1).actions;
+  assert.equal(actions.length, 3);
+  const before = s.store.listTasks().length;
+  const done = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { confirm: actions.map((a) => a.id) });
+  assert.equal(s.store.listTasks().length, before + 3);
+  assert.equal(done.body.items.at(-1).text, 'All three are recorded.');
+  assert.equal(s.model.seen.length, 3, 'one follow-up for the whole batch');
+});
+
+test('a filter the endpoint ignored is pointed out; returned records become cards without show()', async () => {
+  const s = setup([
+    say("```js\nconst rows = await api.get('/tasks?companyId=1&status=Overdue');\nreturn rows.slice(0, 2);\n```"),
+    say('Here.'),
+  ]);
+  const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'overdue?' });
+  assert.match(s.model.seen[1].at(-1).content, /WARNING: GET \/tasks\?companyId=1&status=Overdue ignored the filter status=Overdue/);
+  assert.equal(res.body.items.at(-1).cards.length, 2);
+});
+
+test('ignoredFilters: a filter that matched is not reported', () => {
+  const { ignoredFilters } = require('../dist/assistant/hints');
+  assert.deepEqual(ignoredFilters('/x?status=Done', [{ status: 'Done' }, { status: 'done' }]), []);
+  assert.deepEqual(ignoredFilters('/x?status=Sent,Overdue', [{ status: 'Sent' }, { status: 'Overdue' }]), []);
+  assert.deepEqual(ignoredFilters('/x?status=Overdue', [{ status: 'Done' }]), ['status=Overdue']);
+  assert.deepEqual(ignoredFilters('/x?start=2026-11-02', [{ title: 'a' }]), []);
+});

@@ -23,8 +23,24 @@ import {
 
 type Tr = (en: string, ar: string) => string;
 
+/** The open conversation is remembered per person and company for a while, so leaving the page does not lose it. */
+const KEEP_MS = 12 * 60 * 60 * 1000;
+const lastKey = (userId: string, companyId: string) => `taskflow:assistant:last:${userId}:${companyId}`;
+function readLast(userId: string, companyId: string): string | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(lastKey(userId, companyId)) ?? 'null') as { id?: string; at?: number } | null;
+    return saved?.id && typeof saved.at === 'number' && Date.now() - saved.at < KEEP_MS ? saved.id : null;
+  } catch { return null; }
+}
+function writeLast(userId: string, companyId: string, id: string | null) {
+  try {
+    if (id) localStorage.setItem(lastKey(userId, companyId), JSON.stringify({ id, at: Date.now() }));
+    else localStorage.removeItem(lastKey(userId, companyId));
+  } catch { /* private mode: the conversation is simply not remembered */ }
+}
+
 export function AssistantPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const { language } = useI18n();
   const tr = React.useCallback<Tr>((en, ar) => (language === 'ar' ? ar : en), [language]);
   const [status, setStatus] = React.useState<AssistantStatus | null>(null);
@@ -40,8 +56,24 @@ export function AssistantPage() {
 
   React.useEffect(() => { void assistantStatusOnce().then(setStatus); }, []);
   React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [thread, pendingQuestion, working]);
-  // A conversation belongs to one company; switching company starts a new one.
-  React.useEffect(() => { setThread((t) => (t && t.companyId !== selectedCompany?.id ? null : t)); }, [selectedCompany?.id]);
+  // A conversation belongs to one company: on arrival or a company switch, reopen that company's last one (if recent).
+  const userId = currentUser?.id;
+  const companyId = selectedCompany?.id;
+  React.useEffect(() => {
+    if (!userId || !companyId) return;
+    setThread((t) => (t && t.companyId !== companyId ? null : t));
+    const id = readLast(userId, companyId);
+    if (!id) return;
+    let live = true;
+    getAssistantThread(id)
+      .then((t) => { if (live && t.companyId === companyId) setThread((cur) => cur ?? t); })
+      .catch(() => writeLast(userId, companyId, null));
+    return () => { live = false; };
+  }, [userId, companyId]);
+  // Every change to the open conversation refreshes the "remembered" time.
+  React.useEffect(() => {
+    if (userId && thread) writeLast(userId, thread.companyId, thread.id);
+  }, [userId, thread]);
 
   const failMessage = (err: unknown) => {
     if (isApiError(err) && err.status === 503) return tr('The assistant is offline right now (its model cannot be reached). Try again in a while.', 'المساعد غير متاح الآن (لا يمكن الوصول إلى النموذج). حاول بعد قليل.');
@@ -119,7 +151,7 @@ export function AssistantPage() {
           <Button variant="ghost" size="sm" onClick={() => void openHistory()}>
             <History className="h-4 w-4" /><span className="hidden sm:inline">{tr('History', 'السابقة')}</span>
           </Button>
-          <Button variant="ghost" size="sm" disabled={!thread || Boolean(working)} onClick={() => { setThread(null); setError(null); inputRef.current?.focus(); }}>
+          <Button variant="ghost" size="sm" disabled={!thread || Boolean(working)} onClick={() => { setThread(null); setError(null); if (userId && companyId) writeLast(userId, companyId, null); inputRef.current?.focus(); }}>
             <MessageSquarePlus className="h-4 w-4" /><span className="hidden sm:inline">{tr('New', 'جديدة')}</span>
           </Button>
         </div>
@@ -152,6 +184,16 @@ export function AssistantPage() {
             {item.text ? <ReplyText text={item.text} /> : null}
             {item.cards?.length ? <RecordCards cards={item.cards} tr={tr} language={language} /> : null}
             {item.actions.length ? <ActionGroup actions={item.actions} tr={tr} busy={Boolean(working)} onDecide={decide} /> : null}
+            {i === items.length - 1 && !working && item.suggestions?.length ? (
+              <div className="flex flex-wrap gap-2" aria-label={tr('Suggested replies', 'ردود مقترحة')}>
+                {item.suggestions.map((sug) => (
+                  <button key={sug} type="button" onClick={() => void send(sug)}
+                    className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1.5 text-start text-sm text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    {sug}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
 

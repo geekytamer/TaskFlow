@@ -19,7 +19,7 @@ const TASK_PRIORITY = ['Low', 'Medium', 'High', 'Urgent'] as const;
 export const OP_HINTS: Readonly<Record<string, OpHint>> = {
   'GET /tasks': { text: `query: ?companyId=<id>. Each task: id, title, status (${TASK_STATUS.join('|')}; open = not Done), priority, dueDate, startDate, assignedUserIds, projectId.` },
   'POST /tasks': {
-    text: `body { title, companyId, priority: ${TASK_PRIORITY.join('|')}, dueDate?: "YYYY-MM-DD", startDate?, description?, assignedUserIds?: [userId], projectId?, status?: ${TASK_STATUS.join('|')} }. The person's own id is in the system prompt.`,
+    text: `body { title, companyId, priority: ${TASK_PRIORITY.join('|')}, dueDate?: "YYYY-MM-DD", startDate?, description?, assignedUserIds?: [userId], projectId?, status?: ${TASK_STATUS.join('|')} }. The person's own id is in the system prompt. Several tasks: loop in one script. Already done: status Done, dueDate today.`,
     required: ['title', 'companyId', 'priority'],
     values: { priority: TASK_PRIORITY, status: TASK_STATUS },
   },
@@ -69,4 +69,35 @@ export function shapeOf(value: unknown): string {
     return `{ ${row(o)} }${inner.length ? `; ${inner.join('; ')}` : ''}`;
   }
   return typeof value;
+}
+
+/**
+ * Query filters an endpoint ignored: the rows came back with other values in
+ * that very field (e.g. ?status=Overdue on a list that has no such filter).
+ * Small models invent filters; without this they count everything.
+ */
+export function ignoredFilters(path: string, value: unknown): string[] {
+  const query = path.split('?')[1];
+  if (!query || !Array.isArray(value) || value.length === 0) return [];
+  const rows = value.filter((r) => r && typeof r === 'object') as Array<Record<string, unknown>>;
+  const out: string[] = [];
+  for (const [key, wanted] of new URLSearchParams(query)) {
+    if (key === 'companyId') continue;
+    const present = rows.filter((r) => key in r && (typeof r[key] === 'string' || typeof r[key] === 'number' || typeof r[key] === 'boolean'));
+    if (present.length === 0) {
+      if (key === 'status' || key === 'priority' || key === 'overdue') out.push(`${key}=${wanted} (rows have no ${key} field like that)`);
+      continue;
+    }
+    const wants = wanted.split(',').map((w) => w.trim().toLowerCase());
+    if (present.some((r) => !wants.includes(String(r[key]).toLowerCase()))) out.push(`${key}=${wanted}`);
+  }
+  return out;
+}
+
+/** Records with ids in a script's return value (an array, or an object holding arrays). */
+export function recordsIn(value: unknown): Array<Record<string, unknown>> {
+  const isRec = (r: unknown): r is Record<string, unknown> => Boolean(r) && typeof r === 'object' && !Array.isArray(r) && 'id' in (r as object);
+  if (Array.isArray(value)) return value.filter(isRec);
+  if (value && typeof value === 'object') return Object.values(value).flatMap((v) => (Array.isArray(v) ? v.filter(isRec) : []));
+  return [];
 }
