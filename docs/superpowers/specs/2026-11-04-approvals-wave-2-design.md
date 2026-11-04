@@ -230,3 +230,11 @@ project and type as well as amount. Decided:
 - "Is not" over several values reads "is none of A, B"; text values are
   de-duplicated ignoring case; a purchase order's facts follow the saved
   supplier.
+
+## Bulk approve and leftovers (2026-11-04)
+
+- **Bulk approve** (Waiting for me): tick items, or select all, and the bar shows the count and the total per currency, with leave as days. A confirmation dialog follows. Each item goes through the ordinary decision call one after another, so every permission, limit, hold release and group step check still runs per document. Items that fail stay ticked and show their reason. Rejecting and sending back stay one by one because each needs a reason. There is no new backend route. The logic is in `frontend/src/modules/approvals/lib/bulk.ts` (tested).
+- **Inherited policies show names:** the condition options load for this company and for each company whose policy is inherited. Choices come only from this company; the others only supply names. A record the reader can't open shows as "a record you cannot open", never as a raw id.
+- **Group sign-off switch:** turning it on drops supplier, client, project and similar conditions and now says so in a toast.
+- **Condition editor:** text drafts reset when a condition is removed, so a half-typed value doesn't move to the next row.
+- **Status chips:** `ApprovalStore.statuses` reads the requests and all their steps in two queries instead of 3–4 per document. The shared step parser is `stepFromRow`.

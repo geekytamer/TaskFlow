@@ -145,6 +145,12 @@ export function outcomeOf(steps: ApprovalStep[]): ApprovalOutcome {
   return steps.every((s) => s.status === 'approved') ? 'approved' : 'pending';
 }
 
+/** A stored step as the engine reads it (approvers parsed, the old single-role column understood). */
+function stepFromRow(r: Record<string, any>): ApprovalStep {
+  const approvers = legacyApprovers(r as { approvers?: string; approverRole: string });
+  return { ...(r as ApprovalStep), approvers, need: r.need === 'all' ? 'all' : 'any', approverRole: firstRole(approvers), ownerCompanyId: r.ownerCompanyId ?? r.companyId };
+}
+
 export class ApprovalStore {
   people: ApprovalPeople | null = null;
 
@@ -275,10 +281,7 @@ export class ApprovalStore {
 
   steps(docType: ApprovalDocType, docId: string): ApprovalStep[] {
     const rows = this.db.prepare('SELECT * FROM approval_steps WHERE docType = ? AND docId = ? ORDER BY level').all(docType, docId) as Array<Record<string, any>>;
-    return rows.map((r) => {
-      const approvers = legacyApprovers(r as { approvers?: string; approverRole: string });
-      return { ...(r as ApprovalStep), approvers, need: r.need === 'all' ? 'all' : 'any', approverRole: firstRole(approvers), ownerCompanyId: r.ownerCompanyId ?? r.companyId };
-    });
+    return rows.map(stepFromRow);
   }
 
   private request(docType: ApprovalDocType, docId: string) {
@@ -617,10 +620,16 @@ export class ApprovalStore {
 
   /** Each document of this type with a request in this company: where it stands, for list chips. */
   statuses(companyId: string, docType: ApprovalDocType): Array<{ docId: string; status: ApprovalOutcome; level: number | null; levels: number; need: Need | null; approvers: Array<Approver & { label: string }>; stuck: boolean }> {
-    const rows = this.db.prepare('SELECT docId FROM approval_requests WHERE companyId = ? AND docType = ?').all(companyId, docType) as Array<{ docId: string }>;
-    return rows.map(({ docId }) => {
-      const steps = this.steps(docType, docId);
-      const status = this.outcome(docType, docId);
+    // Two reads for the whole list (not three or four per document): the requests, then all their steps.
+    const requests = this.db.prepare('SELECT docId, status FROM approval_requests WHERE companyId = ? AND docType = ?').all(companyId, docType) as Array<{ docId: string; status: string | null }>;
+    const stepRows = this.db.prepare(
+      'SELECT * FROM approval_steps WHERE docType = ? AND docId IN (SELECT docId FROM approval_requests WHERE companyId = ? AND docType = ?) ORDER BY docId, level',
+    ).all(docType, companyId, docType) as Array<Record<string, any>>;
+    const byDoc = new Map<string, ApprovalStep[]>();
+    for (const r of stepRows) byDoc.set(r.docId, [...(byDoc.get(r.docId) ?? []), stepFromRow(r)]);
+    return requests.map(({ docId, status: requestStatus }) => {
+      const steps = byDoc.get(docId) ?? [];
+      const status: ApprovalOutcome = requestStatus === 'changes_requested' ? 'changes_requested' : outcomeOf(steps);
       const step = status === 'pending' ? steps.find((s) => s.status === 'pending') : undefined;
       const req = step ? this.request(docType, docId) : undefined;
       return {

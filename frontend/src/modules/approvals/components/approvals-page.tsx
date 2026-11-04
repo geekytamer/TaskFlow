@@ -9,7 +9,11 @@ import * as React from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDashed, ClipboardCheck, XCircle } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCompany } from '@/context/company-context';
@@ -26,6 +30,7 @@ import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import {
   amountIsDays, decideApproval, docLink, docTypeLabel, getApprovals, type ApprovalBox, type ApprovalItem,
 } from '@/services/approvalService';
+import { approveEach, totalsByCurrency } from '../lib/bulk';
 import { approverText } from '../lib/wording';
 import { ApprovalPanel } from './approval-panel';
 import { DelegationCard } from './delegation-card';
@@ -47,6 +52,11 @@ export function ApprovalsPage() {
   const [missing, setMissing] = React.useState<MissingCompany[]>([]);
   const [notes, setNotes] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState<string | null>(null);
+  // Bulk approve (Waiting for me only): what is ticked, the confirmation, progress, and why some failed.
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = React.useState(false);
+  const [progress, setProgress] = React.useState<number | null>(null);
+  const [failures, setFailures] = React.useState<Record<string, string>>({});
   const scopeKey = companyIds.join(',');
   const ticket = React.useRef(0);
 
@@ -63,7 +73,33 @@ export function ApprovalsPage() {
     setItems(unique.sort((a, b) => stuck(a) - stuck(b) || Date.parse(a.date) - Date.parse(b.date)));
     setMissing(answer.missing);
   }, [selectedCompany, scopeKey, box]);
-  React.useEffect(() => { setItems(null); void load(); }, [load]);
+  React.useEffect(() => { setItems(null); setPicked(new Set()); setFailures({}); void load(); }, [load]);
+
+  const keyOf = (w: ApprovalItem) => `${w.docType}:${w.docId}`;
+  const pickable = box === 'waiting' ? (items ?? []).filter((w) => w.canDecide) : [];
+  const chosen = pickable.filter((w) => picked.has(keyOf(w)));
+  const totals = totalsByCurrency(chosen.map((w) => ({ amount: w.amount, currency: currencyOf(w.companyId), days: amountIsDays(w.docType) })));
+  const totalsText = [
+    ...Object.entries(totals.money).map(([c, n]) => formatCurrency(n, c)),
+    ...(totals.days ? [tr(`${totals.days} day${totals.days === 1 ? '' : 's'} of leave`, `${totals.days} يوم إجازة`)] : []),
+  ].join(' · ');
+  const toggle = (w: ApprovalItem) => setPicked((p) => { const n = new Set(p); if (n.has(keyOf(w))) n.delete(keyOf(w)); else n.add(keyOf(w)); return n; });
+  const allPicked = pickable.length > 0 && chosen.length === pickable.length;
+
+  const approveChosen = async () => {
+    setConfirming(false);
+    setFailures({});
+    setProgress(0);
+    const result = await approveEach(chosen, (w) => decideApproval(w.docType, w.docId, 'approve'), setProgress);
+    setProgress(null);
+    const failed = Object.fromEntries(result.failed.map((f) => [keyOf(f.item), f.message]));
+    setFailures(failed);
+    setPicked(new Set(Object.keys(failed)));
+    toast(result.failed.length
+      ? { variant: 'destructive', title: tr(`Approved ${result.done.length}, ${result.failed.length} not approved`, `تمت الموافقة على ${result.done.length}، ولم تتم على ${result.failed.length}`), description: tr('The reason is shown on each one still ticked.', 'السبب ظاهر على كل عنصر ما زال محددًا.') }
+      : { title: tr(`Approved ${result.done.length}`, `تمت الموافقة على ${result.done.length}`) });
+    await load();
+  };
 
   const act = async (w: ApprovalItem, decision: 'approve' | 'reject' | 'send_back') => {
     const key = `${w.docType}:${w.docId}`;
@@ -116,6 +152,38 @@ export function ApprovalsPage() {
           {box === 'waiting' ? tr('Nothing is waiting for you.', 'لا شيء ينتظرك.') : box === 'open' ? tr('Nothing is waiting for approval in this company.', 'لا شيء بانتظار الموافقة في هذه الشركة.') : tr('Nothing here yet.', 'لا شيء هنا بعد.')}
         </div>
       ) : (
+        <>
+        {pickable.length > 1 && (
+          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 p-3 backdrop-blur">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={allPicked ? true : chosen.length ? 'indeterminate' : false}
+                onCheckedChange={() => setPicked(allPicked ? new Set() : new Set(pickable.map(keyOf)))}
+                aria-label={tr('Select all', 'تحديد الكل')}
+              />
+              {chosen.length ? tr(`${chosen.length} selected`, `${chosen.length} محدد`) : tr('Select to approve several at once', 'حدد للموافقة على عدة عناصر معًا')}
+            </label>
+            {totalsText && <span className="text-sm font-medium tabular-nums">{totalsText}</span>}
+            <Button className="ms-auto" disabled={!chosen.length || progress !== null} onClick={() => setConfirming(true)}>
+              {progress !== null ? tr(`Approving ${progress} of ${chosen.length}…`, `جارٍ الموافقة ${progress} من ${chosen.length}…`) : tr(`Approve ${chosen.length || ''}`.trim(), `موافقة ${chosen.length || ''}`.trim())}
+            </Button>
+          </div>
+        )}
+        <AlertDialog open={confirming} onOpenChange={setConfirming}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{tr(`Approve ${chosen.length} items?`, `الموافقة على ${chosen.length} عنصر؟`)}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {totalsText && <span className="block font-medium text-foreground">{totalsText}</span>}
+                {tr('Each is approved at its current step, as if you approved it on its own. Rejecting or sending back is done one by one, with a reason.', 'تتم الموافقة على كل عنصر في خطوته الحالية كما لو وافقت عليه وحده. الرفض أو الإعادة يكون لكل عنصر على حدة مع ذكر السبب.')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{tr('Cancel', 'إلغاء')}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void approveChosen()}>{tr(`Approve ${chosen.length}`, `موافقة ${chosen.length}`)}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <ul className="space-y-3">
           {items.map((w) => {
             const key = `${w.docType}:${w.docId}`;
@@ -123,7 +191,9 @@ export function ApprovalsPage() {
             return (
               <li key={key} className="rounded-lg border p-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <ClipboardCheck className="h-4 w-4 self-center text-muted-foreground" aria-hidden="true" />
+                  {pickable.length > 1 && w.canDecide ? (
+                    <Checkbox className="self-center" checked={picked.has(key)} onCheckedChange={() => toggle(w)} aria-label={tr(`Select ${docTypeLabel(w.docType, tr)} ${w.number}`, `تحديد ${docTypeLabel(w.docType, tr)} ${w.number}`)} />
+                  ) : <ClipboardCheck className="h-4 w-4 self-center text-muted-foreground" aria-hidden="true" />}
                   <span className="font-semibold" dir="auto">{docTypeLabel(w.docType, tr)} {w.number}</span>
                   {w.amount > 0 && (
                     <span className="text-lg font-semibold tabular-nums">
@@ -154,6 +224,9 @@ export function ApprovalsPage() {
                     </li>
                   ))}
                 </ol>
+                {failures[key] && (
+                  <p className="mt-2 flex items-center gap-1 text-xs text-destructive" role="alert"><AlertTriangle className="h-3 w-3" aria-hidden="true" />{tr('Not approved:', 'لم تتم الموافقة:')} <span dir="auto">{failures[key]}</span></p>
+                )}
                 {w.steps.find((s) => s.note) && (
                   <p className="mt-1 text-xs text-muted-foreground" dir="auto">“{w.steps.filter((s) => s.note).map((s) => s.note).join(' · ')}”</p>
                 )}
@@ -186,6 +259,7 @@ export function ApprovalsPage() {
             );
           })}
         </ul>
+        </>
       )}
     </SectionPageShell>
   );
