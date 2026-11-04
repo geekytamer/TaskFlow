@@ -51,7 +51,6 @@ const KNOWN_UNGATED = new Set([
     'POST /companies',
     'GET /me/approval-delegation', // the caller's own delegation
     'GET /approvals/:docType/:docId', // gated by requireDocOrStepAccess (document's company, or the group signing off)
-    'GET /approvals/:docType/:docId/view', // same gate: requireDocOrStepAccess
     'PUT /me/approval-delegation',
     'PUT /companies/:id/parent', // super admin only (requireSuperAdmin), like POST /companies
     'POST /users',

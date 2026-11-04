@@ -871,7 +871,7 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
  */
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
-  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 2, 'src/routes/password.ts': 1 } },
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules; withdrawing someone else\'s held credit note or payment)', sites: { 'src/server.ts': 2, 'src/routes/approvals.ts': 2, 'src/routes/password.ts': 1 } },
   USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1, 'src/companies/people-routes.ts': 3 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },
