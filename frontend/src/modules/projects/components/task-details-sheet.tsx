@@ -579,7 +579,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
 
                 <Separator />
 
-                {editableTask?.id ? <TaskTimePanel taskId={editableTask.id} /> : null}
+                {editableTask?.id ? <TaskTimePanel taskId={editableTask.id} estimateMinutes={editableTask.estimateMinutes} onEstimated={(m) => setEditableTask((t) => ({ ...t, estimateMinutes: m }))} /> : null}
 
                 <Separator />
 

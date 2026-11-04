@@ -8,6 +8,7 @@ const mapTask = (task: any): Task => ({
   createdAt: toDate(task.createdAt) || new Date(),
   dueDate: toDate(task.dueDate),
   invoiceDate: toDate(task.invoiceDate),
+  completedAt: toDate(task.completedAt),
 });
 
 const mapComment = (comment: any): Comment => ({

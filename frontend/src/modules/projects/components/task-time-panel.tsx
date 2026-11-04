@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { updateTask } from '@/services/projectService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +21,9 @@ function formatDuration(minutes: number): string {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-export function TaskTimePanel({ taskId }: { taskId: string }) {
+export function TaskTimePanel({ taskId, estimateMinutes, canEstimate = true, onEstimated }: {
+  taskId: string; estimateMinutes?: number | null; canEstimate?: boolean; onEstimated?: (minutes: number | null) => void;
+}) {
   const { toast } = useToast();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -39,6 +42,27 @@ export function TaskTimePanel({ taskId }: { taskId: string }) {
   }, [load]);
 
   const totalMinutes = entries.reduce((sum, e) => sum + e.minutes, 0);
+  // The estimate, in hours as typed; saved when the field is left.
+  const [estimate, setEstimate] = React.useState(estimateMinutes ? String(Math.round((estimateMinutes / 60) * 100) / 100) : '');
+  React.useEffect(() => { setEstimate(estimateMinutes ? String(Math.round((estimateMinutes / 60) * 100) / 100) : ''); }, [estimateMinutes]);
+  const saveEstimate = async () => {
+    const typed = estimate.trim();
+    const minutes = typed === '' ? null : Math.round(Number(typed) * 60);
+    if (minutes !== null && (!Number.isFinite(minutes) || minutes < 1 || minutes > 60000)) {
+      toast({ variant: 'destructive', title: tr('Estimate between a minute and 1000 hours.', 'التقدير بين دقيقة و1000 ساعة.') });
+      return;
+    }
+    if (minutes === (estimateMinutes ?? null)) return;
+    try {
+      await updateTask(taskId, { estimateMinutes: minutes });
+      onEstimated?.(minutes);
+      toast({ title: minutes ? tr('Estimate saved', 'تم حفظ التقدير') : tr('Estimate removed', 'تمت إزالة التقدير') });
+    } catch (error) {
+      toast({ variant: 'destructive', title: tr('Could not save the estimate', 'تعذّر حفظ التقدير'), description: error instanceof Error ? error.message : undefined });
+    }
+  };
+  const share = estimateMinutes ? Math.min(100, Math.round((totalMinutes / estimateMinutes) * 100)) : 0;
+  const over = Boolean(estimateMinutes && totalMinutes > estimateMinutes);
 
   const submit = async () => {
     const value = Number(hours);
@@ -77,6 +101,30 @@ export function TaskTimePanel({ taskId }: { taskId: string }) {
         </p>
         {totalMinutes > 0 ? (
           <span className="text-sm font-medium">{formatDuration(totalMinutes)} {tr('logged', 'مُسجَّل')}</span>
+        ) : null}
+      </div>
+
+      <div className="mb-3 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Label htmlFor={`estimate-${taskId}`} className="text-xs text-muted-foreground">{tr('Estimate (hours)', 'التقدير (ساعات)')}</Label>
+          <Input
+            id={`estimate-${taskId}`} className="h-8 w-24" type="number" step="0.25" min="0" inputMode="decimal"
+            disabled={!canEstimate} value={estimate} placeholder={tr('none', 'بلا')}
+            onChange={(e) => setEstimate(e.target.value)} onBlur={() => void saveEstimate()}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          />
+          {estimateMinutes ? (
+            <span className={over ? 'text-xs font-medium text-amber-600 dark:text-amber-400' : 'text-xs text-muted-foreground'}>
+              {over
+                ? tr(`${formatDuration(totalMinutes - estimateMinutes)} over the estimate`, `تجاوز التقدير بـ ${formatDuration(totalMinutes - estimateMinutes)}`)
+                : tr(`${formatDuration(estimateMinutes - totalMinutes)} left`, `متبقٍ ${formatDuration(estimateMinutes - totalMinutes)}`)}
+            </span>
+          ) : null}
+        </div>
+        {estimateMinutes ? (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={share} aria-valuemin={0} aria-valuemax={100} aria-label={tr('Time used of the estimate', 'الوقت المستخدم من التقدير')}>
+            <div className={over ? 'h-full bg-amber-500' : 'h-full bg-primary'} style={{ width: `${share}%` }} />
+          </div>
         ) : null}
       </div>
 
