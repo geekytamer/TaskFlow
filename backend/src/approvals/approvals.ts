@@ -563,7 +563,7 @@ export class ApprovalStore {
       if (!req || req.status === 'changes_requested' || outcomeOf(steps) !== 'pending') throw new ApprovalError('Nothing is waiting for approval on this document.');
       const step = steps.find((s) => s.status === 'pending')!;
       // Whoever hands a step on doesn't take it themselves: administrators reassign, they don't approve.
-      if (toUserId === by.id) throw new ApprovalError('You can\'t hand a step to yourself; choose someone else.');
+      if (toUserId === by.id || this.delegatorsOf(by.id).includes(toUserId)) throw new ApprovalError('You can\'t hand a step to yourself (or to someone whose approvals are handed to you); choose someone else.');
       if (!this.who.reaches(toUserId, step.ownerCompanyId)) throw new ApprovalError('That person can\'t open the company that decides this step.');
       const policy = this.policy(step.ownerCompanyId !== req.companyId ? step.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
       if (!policy.allowSelf && toUserId === req.requesterId) throw new ApprovalError('The requester can\'t approve their own request.');
