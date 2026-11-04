@@ -35,6 +35,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, FileText, Download, LayoutTemplate, Pencil, ExternalLink } from 'lucide-react';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const InvoiceTemplatePanel = dynamic(
   () => import('@/modules/finance/components/invoice-template-panel')
@@ -61,6 +63,7 @@ export function DocumentsPanel() {
 
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [documents, setDocuments] = React.useState<DocumentInstance[]>([]);
+  const approvalStatus = useApprovalStatuses('document', documents);
   const [loading, setLoading] = React.useState(true);
   const [view, setView] = React.useState<View>({ mode: 'list' });
   const [composeTemplateId, setComposeTemplateId] = React.useState('');
@@ -285,7 +288,10 @@ export function DocumentsPanel() {
                         <TableRow key={d.id}>
                           <TableCell className="font-medium">{d.title}</TableCell>
                           <TableCell className="text-muted-foreground">{d.templateName ?? '—'}</TableCell>
-                          <TableCell><Badge variant={d.status === 'final' ? 'default' : 'secondary'}>{d.status === 'final' ? tr('Final', 'معتمد') : tr('Draft', 'مسودة')}</Badge></TableCell>
+                          <TableCell>
+                            <Badge variant={d.status === 'final' ? 'default' : 'secondary'}>{d.status === 'final' ? tr('Final', 'معتمد') : tr('Draft', 'مسودة')}</Badge>
+                            <div className="mt-1"><ApprovalChip docType="document" row={approvalStatus.statusOf(d.id)} onChanged={() => { void approvalStatus.reload(); }} /></div>
+                          </TableCell>
                           <TableCell className="text-end">
                             {d.status === 'draft' && (
                               <Button variant="ghost" size="sm" onClick={() => {

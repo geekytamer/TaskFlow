@@ -6,7 +6,8 @@ import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut } from '@/lib/fan-out';
 import { getApprovalStatuses, type ApprovalDocType, type ApprovalStatusRow } from '@/services/approvalService';
 
-export function useApprovalStatuses(docType: ApprovalDocType) {
+/** `list`: the page's documents; when it reloads, the chips do too. */
+export function useApprovalStatuses(docType: ApprovalDocType, list?: unknown) {
   const { companyIds } = useCompanyScope();
   const scopeKey = companyIds.join(',');
   const [rows, setRows] = React.useState<Map<string, ApprovalStatusRow>>(new Map());
@@ -18,6 +19,6 @@ export function useApprovalStatuses(docType: ApprovalDocType) {
     if (mine !== ticket.current) return;
     setRows(new Map(answer.rows.map((r) => [r.docId, r])));
   }, [scopeKey, docType]);
-  React.useEffect(() => { void reload(); }, [reload]);
+  React.useEffect(() => { void reload(); }, [reload, list]);
   return { statusOf: (docId: string) => rows.get(docId), reload };
 }

@@ -5,7 +5,6 @@
  * whoever may) approve / reject / send back, or hand the step to someone else.
  */
 import * as React from 'react';
-import { format } from 'date-fns';
 import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, UserRoundCog, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -25,6 +24,7 @@ export function ApprovalPanel({ docType, docId, onChanged }: { docType: Approval
   const { currentUser } = useCompany();
   const { companyName } = useCompanyScope();
   const { toast } = useToast();
+  const when = React.useMemo(() => new Intl.DateTimeFormat(language === 'ar' ? 'ar-OM' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), [language]);
   const [view, setView] = React.useState<ApprovalView | null>(null);
   const [failed, setFailed] = React.useState<string | null>(null);
   const [note, setNote] = React.useState('');
@@ -101,7 +101,7 @@ export function ApprovalPanel({ docType, docId, onChanged }: { docType: Approval
                 {s.ownerCompanyId && s.ownerCompanyId !== view.companyId && (
                   <span className="text-muted-foreground"> · {tr('sign-off by', 'اعتماد')} {companyName(s.ownerCompanyId) !== s.ownerCompanyId ? companyName(s.ownerCompanyId) : tr('the group', 'المجموعة')}</span>
                 )}
-                {s.decidedByName && <span className="block text-xs text-muted-foreground" dir="auto">{s.decidedByName}{s.decidedAt ? ` · ${format(new Date(s.decidedAt), 'd MMM, HH:mm')}` : ''}</span>}
+                {s.decidedByName && <span className="block text-xs text-muted-foreground" dir="auto">{s.decidedByName}{s.decidedAt ? ` · ${when.format(new Date(s.decidedAt))}` : ''}</span>}
                 {s.stuck && (
                   <span className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
                     <AlertTriangle className="h-3 w-3" aria-hidden="true" />{tr('Nobody who can open this company can decide it.', 'لا يوجد من يستطيع البت فيها.')}
@@ -152,7 +152,7 @@ export function ApprovalPanel({ docType, docId, onChanged }: { docType: Approval
           {view.trail.map((t, i) => (
             <li key={i} className="text-xs">
               <span dir="auto">{trailText(t, tr, nameOf)}</span>
-              <span className="text-muted-foreground"> · {format(new Date(t.at), 'd MMM, HH:mm')}</span>
+              <span className="text-muted-foreground"> · {when.format(new Date(t.at))}</span>
               {t.note && <span className="mt-0.5 block text-muted-foreground" dir="auto">“{t.note}”</span>}
             </li>
           ))}

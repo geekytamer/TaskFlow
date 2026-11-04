@@ -1246,7 +1246,7 @@ export async function generateCampaignInvoice(companyId: string, campaignId: str
 }
 
 export interface SyncCampaignInvoiceResult {
-  status: 'resynced' | 'up_to_date' | 'needs_confirmation' | 'supplemented' | 'credited';
+  status: 'resynced' | 'up_to_date' | 'needs_confirmation' | 'supplemented' | 'credited' | 'credit_held';
   delta?: number;
   kind?: 'supplementary' | 'credit';
   invoice?: any;

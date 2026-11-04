@@ -73,7 +73,6 @@ const blankForm = (): QuoteForm => ({
  * `opportunityId` is given (the client then comes from the opportunity).
  */
 export function QuotationsPanel({ opportunityId, compact = false }: { opportunityId?: string; compact?: boolean }) {
-  const approvalStatus = useApprovalStatuses('quotation');
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
   const { toast } = useToast();
@@ -86,6 +85,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const companyId = selectedCompany?.id || '';
 
   const [quotes, setQuotes] = React.useState<Quotation[]>([]);
+  const approvalStatus = useApprovalStatuses('quotation', quotes);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [inventory, setInventory] = React.useState<InventoryItem[]>([]);
   const [quoteTemplates, setQuoteTemplates] = React.useState<InvoiceTemplate[]>([]);

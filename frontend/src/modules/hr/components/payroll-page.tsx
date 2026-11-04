@@ -27,13 +27,15 @@ import { Plus, Trash2, Download, ChevronRight, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/context/permissions-context';
 import { HiddenValue } from '@/components/hidden-value';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 function money(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** A run moves forward only: draft → approved (wages posted to the ledger) → paid. */
-function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id: string) => void; onChanged: () => void }) {
+function RunCard({ run, onDelete, onChanged, approval }: { run: PayrollRun; onDelete: (id: string) => void; onChanged: () => void; approval?: React.ReactNode }) {
   const { language } = useI18n();
   const { toast } = useToast();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -99,6 +101,7 @@ function RunCard({ run, onDelete, onChanged }: { run: PayrollRun; onDelete: (id:
           </CollapsibleTrigger>
           <div className="flex items-center gap-2">
             <Badge variant={run.status === 'paid' ? 'default' : 'secondary'}>{statusLabel(run.status)}</Badge>
+            {approval}
             {run.status === 'draft' && can('payroll.edit') && (
               <Button size="sm" onClick={() => move('approved')} disabled={moving}>{tr('Approve', 'اعتماد')}</Button>
             )}
@@ -158,6 +161,7 @@ export function PayrollPage() {
   const canRun = usePermissions().can('payroll.create');
 
   const [runs, setRuns] = React.useState<PayrollRun[]>([]);
+  const approvalStatus = useApprovalStatuses('payroll_run', runs);
   const [loading, setLoading] = React.useState(true);
   const [period, setPeriod] = React.useState(() => new Date().toISOString().slice(0, 7));
   const [running, setRunning] = React.useState(false);
@@ -229,7 +233,7 @@ export function PayrollPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {runs.map((r) => <RunCard key={r.id} run={r} onDelete={remove} onChanged={load} />)}
+          {runs.map((r) => <RunCard key={r.id} run={r} onDelete={remove} onChanged={load} approval={<ApprovalChip docType="payroll_run" row={approvalStatus.statusOf(r.id)} onChanged={() => { void load(); }} />} />)}
         </div>
       )}
     </div>

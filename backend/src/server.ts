@@ -7056,7 +7056,8 @@ export function createServer(options: CreateServerOptions = {}) {
   approvalDocs.leave_request = followsRequest((id) => {
     const l = store.getLeaveRequestById(id);
     const e = l ? store.getEmployeeById(l.employeeId) : undefined;
-    return l ? { companyId: l.companyId, number: `${l.days} day${l.days === 1 ? '' : 's'} leave`, amount: Number(l.days) || 0, party: e?.name ?? null, date: new Date(l.startDate) } : undefined;
+    const day = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+    return l ? { companyId: l.companyId, number: `${day(l.startDate)} → ${day(l.endDate)}`, amount: Number(l.days) || 0, party: e?.name ?? null, date: new Date(l.startDate) } : undefined;
   }, (id) => store.getLeaveRequestById(id));
   approvalDocs.purchase_requisition = followsRequest((id) => {
     const r = store.getPurchaseRequisitionById(id);
@@ -7065,7 +7066,9 @@ export function createServer(options: CreateServerOptions = {}) {
   }, (id) => store.getPurchaseRequisitionById(id));
   const heldDoc = followsRequest((id) => {
     const h = store.getApprovalHold(id);
-    return h ? { companyId: h.companyId, number: h.label, amount: h.amount, party: h.party, date: new Date(h.createdAt) } : undefined;
+    // Named by what it is against (the bill or invoice), as "Payment VI-0001" / "Credit note on INV-0004".
+    const target = h?.targetId ? (h.docType === 'vendor_payment' ? store.getVendorBillById(h.targetId)?.billNumber : `on ${store.getInvoiceById(h.targetId)?.invoiceNumber ?? ''}`) : undefined;
+    return h ? { companyId: h.companyId, number: target ?? '', amount: h.amount, party: h.party, date: new Date(h.createdAt) } : undefined;
   }, (id) => store.getApprovalHold(id));
   approvalDocs.credit_note = heldDoc;
   approvalDocs.vendor_payment = heldDoc;

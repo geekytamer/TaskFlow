@@ -24,7 +24,7 @@ import { CompanyLabel } from '@/modules/groups/components/company-cell';
 import { MissingCompanies } from '@/modules/groups/components/missing-companies';
 import { useCurrencyOf } from '@/modules/groups/hooks/use-currency-of';
 import {
-  decideApproval, docLink, docTypeLabel, getApprovals, type ApprovalBox, type ApprovalItem,
+  amountIsDays, decideApproval, docLink, docTypeLabel, getApprovals, type ApprovalBox, type ApprovalItem,
 } from '@/services/approvalService';
 import { approverText } from '../lib/wording';
 import { ApprovalPanel } from './approval-panel';
@@ -58,7 +58,9 @@ export function ApprovalsPage() {
     // A child's document waiting at the group's sign-off is in both inboxes: list it once.
     const seen = new Set<string>();
     const unique = answer.rows.filter((w) => { const k = `${w.docType}:${w.docId}`; if (seen.has(k)) return false; seen.add(k); return true; });
-    setItems(unique.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)));
+    // Oldest first; in All open, the stuck ones (nobody can decide them) come first.
+    const stuck = (w: ApprovalItem) => (box === 'open' && w.steps.some((s) => s.stuck) ? 0 : 1);
+    setItems(unique.sort((a, b) => stuck(a) - stuck(b) || Date.parse(a.date) - Date.parse(b.date)));
     setMissing(answer.missing);
   }, [selectedCompany, scopeKey, box]);
   React.useEffect(() => { setItems(null); void load(); }, [load]);
@@ -123,7 +125,11 @@ export function ApprovalsPage() {
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <ClipboardCheck className="h-4 w-4 self-center text-muted-foreground" aria-hidden="true" />
                   <span className="font-semibold" dir="auto">{docTypeLabel(w.docType, tr)} {w.number}</span>
-                  {w.amount > 0 && <span className="text-lg font-semibold tabular-nums">{formatCurrency(w.amount, currencyOf(w.companyId))}</span>}
+                  {w.amount > 0 && (
+                    <span className="text-lg font-semibold tabular-nums">
+                      {amountIsDays(w.docType) ? tr(`${w.amount} day${w.amount === 1 ? '' : 's'}`, `${w.amount} يوم`) : formatCurrency(w.amount, currencyOf(w.companyId))}
+                    </span>
+                  )}
                   {w.party && <span className="text-sm text-muted-foreground" dir="auto">{w.party}</span>}
                   <span className="text-xs text-muted-foreground">{format(new Date(w.date), 'dd MMM yyyy')}</span>
                   {statusChip(w)}
