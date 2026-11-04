@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { createEmailQueue, isRateLimitError, type EmailAttempt, type EmailQueueOptions } from './email-queue';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const appUrl =
@@ -19,7 +20,32 @@ export const escapeHtml = (value: string) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string),
   );
 
-export type EmailResult = { sent: boolean; error?: string };
+export type EmailResult = { sent: boolean; error?: string; rateLimited?: boolean };
+
+// Every email leaves through one queue that keeps under Resend's 10 requests a second.
+const defaultQueueOptions = (): EmailQueueOptions => ({
+  perSecond: Number(process.env.RESEND_MAX_PER_SECOND) || 8,
+  maxRetries: 4,
+  baseDelayMs: 500,
+  maxDelayMs: 8000,
+});
+let queue = createEmailQueue(defaultQueueOptions());
+/** Tests tune the limit and backoff; null restores the defaults. */
+export function configureEmailQueue(options: Partial<EmailQueueOptions> | null): void {
+  queue = createEmailQueue({ ...defaultQueueOptions(), ...(options ?? {}) });
+}
+
+/** One Resend call, its error reported with whether a 429 retry may help. */
+async function resendSend(message: { from: string; to: string; subject: string; html: string }): Promise<EmailAttempt> {
+  const result = await new Resend(resendApiKey).emails.send(message);
+  const error = (result as any)?.error;
+  if (error) {
+    return { sent: false, error: error.message || 'Unknown error sending email.', rateLimited: isRateLimitError(error) };
+  }
+  return { sent: true };
+}
+
+const strip = ({ sent, error }: EmailAttempt): EmailResult => (error === undefined ? { sent } : { sent, error });
 
 /** Replaces how mail leaves (tests capture it; null restores Resend). */
 type Transport = (message: { from: string; to: string; subject: string; html: string }) => Promise<EmailResult>;
@@ -29,24 +55,13 @@ export function setEmailTransport(next: Transport | null): void {
 }
 
 export async function send(to: string, subject: string, html: string, from: string = fromEmail): Promise<EmailResult> {
-  if (transport) return transport({ from, to, subject, html });
-  if (!resendApiKey) {
+  const deliver = transport;
+  if (!deliver && !resendApiKey) {
     return { sent: false, error: 'RESEND_API_KEY not set; skipping email.' };
   }
-  try {
-    const resend = new Resend(resendApiKey);
-    const result = await resend.emails.send({ from, to, subject, html });
-    if ((result as any)?.error) {
-      const message = (result as any).error?.message || 'Unknown error sending email.';
-      console.error('Resend error:', message);
-      return { sent: false, error: message };
-    }
-    return { sent: true };
-  } catch (error: any) {
-    const message = error?.message || 'Failed to send email.';
-    console.error(message);
-    return { sent: false, error: message };
-  }
+  const result = await queue.run(() => (deliver ? deliver({ from, to, subject, html }) : resendSend({ from, to, subject, html })));
+  if (!result.sent && !deliver) console.error('Resend error:', result.error);
+  return strip(result);
 }
 
 /** Immediate email for a single critical notification. */
@@ -131,18 +146,14 @@ export const sendPasswordEmail: PasswordEmailSender = async ({ to, name, link, p
       ${invite ? '' : "<p style=\"color:#666\">If you did not ask for this, ignore this email; your password stays as it is.</p>"}
       <p style="color:#666;font-size:12px">${href}</p>
     </div>`;
-  try {
-    const result = await new Resend(resendApiKey).emails.send({
-      from: fromEmail,
-      to,
-      subject: invite ? 'تعيين كلمة المرور | Set your password' : 'إعادة تعيين كلمة المرور | Reset your password',
-      html,
-    });
-    if ((result as any)?.error) return { sent: false, error: (result as any).error?.message || 'Unknown error.' };
-    return { sent: true };
-  } catch (error: any) {
-    return { sent: false, error: error?.message || 'Failed to send password email.' };
-  }
+  const result = await queue.run(() => resendSend({
+    from: fromEmail,
+    to,
+    subject: invite ? 'تعيين كلمة المرور | Set your password' : 'إعادة تعيين كلمة المرور | Reset your password',
+    html,
+  }));
+  if (!result.sent) console.error('Resend error (password email):', result.error);
+  return strip(result);
 };
 
 /** An absolute link into the web app (APP_URL). */
