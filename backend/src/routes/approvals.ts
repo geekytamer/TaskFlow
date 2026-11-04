@@ -12,8 +12,15 @@ export interface ApprovalDecisions {
   decideDocument: (req: AuthedRequest, docType: ApprovalDocType, docId: string, companyId: string, decision: 'approve' | 'reject' | 'send_back', note?: string) => object;
 }
 
-/** Document types wired in wave 1 (spec 2026-11-03-approvals-design, "As built"). */
-const WIRED_DOC_TYPES: ApprovalDocType[] = ['purchase_order', 'expense', 'vendor_bill', 'invoice', 'quotation', 'payroll_run', 'document'];
+/** Document types wired so far (wave 1, and wave 2 of 2026-11-04): every type. */
+const WIRED_DOC_TYPES: ApprovalDocType[] = APPROVAL_DOC_TYPES;
+
+/** Who may read each kind of document (amounts, parties, history) without being on its request. */
+const READ_KEYS: Record<ApprovalDocType, string> = {
+  purchase_order: 'purchasing.view', purchase_requisition: 'purchasing.view', expense: 'finance.view',
+  vendor_bill: 'vendor-bills.view', vendor_payment: 'vendor-bills.view', invoice: 'invoices.view', credit_note: 'invoices.view',
+  quotation: 'sales.view', payroll_run: 'payroll.view', document: 'documents.view', leave_request: 'hr.view',
+};
 
 /** The permission that lets someone decide a step, per kind of document (route-registry HANDLER_CHECKED). */
 const DECISION_KEYS: Partial<Record<ApprovalDocType, string>> = {
@@ -67,6 +74,9 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       if (ctx.permissionsEngine === 'v2') throw forbidden(companyId, 'settings.manage_approvals');
       throw new HttpError(403, 'Only an administrator can change approvals.', { code: 'FORBIDDEN', permission: 'settings.manage_approvals' });
     }
+  };
+  const mayManageApprovals = (req: AuthedRequest, companyId: string) => {
+    try { requireManageApprovals(req, companyId); return true; } catch { return false; }
   };
   const runApprovals = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof ApprovalError) throw new HttpError(409, e.message); throw e; }
@@ -254,22 +264,81 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       // Anyone can be on a step (a Legal team member may be an Employee): the
       // inbox lists only what this person, or someone they stand in for, decides.
       requireCompanyAccess(req, req.params.companyId);
-      const box = req.query.box === 'mine' || req.query.box === 'decided' ? req.query.box : 'waiting';
+      const box = (['mine', 'decided', 'open'] as const).find((b) => b === req.query.box) ?? 'waiting';
+      // Every waiting request, for whoever runs approvals here (to hand stuck steps on).
+      if (box === 'open') requireManageApprovals(req, req.params.companyId);
       const me = req.user!.id;
       const list = box === 'waiting'
         ? store.approvalsWaitingFor(req.params.companyId, me)
-        : box === 'mine' ? store.approvals.requestedBy(req.params.companyId, me) : store.approvals.decidedBy(req.params.companyId, me);
+        : box === 'mine' ? store.approvals.requestedBy(req.params.companyId, me)
+        : box === 'decided' ? store.approvals.decidedBy(req.params.companyId, me) : store.approvals.openFor(req.params.companyId);
       const items = list.map((w) => {
         const view = store.approvalView(w.docType, w.docId);
         return {
           ...w, ...docSummary(w.docType, w.docId), levels: view.steps.length,
           status: view.status, steps: view.steps, requesterId: view.requesterId,
-          canDecide: box === 'waiting',
+          canDecide: box === 'waiting' || (box === 'open' && store.approvals.canDecide(w.docType, w.docId, me)),
+          canReassign: box === 'open' && view.status === 'pending' && (() => {
+            const current = view.steps.find((x) => x.status === 'pending');
+            return Boolean(current) && mayManageApprovals(req, current!.ownerCompanyId);
+          })(),
         };
       }).filter((w) => w.number !== undefined);
+      // Stuck first: nobody can decide them until someone hands them on.
+      if (box === 'open') items.sort((a, b) => Number(b.steps.some((x) => x.stuck)) - Number(a.steps.some((x) => x.stuck)));
       res.json(items);
     }),
   );
+
+  /** Where each document of one type stands, for the chips on its list. */
+  app.get('/companies/:companyId/approvals/status', authMiddleware, handler((req, res) => {
+    const docType = enumValue(req.query.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    // Leave is listed to everyone in the company (as its own list is); other documents to those who run them.
+    if (docType === 'leave_request') requireCompanyAccess(req, req.params.companyId);
+    else requireCompanyRoles(req, req.params.companyId, companyManagementRoles, READ_KEYS[docType]);
+    res.json(store.approvals.statuses(req.params.companyId, docType));
+  }));
+
+  /** One document's request as its reader sees it: steps, trail, and whether I can decide or hand it on. */
+  app.get('/approvals/:docType/:docId/view', authMiddleware, handler((req, res) => {
+    const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    const doc = docSummary(docType, req.params.docId);
+    if (!doc) throw new HttpError(404, 'Document not found.');
+    requireDocOrStepAccess(req, docType, req.params.docId, doc.companyId);
+    const view = store.approvalView(docType, req.params.docId);
+    const me = req.user!.id;
+    // Its amount, party and history are for whoever is on it (asked, decides, decided, hands it on)
+    // or runs the document's company; any other member sees nothing.
+    const onIt = view.requesterId === me || store.approvals.involves(docType, req.params.docId, me);
+    if (!onIt && !mayManageApprovals(req, view.steps.find((s) => s.status === 'pending')?.ownerCompanyId ?? doc.companyId)) {
+      requireCompanyRoles(req, doc.companyId, companyManagementRoles, READ_KEYS[docType]);
+    }
+    const current = view.steps.find((s) => s.status === 'pending');
+    const canDecide = store.approvals.canDecide(docType, req.params.docId, me);
+    const canReassign = Boolean(current) && view.status === 'pending' && mayManageApprovals(req, current!.ownerCompanyId);
+    res.json({ docType, docId: req.params.docId, ...doc, ...view, canDecide, canReassign });
+  }));
+
+  /** Hands the current step to one named person (approvals administrators; logged with the reason). */
+  app.post('/approvals/:docType/:docId/reassign', authMiddleware, handler((req, res) => {
+    const docType = enumValue(req.params.docType, 'docType', APPROVAL_DOC_TYPES) as ApprovalDocType;
+    const doc = docSummary(docType, req.params.docId);
+    if (!doc) throw new HttpError(404, 'Document not found.');
+    const current = store.approvals.steps(docType, req.params.docId).find((s) => s.status === 'pending');
+    // Permission first (the step's company, else the document's), then whether anything waits.
+    requireManageApprovals(req, current?.ownerCompanyId ?? doc.companyId);
+    if (!current) throw new HttpError(409, 'Nothing is waiting for approval on this document.');
+    const body = asRecord(req.body, 'body');
+    const toUserId = optionalString(body.toUserId);
+    if (!toUserId) throw new HttpError(400, 'toUserId is required.');
+    try {
+      store.reassignApproval(docType, req.params.docId, { id: req.user!.id }, toUserId, optionalString(body.reason) ?? '');
+    } catch (e) {
+      if (e instanceof ApprovalError) throw new HttpError(409, e.message);
+      throw e;
+    }
+    res.json(store.approvalView(docType, req.params.docId));
+  }));
 
   app.get(
     '/approvals/:docType/:docId',

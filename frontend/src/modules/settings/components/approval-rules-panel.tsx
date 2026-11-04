@@ -23,6 +23,7 @@ import { getUsersByCompany } from '@/services/userService';
 import {
   POLICY_DOC_TYPES, deleteApprovalTeam, docTypeGate, docTypeLabel, getApprovalPolicies, getApprovalTeams, roleLabel,
   saveApprovalPolicy, saveApprovalTeam, type ApprovalDocType, type ApprovalPolicy, type ApprovalTeam, type Approver, type PolicyStep,
+  amountIsDays,
 } from '@/services/approvalService';
 
 type Tr = (en: string, ar: string) => string;
@@ -162,7 +163,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
               <ol className="space-y-2">
                 {p.steps.map((s, i) => (
                   <StepEditor
-                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)}
+                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)} days={amountIsDays(t)}
                     teams={teams} people={people}
                     onChange={(next) => edit(t, (q) => ({ ...q, inheritedFrom: null, steps: q.steps.map((x, j) => (j === i ? next : x)) }))}
                     onMove={(d) => edit(t, (q) => { const steps = [...q.steps]; const [x] = steps.splice(i, 1); steps.splice(i + d, 0, x); return { ...q, steps }; })}
@@ -175,7 +176,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                   {tr(`Then ${g.name} signs off: `, `ثم تعتمد ${g.name}: `)}
                   {g.steps.map((st) => st.approvers.map((a) => label(a)).join(st.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))
                     + (st.minAmount ? tr(` (from ${st.minAmount}`, ` (من ${st.minAmount}`) + (st.maxAmount ? tr(` up to ${st.maxAmount})`, ` حتى ${st.maxAmount})`) : ')') : st.maxAmount ? tr(` (up to ${st.maxAmount})`, ` (حتى ${st.maxAmount})`) : '')).join(tr(', then ', '، ثم '))}
-                  {tr(` In ${g.name}'s currency.`, ` بعملة ${g.name}.`)}
+                  {amountIsDays(t) ? tr(' In days.', ' بالأيام.') : tr(` In ${g.name}'s currency.`, ` بعملة ${g.name}.`)}
                 </p>
               ))}
               {canEdit && (
@@ -255,7 +256,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   );
 }
 
-function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove, isGroup }: {
+function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove, isGroup, days = false }: {
+  days?: boolean;
   index: number; step: PolicyStep; count: number; canEdit: boolean; tr: Tr; label: (a: Approver) => string; isGroup: boolean;
   teams: ApprovalTeam[]; people: Array<{ id: string; name: string }>;
   onChange: (s: PolicyStep) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
@@ -316,7 +318,7 @@ function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onC
         <Input type="number" min={0} className="h-7 w-24" placeholder={tr('any', 'أي')} disabled={!canEdit} value={step.minAmount ?? ''} onChange={(e) => onChange({ ...step, minAmount: amount(e.target.value) })} />
         {tr('up to', 'حتى')}
         <Input type="number" min={0} className="h-7 w-24" placeholder={tr('any', 'أي')} disabled={!canEdit} value={step.maxAmount ?? ''} onChange={(e) => onChange({ ...step, maxAmount: amount(e.target.value) })} />
-        {tr('(in the document\'s company currency)', '(بعملة شركة المستند)')}
+        {days ? tr('days of leave', 'أيام إجازة') : tr('(in the document\'s company currency)', '(بعملة شركة المستند)')}
       </div>
       {isGroup && (
         <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">

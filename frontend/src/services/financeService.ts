@@ -1,4 +1,5 @@
 import { apiFetch, getStoredToken } from '@/lib/api-client';
+import { isHeld, type HeldAnswer } from '@/services/approvalService';
 import type {
   AgingBucket,
   ActivityEvent,
@@ -477,12 +478,13 @@ export async function getCreditNotes(companyId: string): Promise<CreditNote[]> {
 export async function createCreditNote(
   companyId: string,
   input: { invoiceId?: string; clientId?: string; reason?: string; lineItems: CreditNoteLineItem[] },
-): Promise<CreditNote> {
+): Promise<CreditNote | HeldAnswer> {
   const data = await apiFetch<any>(`/companies/${companyId}/credit-notes`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
-  return mapCreditNote(data);
+  // With a credit-note policy it is held for approval and nothing is recorded yet.
+  return isHeld(data) ? data : mapCreditNote(data);
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
@@ -1189,14 +1191,16 @@ export async function getVendorBillPayments(billId: string): Promise<VendorBillP
 export async function createVendorBillPayment(
   billId: string,
   data: VendorBillPaymentInput,
-): Promise<{ payment: VendorBillPayment; bill: VendorBill }> {
-  const response = await apiFetch<{ payment: VendorBillPayment; bill: VendorBill }>(
+): Promise<{ payment: VendorBillPayment; bill: VendorBill; held?: undefined } | (HeldAnswer & { bill: VendorBill })> {
+  const response = await apiFetch<{ payment: VendorBillPayment; bill: VendorBill } | (HeldAnswer & { bill: VendorBill })>(
     `/vendor-bills/${billId}/payments`,
     {
       method: 'POST',
       body: JSON.stringify(data),
     },
   );
+  // With a payment policy it is held for approval and nothing is paid yet.
+  if (isHeld(response)) return { ...response, bill: mapVendorBill(response.bill) };
   return {
     payment: mapVendorBillPayment(response.payment),
     bill: mapVendorBill(response.bill),

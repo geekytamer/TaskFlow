@@ -182,6 +182,9 @@
   "invoices:delete": [
     "DELETE /credit-notes/:id"
   ],
+  "invoices:read": [
+    "GET /companies/:companyId/approval-holds"
+  ],
   "invoices:write": [
     "POST /companies/:companyId/invoice-templates",
     "POST /companies/:companyId/invoices/bulk-status"

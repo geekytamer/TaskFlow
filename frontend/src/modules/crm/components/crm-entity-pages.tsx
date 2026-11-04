@@ -629,6 +629,7 @@ export function CampaignsPage() {
         up_to_date: t('campaignsPage.syncUpToDate', 'The invoice already matches the campaign.'),
         supplemented: t('campaignsPage.syncSupplemented', 'A supplementary invoice was created for the added scope.'),
         credited: t('campaignsPage.syncCredited', 'A credit note was issued for the reduced scope.'),
+        credit_held: t('campaignsPage.syncCreditHeld', 'A credit note for the reduced scope was sent for approval; it is recorded once approved.'),
       };
       await loadCampaigns();
       await loadExecution(selectedCampaign.id);

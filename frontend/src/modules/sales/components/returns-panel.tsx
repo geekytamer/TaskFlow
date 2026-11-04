@@ -171,7 +171,8 @@ export function ReturnsPanel() {
           if (!receiving) return;
           try {
             const done = await receiveCustomerReturn(receiving.id, { issueCredit });
-            toast({ title: tr(`${done.returnNumber} received`, `تم استلام ${done.returnNumber}`), description: done.creditNoteId ? tr('Credit note issued.', 'صدر الإشعار الدائن.') : undefined });
+            toast({ title: tr(`${done.returnNumber} received`, `تم استلام ${done.returnNumber}`), description: done.creditNoteId ? tr('Credit note issued.', 'صدر الإشعار الدائن.')
+              : issueCredit ? tr('The credit note went for approval; it is recorded once approved.', 'أُرسل الإشعار الدائن للموافقة، ويُسجَّل بعد اعتماده.') : undefined });
             setReceiving(null);
             await load();
           } catch (error: any) {

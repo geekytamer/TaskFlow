@@ -239,7 +239,7 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
       throw new HttpError(400, 'employeeId, startDate, and endDate are required.');
     }
     try {
-      res.status(201).json(store.createLeaveRequest({
+      res.status(201).json(withActor(req, () => store.createLeaveRequest({
         companyId: req.params.companyId,
         employeeId: body.employeeId,
         leaveTypeId: body.leaveTypeId,
@@ -248,8 +248,9 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
         days: body.days,
         reason: body.reason,
         status: body.status,
-      }));
+      })));
     } catch (error) {
+      if (error instanceof HttpError) throw error;
       throw new HttpError(400, error instanceof Error ? error.message : 'Could not create leave request.');
     }
   }));
@@ -261,6 +262,6 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
     if (!['Pending', 'Approved', 'Rejected', 'Cancelled'].includes(status)) {
       throw new HttpError(400, 'Invalid leave request status.');
     }
-    res.json(store.setLeaveRequestStatus(req.params.id, status, { userId: req.user?.id, name: req.user?.name }, req.body?.reviewNote));
+    res.json(withActor(req, () => store.setLeaveRequestStatus(req.params.id, status, { userId: req.user?.id, name: req.user?.name }, req.body?.reviewNote)));
   }));
 }

@@ -50,7 +50,7 @@ export interface ApprovalStep {
   status: StepStatus; decidedByUserId: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null;
 }
 export type ApprovalOutcome = 'not_required' | 'pending' | 'approved' | 'rejected' | 'changes_requested';
-export type TrailKind = 'started' | 'skipped' | 'noted' | 'approved' | 'rejected' | 'changes_requested' | 'reminded' | 'escalated' | 'restarted';
+export type TrailKind = 'started' | 'skipped' | 'noted' | 'approved' | 'rejected' | 'changes_requested' | 'reminded' | 'escalated' | 'restarted' | 'reassigned';
 export interface TrailEntry {
   level: number | null; slot: number | null; kind: TrailKind; userId: string | null; userName: string | null;
   onBehalfOf: string | null; note: string | null; at: string;
@@ -71,6 +71,16 @@ export interface ApprovalPeople {
   nameOf: (userId: string) => string;
   /** Whether this person can work in the company at all (only then can they decide its documents). */
   reaches: (userId: string, companyId: string) => boolean;
+}
+
+/** Credit notes and vendor payments post when recorded, so with a policy they are held until approved. */
+export type HoldDocType = 'credit_note' | 'vendor_payment';
+export interface ApprovalHold {
+  id: string; companyId: string; docType: HoldDocType; targetId: string | null;
+  payload: Record<string, unknown>; amount: number; label: string; party: string | null;
+  status: 'pending' | 'approved' | 'failed' | 'rejected' | 'withdrawn';
+  resultId: string | null; error: string | null; note: string | null; requesterId: string | null;
+  createdAt: string; endedAt: string | null;
 }
 
 export class ApprovalError extends Error {}
@@ -244,7 +254,17 @@ export class ApprovalStore {
 
   private request(docType: ApprovalDocType, docId: string) {
     return this.db.prepare('SELECT * FROM approval_requests WHERE docType = ? AND docId = ?').get(docType, docId) as
-      | { companyId: string; requesterId: string | null; status: ApprovalOutcome; policyCompanyId: string | null } | undefined;
+      | { companyId: string; requesterId: string | null; status: ApprovalOutcome; policyCompanyId: string | null; managerUserId: string | null } | undefined;
+  }
+
+  /**
+   * The requester's manager. A request may carry its own (leave recorded for
+   * someone without a login: their HR line manager; '' means none), else the
+   * requester's HR line manager in the document's company.
+   */
+  private managerFor(requesterId: string | null, docCompanyId: string, managerUserId?: string | null): string | null {
+    if (typeof managerUserId === 'string') return managerUserId || null;
+    return requesterId && this.people ? this.who.managerOf(requesterId, docCompanyId) : null;
   }
 
   /**
@@ -256,6 +276,8 @@ export class ApprovalStore {
     companyId: string, docType: ApprovalDocType, docId: string,
     levels: Array<{ minAmount: number; approverRole: ApproverRole; approvers?: Approver[]; need?: Need; ownerCompanyId?: string; note?: string }>,
     requesterId: string | null = null, policyCompanyId: string | null = null,
+    /** A fixed manager for this request ('' for none); leave it out to use the requester's. */
+    managerUserId?: string | null,
   ): ApprovalOutcome {
     return this.db.transaction(() => {
       const restarting = Boolean(this.request(docType, docId));
@@ -265,7 +287,7 @@ export class ApprovalStore {
       const kept = levels.filter((l) => {
         const approvers = l.approvers ?? [{ kind: 'role', id: l.approverRole } as Approver];
         const needsManager = approvers.length === 1 && approvers[0].kind === 'manager';
-        if (needsManager && !(requesterId && this.people && this.who.managerOf(requesterId, companyId))) {
+        if (needsManager && !this.managerFor(requesterId, companyId, managerUserId)) {
           trail.run(docType, docId, null, null, 'skipped', null, null, 'The requester has no manager on record, so the manager step was left out.', at);
           return false;
         }
@@ -279,8 +301,8 @@ export class ApprovalStore {
         insert.run(companyId, docType, docId, i + 1, l.minAmount, firstRole(approvers), JSON.stringify(approvers), l.need ?? 'any', l.ownerCompanyId ?? companyId);
       });
       const status: ApprovalOutcome = kept.length ? 'pending' : 'not_required';
-      this.db.prepare('INSERT OR REPLACE INTO approval_requests (docType, docId, companyId, requesterId, status, policyCompanyId, startedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(docType, docId, companyId, requesterId, status, policyCompanyId ?? companyId, at);
+      this.db.prepare('INSERT OR REPLACE INTO approval_requests (docType, docId, companyId, requesterId, status, policyCompanyId, startedAt, managerUserId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(docType, docId, companyId, requesterId, status, policyCompanyId ?? companyId, at, typeof managerUserId === 'string' ? managerUserId : null);
       if (kept.length) trail.run(docType, docId, null, null, restarting ? 'restarted' : 'started', requesterId, null, null, at);
       // Notes on the steps (a group band in another currency) come after the start, once each.
       [...new Map(kept.map((l, i) => [l.note, i + 1] as const)).entries()].forEach(([note, level]) => {
@@ -328,24 +350,24 @@ export class ApprovalStore {
    * must work there, with their role there. The manager is the requester's,
    * in the document's company.
    */
-  private qualifies(a: Approver, userId: string, ownerId: string, docCompanyId: string, requesterId: string | null): boolean {
+  private qualifies(a: Approver, userId: string, ownerId: string, docCompanyId: string, requesterId: string | null, managerUserId?: string | null): boolean {
     if (!this.who.reaches(userId, ownerId)) return false;
     const role = this.who.roleOf(userId, ownerId);
     if (a.kind === 'role') return rolesActingAs(role).includes(a.id);
     if (a.kind === 'user') return a.id === userId;
-    if (a.kind === 'manager') return Boolean(requesterId) && this.who.managerOf(requesterId!, docCompanyId) === userId;
+    if (a.kind === 'manager') return this.managerFor(requesterId, docCompanyId, managerUserId) === userId;
     const team = this.team(a.id);
     return Boolean(team?.members.some((m) => (m.kind === 'user' ? m.value === userId : m.value === role)));
   }
 
   /** Everyone who could fill this approver now (empty: nobody can). */
-  candidates(a: Approver, ownerId: string, requesterId: string | null, docCompanyId: string = ownerId): string[] {
-    return this.anyone(a, ownerId, requesterId, docCompanyId).filter((id) => this.who.reaches(id, ownerId));
+  candidates(a: Approver, ownerId: string, requesterId: string | null, docCompanyId: string = ownerId, managerUserId?: string | null): string[] {
+    return this.anyone(a, ownerId, requesterId, docCompanyId, managerUserId).filter((id) => this.who.reaches(id, ownerId));
   }
 
-  private anyone(a: Approver, companyId: string, requesterId: string | null, docCompanyId: string): string[] {
+  private anyone(a: Approver, companyId: string, requesterId: string | null, docCompanyId: string, managerUserId?: string | null): string[] {
     if (a.kind === 'user') return [a.id];
-    if (a.kind === 'manager') return requesterId ? [this.who.managerOf(requesterId, docCompanyId)].filter((x): x is string => Boolean(x)) : [];
+    if (a.kind === 'manager') return [this.managerFor(requesterId, docCompanyId, managerUserId)].filter((x): x is string => Boolean(x));
     if (a.kind === 'role') {
       return [...new Set([...this.who.usersWithRole(companyId, a.id), ...this.who.usersWithRole(companyId, 'Admin')])];
     }
@@ -400,7 +422,7 @@ export class ApprovalStore {
       if (decision === 'approve' && onBehalfOf && already.has(onBehalfOf)) continue;
       if (!policy.allowSelf && req.requesterId && (identity === req.requesterId || userId === req.requesterId)) { ownBlocked = true; continue; }
       for (const slot of this.openSlots(step)) {
-        if (this.slotApprovers(step, slot).some((a) => this.qualifies(a, identity, step.ownerCompanyId, req.companyId, req.requesterId))) {
+        if (this.slotApprovers(step, slot).some((a) => this.qualifies(a, identity, step.ownerCompanyId, req.companyId, req.requesterId, req.managerUserId))) {
           return { ok: true, step, slot, onBehalfOf, companyId: req.companyId };
         }
       }
@@ -443,6 +465,11 @@ export class ApprovalStore {
       .get(docType, docId, userId, userId));
   }
 
+  /** Whether this person (or someone they stand in for) can decide the current step now. */
+  canDecide(docType: ApprovalDocType, docId: string, userId: string): boolean {
+    return this.seat(docType, docId, userId).ok;
+  }
+
   /** Whether this person decides the current step for someone else (a delegation), or for themselves. */
   actingFor(docType: ApprovalDocType, docId: string, userId: string): string | null {
     const seat = this.seat(docType, docId, userId);
@@ -477,19 +504,32 @@ export class ApprovalStore {
     ).all(companyId, companyId, userId) as Array<{ docType: ApprovalDocType; docId: string; status: ApprovalOutcome }>;
   }
 
+  /**
+   * Nobody can decide this waiting step: no one fills an approver ("any":
+   * every approver; "all": any one of them), counting that the requester
+   * can't decide their own request unless its policy allows it.
+   */
+  private stuck(s: ApprovalStep, req: NonNullable<ReturnType<ApprovalStore['request']>>, docType: ApprovalDocType): boolean {
+    if (s.status !== 'pending' || this.people === null) return false;
+    const policy = this.policy(s.ownerCompanyId !== req.companyId ? s.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
+    const empty = (a: Approver) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId, req.managerUserId)
+      .filter((id) => policy.allowSelf || id !== req.requesterId).length === 0;
+    return s.need === 'all' ? s.approvers.some(empty) : s.approvers.every(empty);
+  }
+
   /** The request as a reader sees it: steps with who and whether anyone can fill them, and the trail. */
   view(docType: ApprovalDocType, docId: string) {
     const req = this.request(docType, docId);
     const steps = this.steps(docType, docId).map((s) => ({
       level: s.level, status: s.status, need: s.need, minAmount: s.minAmount, ownerCompanyId: s.ownerCompanyId,
       approvers: s.approvers.map((a) => ({ ...a, label: this.label(a) })),
-      stuck: s.status === 'pending' && this.people !== null && req !== undefined
-        && (s.need === 'all'
-          ? s.approvers.some((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId).length === 0)
-          : s.approvers.every((a) => this.candidates(a, s.ownerCompanyId, req.requesterId, req.companyId).length === 0)),
+      stuck: req !== undefined && this.stuck(s, req, docType),
       decidedByName: s.decidedByName, decidedAt: s.decidedAt, note: s.note,
     }));
-    return { status: this.outcome(docType, docId), requesterId: req?.requesterId ?? null, steps, trail: this.trail(docType, docId) };
+    return {
+      status: this.outcome(docType, docId), requesterId: req?.requesterId ?? null, managerUserId: req?.managerUserId ?? null,
+      companyId: req?.companyId ?? null, steps, trail: this.trail(docType, docId),
+    };
   }
 
   /** Pending requests whose current step has waited past these hours and has not been told so yet. */
@@ -506,6 +546,60 @@ export class ApprovalStore {
       const told = this.db.prepare('SELECT 1 FROM approval_decisions WHERE docType = ? AND docId = ? AND level = ? AND kind = ? AND id > ?').get(r.docType, r.docId, step.level, kind, this.roundStart(r.docType, r.docId));
       return !told && now - since >= hours * 3_600_000 ? [{ companyId: r.companyId, ownerCompanyId: step.ownerCompanyId, docType: r.docType, docId: r.docId, level: step.level }] : [];
     });
+  }
+
+  /**
+   * Hands the current step to one named person (an approvals administrator's
+   * move, logged with its reason). They must reach the step's company, may not
+   * be the requester (unless that policy allows your own) and may not have
+   * approved this document already in this round.
+   */
+  reassign(docType: ApprovalDocType, docId: string, by: { id: string }, toUserId: string, reason: string): ApprovalStep {
+    const text = reason?.trim();
+    if (!text) throw new ApprovalError('Say why: a reason is required to hand a step to someone else.');
+    return this.db.transaction(() => {
+      const req = this.request(docType, docId);
+      const steps = this.steps(docType, docId);
+      if (!req || req.status === 'changes_requested' || outcomeOf(steps) !== 'pending') throw new ApprovalError('Nothing is waiting for approval on this document.');
+      const step = steps.find((s) => s.status === 'pending')!;
+      // Whoever hands a step on doesn't take it themselves: administrators reassign, they don't approve.
+      if (toUserId === by.id || this.delegatorsOf(by.id).includes(toUserId)) throw new ApprovalError('You can\'t hand a step to yourself (or to someone whose approvals are handed to you); choose someone else.');
+      if (!this.who.reaches(toUserId, step.ownerCompanyId)) throw new ApprovalError('That person can\'t open the company that decides this step.');
+      const policy = this.policy(step.ownerCompanyId !== req.companyId ? step.ownerCompanyId : req.policyCompanyId ?? req.companyId, docType);
+      if (!policy.allowSelf && toUserId === req.requesterId) throw new ApprovalError('The requester can\'t approve their own request.');
+      if (this.approvedBy(docType, docId).has(toUserId)) throw new ApprovalError('That person already approved an earlier step of this document; choose someone else.');
+      const approvers: Approver[] = [{ kind: 'user', id: toUserId }];
+      this.db.prepare("UPDATE approval_steps SET approvers = ?, approverRole = ?, need = 'any' WHERE docType = ? AND docId = ? AND level = ?")
+        .run(JSON.stringify(approvers), firstRole(approvers), docType, docId, step.level);
+      this.db.prepare('INSERT INTO approval_decisions (docType, docId, level, slot, kind, userId, onBehalfOf, note, at) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, ?)')
+        .run(docType, docId, step.level, 'reassigned', by.id, `Handed to ${this.who.nameOf(toUserId)}: ${text}`, new Date().toISOString());
+      return this.steps(docType, docId).find((s) => s.level === step.level)!;
+    })();
+  }
+
+  /** Every waiting request of this company, and those waiting at its sign-off (for whoever runs approvals). */
+  openFor(companyId: string): Array<{ docType: ApprovalDocType; docId: string }> {
+    return this.db.prepare(
+      `SELECT r.docType, r.docId FROM approval_requests r WHERE r.status = 'pending' AND (r.companyId = ?
+          OR EXISTS (SELECT 1 FROM approval_steps s WHERE s.docType = r.docType AND s.docId = r.docId AND s.status = 'pending' AND s.ownerCompanyId = ?))
+        ORDER BY r.startedAt LIMIT 500`,
+    ).all(companyId, companyId) as Array<{ docType: ApprovalDocType; docId: string }>;
+  }
+
+  /** Each document of this type with a request in this company: where it stands, for list chips. */
+  statuses(companyId: string, docType: ApprovalDocType): Array<{ docId: string; status: ApprovalOutcome; level: number | null; levels: number; need: Need | null; approvers: Array<Approver & { label: string }>; stuck: boolean }> {
+    const rows = this.db.prepare('SELECT docId FROM approval_requests WHERE companyId = ? AND docType = ?').all(companyId, docType) as Array<{ docId: string }>;
+    return rows.map(({ docId }) => {
+      const steps = this.steps(docType, docId);
+      const status = this.outcome(docType, docId);
+      const step = status === 'pending' ? steps.find((s) => s.status === 'pending') : undefined;
+      const req = step ? this.request(docType, docId) : undefined;
+      return {
+        docId, status, level: step?.level ?? null, levels: steps.length, need: step?.need ?? null,
+        approvers: step ? step.approvers.map((a) => ({ ...a, label: this.label(a) })) : [],
+        stuck: Boolean(step && req && this.stuck(step, req, docType)),
+      };
+    }).filter((r) => r.status !== 'not_required');
   }
 
   note(docType: ApprovalDocType, docId: string, level: number, kind: 'reminded' | 'escalated'): void {

@@ -34,6 +34,8 @@ import {
   type LeaveRequestStatus,
   type LeaveType,
 } from '@/services/hrService';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const STATUS_STYLES: Record<LeaveRequestStatus, string> = {
   Pending: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30',
@@ -56,6 +58,7 @@ export function LeavePage() {
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [types, setTypes] = React.useState<LeaveType[]>([]);
   const [requests, setRequests] = React.useState<LeaveRequest[]>([]);
+  const approvalStatus = useApprovalStatuses('leave_request', requests);
   const [balances, setBalances] = React.useState<Record<string, LeaveBalance>>({});
   const [loading, setLoading] = React.useState(true);
 
@@ -205,7 +208,8 @@ export function LeavePage() {
                     <TableCell className="text-sm">{fmt(r.startDate)} – {fmt(r.endDate)}</TableCell>
                     <TableCell className="text-end">{r.days}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={STATUS_STYLES[r.status]}>{r.status}</Badge>
+                      <Badge variant="outline" className={STATUS_STYLES[r.status]}>{({ Pending: tr('Pending', 'قيد الانتظار'), Approved: tr('Approved', 'معتمدة'), Rejected: tr('Rejected', 'مرفوضة'), Cancelled: tr('Cancelled', 'ملغاة') } as Record<string, string>)[r.status] ?? r.status}</Badge>
+                      <div className="mt-1"><ApprovalChip docType="leave_request" row={approvalStatus.statusOf(r.id)} onChanged={() => { void load(); }} /></div>
                       {r.reviewedByName && r.status !== 'Pending' && (
                         <div className="text-xs text-muted-foreground mt-0.5">{r.reviewedByName}</div>
                       )}
@@ -213,7 +217,7 @@ export function LeavePage() {
                     <TableCell className="text-end">
                       {canApprove && (
                         <div className="flex justify-end gap-1">
-                          {r.status === 'Pending' && (
+                          {r.status === 'Pending' && approvalStatus.statusOf(r.id)?.status !== 'pending' && (
                             <>
                               <Button variant="ghost" size="sm" className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300" onClick={() => handleSetStatus(r, 'Approved')}><Check className="h-4 w-4" /></Button>
                               <Button variant="ghost" size="sm" className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300" onClick={() => handleSetStatus(r, 'Rejected')}><X className="h-4 w-4" /></Button>

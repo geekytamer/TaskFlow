@@ -69,6 +69,8 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const statusStyles: Record<PurchaseOrderStatus, string> = {
   Draft: 'bg-muted text-foreground/80 border-border',
@@ -134,6 +136,7 @@ export function PurchasesPage() {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [orders, setOrders] = React.useState<PurchaseOrder[]>([]);
+  const approvalStatus = useApprovalStatuses('purchase_order', orders);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
   const [suppliers, setSuppliers] = React.useState<Contact[]>([]);
   const [receipts, setReceipts] = React.useState<PurchaseReceipt[]>([]);
@@ -1078,17 +1081,18 @@ export function PurchasesPage() {
                           'Cancelled': 'ملغى',
                         } as Record<PurchaseOrderStatus, string>)[order.status])}
                       </Badge>
-                      {order.approvalStatus === 'pending' && (
+                      <ApprovalChip docType="purchase_order" row={approvalStatus.statusOf(order.id)} onChanged={() => { void load({ quiet: true }); }} />
+                      {!approvalStatus.statusOf(order.id) && order.approvalStatus === 'pending' && (
                         <Badge variant="outline" className="bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/30">
                           {tr('Awaiting approval', 'بانتظار الموافقة')}
                         </Badge>
                       )}
-                      {order.approvalStatus === 'approved' && (
+                      {!approvalStatus.statusOf(order.id) && order.approvalStatus === 'approved' && (
                         <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30">
                           {tr('Approved', 'تمت الموافقة')}{order.approvedBy ? ` · ${order.approvedBy}` : ''}
                         </Badge>
                       )}
-                      {order.approvalStatus === 'rejected' && (
+                      {!approvalStatus.statusOf(order.id) && order.approvalStatus === 'rejected' && (
                         <Badge
                           variant="outline"
                           className="bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-500/30"

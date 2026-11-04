@@ -33,6 +33,8 @@ import { createExpense, deleteExpense, getExpenses, updateExpense } from '@/serv
 import type { Expense } from '@/modules/finance/types';
 import { Pencil, Plus, Trash2, Receipt } from 'lucide-react';
 import { usePermissions } from '@/context/permissions-context';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const emptyForm = () => ({
   category: '',
@@ -57,6 +59,7 @@ export function StandaloneExpenseTable() {
   const canManage = usePermissions().can('finance.edit');
 
   const [expenses, setExpenses] = React.useState<Expense[]>([]);
+  const approvalStatus = useApprovalStatuses('expense', expenses);
   const [loading, setLoading] = React.useState(true);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -237,8 +240,9 @@ export function StandaloneExpenseTable() {
                     <TableCell>{format(e.expenseDate, 'MMM d, yyyy')}</TableCell>
                     <TableCell className="font-medium">
                       {e.category}
-                      {e.approvalStatus === 'pending' && <span className="ms-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-normal text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">{tr('Awaiting approval', 'بانتظار الموافقة')}</span>}
-                      {e.approvalStatus === 'rejected' && <span className="ms-2 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-normal text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{tr('Rejected', 'مرفوض')}</span>}
+                      <ApprovalChip docType="expense" className="ms-2" row={approvalStatus.statusOf(e.id)} onChanged={() => { void load(); }} />
+                      {!approvalStatus.statusOf(e.id) && e.approvalStatus === 'pending' && <span className="ms-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] font-normal text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">{tr('Awaiting approval', 'بانتظار الموافقة')}</span>}
+                      {!approvalStatus.statusOf(e.id) && e.approvalStatus === 'rejected' && <span className="ms-2 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-normal text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{tr('Rejected', 'مرفوض')}</span>}
                     </TableCell>
                     <TableCell>{e.vendor || '—'}</TableCell>
                     <TableCell className="max-w-[260px] truncate text-muted-foreground">{e.description || '—'}</TableCell>

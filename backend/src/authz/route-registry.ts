@@ -239,6 +239,8 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/companies/:companyId/invoices', permission: 'invoices.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/credit-notes', permission: 'invoices.view', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/credit-notes', permission: 'invoices.create', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/approval-holds', permission: 'invoices.view', legacyRoles: MGMT, note: 'credit notes and payments waiting for approval' },
+  { method: 'POST', path: '/approval-holds/:id/withdraw', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'whoever asked, or an Admin of the company' },
   { method: 'POST', path: '/invoices', permission: 'invoices.create', legacyRoles: MGMT },
   { method: 'GET', path: '/invoices/:id', permission: 'invoices.view', legacyRoles: MGMT },
   { method: 'PATCH', path: '/invoices/:id/status', permission: 'invoices.edit', legacyRoles: MGMT },
@@ -704,6 +706,9 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/companies/:companyId/approvals/rules', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'matrix says finance:write (management), but the handler also requires ADMINISTRATION (routes/approvals.ts), so only Admin' },
   { method: 'GET', path: '/companies/:companyId/approvals', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'company member; lists only what this person decides, asked or decided' },
   { method: 'GET', path: '/approvals/:docType/:docId', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'company member of the document' },
+  { method: 'GET', path: '/approvals/:docType/:docId/view', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'the document\'s company, or the group signing off (requireDocOrStepAccess)' },
+  { method: 'POST', path: '/approvals/:docType/:docId/reassign', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the company whose people decide the current step' },
+  { method: 'GET', path: '/companies/:companyId/approvals/status', permission: 'per_record', legacyRoles: ALL, note: 'company member: where each document of a type stands' },
   { method: 'GET', path: '/companies/:companyId/approvals/teams', permission: 'per_record', legacyRoles: ALL, note: 'company member: the teams a policy may name' },
   { method: 'PUT', path: '/companies/:companyId/approvals/teams', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
   { method: 'DELETE', path: '/companies/:companyId/approvals/teams/:teamId', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
@@ -866,7 +871,7 @@ export const HANDLER_CHECKED: Readonly<Record<string, string>> = {
  */
 export const RULE_CALL_SITES: Readonly<Record<string, { readonly becomes: string; readonly sites: Readonly<Record<string, number>> }>> = {
   // Action rules
-  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules)', sites: { 'src/server.ts': 1, 'src/routes/approvals.ts': 2, 'src/routes/password.ts': 1 } },
+  ADMINISTRATION: { becomes: 'people.manage_roles (role grants in POST/PUT /users; resetting a non-Employee password); settings.manage_approvals (PUT approval rules; withdrawing someone else\'s held credit note or payment)', sites: { 'src/server.ts': 2, 'src/routes/approvals.ts': 2, 'src/routes/password.ts': 1 } },
   USERS_WRITE: { becomes: 'people.manage (the /users routes and their company scoping)', sites: { 'src/server.ts': 5, 'src/routes/password.ts': 1, 'src/companies/people-routes.ts': 3 } },
   GAMES_MANAGE: { becomes: 'games.view / games.manage (games staff router gate)', sites: { 'src/server.ts': 1 } },
   DISCOVER_MANAGE: { becomes: 'discover.view / discover.manage (Discover staff router gate)', sites: { 'src/server.ts': 1 } },

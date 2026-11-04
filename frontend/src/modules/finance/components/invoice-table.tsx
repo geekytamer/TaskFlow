@@ -1,6 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import { useApprovalNeeded } from '@/modules/approvals/hooks/use-approval-needed';
+import { WaitingHolds } from '@/modules/approvals/components/waiting-holds';
+import { isHeld } from '@/services/approvalService';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import {
   Table,
@@ -56,10 +59,13 @@ import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 export function InvoiceTable() {
   const { selectedCompany } = useCompany();
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
+  const approvalStatus = useApprovalStatuses('invoice', invoices);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [templates, setTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
@@ -74,6 +80,7 @@ export function InvoiceTable() {
   const [previewInvoice, setPreviewInvoice] = React.useState<Invoice | null>(null);
   const [pdfPending, setPdfPending] = React.useState(false);
   const [creditDialog, setCreditDialog] = React.useState<{ open: boolean; invoice?: Invoice }>({ open: false });
+  const creditsNeedApproval = useApprovalNeeded(creditDialog.invoice?.companyId, 'credit_note');
   const [creditAmount, setCreditAmount] = React.useState('');
   const [creditReason, setCreditReason] = React.useState('');
   const [creditPending, setCreditPending] = React.useState(false);
@@ -187,12 +194,14 @@ export function InvoiceTable() {
     }
     setCreditPending(true);
     try {
-      await createCreditNote(selectedCompany.id, {
+      const answer = await createCreditNote(selectedCompany.id, {
         invoiceId: invoice.id,
         reason: creditReason.trim() || undefined,
         lineItems: [{ description: creditReason.trim() || t('invoiceTable.creditDefaultLine'), amount }],
       });
-      toast({ title: t('invoiceTable.creditCreated') });
+      toast(isHeld(answer)
+        ? { title: tr('Sent for approval', 'أُرسل للموافقة'), description: tr('The credit note is recorded once it is approved. Follow it in Approvals → My requests.', 'يُسجَّل الإشعار الدائن بعد اعتماده. تابعه في الموافقات ← طلباتي.') }
+        : { title: t('invoiceTable.creditCreated') });
       setCreditDialog({ open: false });
       await fetchData();
     } catch (error) {
@@ -495,6 +504,7 @@ export function InvoiceTable() {
                     ) : (
                       <Badge variant="outline">{t(`invoiceTable.status${invoice.status}`)}</Badge>
                     )}
+                    <ApprovalChip docType="invoice" row={approvalStatus.statusOf(invoice.id)} onChanged={() => { void approvalStatus.reload(); void fetchData({ quiet: true }); }} />
                     {invoice.status !== 'Paid' && invoice.dueDate < new Date() && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertTriangle className="h-3 w-3" />
@@ -878,6 +888,12 @@ export function InvoiceTable() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {creditsNeedApproval && (
+              <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {tr('Credit notes need approval in this company: it goes for approval and is recorded once approved.', 'الإشعارات الدائنة تحتاج إلى موافقة في هذه الشركة: يُرسل للموافقة ويُسجَّل بعد اعتماده.')}
+              </p>
+            )}
+            {creditDialog.invoice && <WaitingHolds companyId={creditDialog.invoice.companyId} docType="credit_note" targetId={creditDialog.invoice.id} currency={creditDialog.invoice.currency} />}
             <div className="space-y-1">
               <Label>{t('invoiceTable.creditAmount')}</Label>
               <Input

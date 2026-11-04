@@ -32,6 +32,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CheckCircle2, ClipboardList, Plus, Send, ShoppingCart, Trash2, XCircle } from 'lucide-react';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 type Tr = (en: string, ar: string) => string;
 type LineForm = { description: string; quantity: string; cost: string };
@@ -158,6 +160,7 @@ export function RequisitionsPage() {
   const currencyOf = useCurrencyOf();
   const loadTicket = React.useRef(0);
   const [rows, setRows] = React.useState<PurchaseRequisition[] | null>(null);
+  const approvalStatus = useApprovalStatuses('purchase_requisition', rows);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [rejecting, setRejecting] = React.useState<PurchaseRequisition | null>(null);
   const [reason, setReason] = React.useState('');
@@ -236,14 +239,17 @@ export function RequisitionsPage() {
                   <TableCell dir="auto">{r.department || '—'}</TableCell>
                   <TableCell>{r.neededBy ? format(new Date(r.neededBy), 'MMM d, yyyy') : '—'}</TableCell>
                   <TableCell className="text-end tabular-nums">{amountIn(estimate(r), currencyOf(r.companyId))}</TableCell>
-                  <TableCell><Badge variant={statusVariant[r.status]}>{statusLabel(tr, r.status)}</Badge></TableCell>
+                  <TableCell>
+                    <Badge variant={statusVariant[r.status]}>{statusLabel(tr, r.status)}</Badge>
+                    <div className="mt-1"><ApprovalChip docType="purchase_requisition" row={approvalStatus.statusOf(r.id)} onChanged={() => { void load(); }} /></div>
+                  </TableCell>
                   <TableCell className="whitespace-nowrap text-end">
                     {r.status === 'Draft' && (
                       <Button variant="ghost" size="sm" disabled={busy} onClick={() => act(() => actOnPurchaseRequisition(r.id, 'submit'), tr('Submitted for approval', 'قُدِّم للاعتماد'))}>
                         <Send className="me-1 h-4 w-4" />{tr('Submit', 'تقديم')}
                       </Button>
                     )}
-                    {r.status === 'Submitted' && canApprove && (
+                    {r.status === 'Submitted' && canApprove && approvalStatus.statusOf(r.id)?.status !== 'pending' && (
                       <>
                         <Button variant="ghost" size="sm" disabled={busy} onClick={() => act(() => actOnPurchaseRequisition(r.id, 'approve'), tr('Approved', 'تم الاعتماد'))}>
                           <CheckCircle2 className="me-1 h-4 w-4" />{tr('Approve', 'اعتماد')}

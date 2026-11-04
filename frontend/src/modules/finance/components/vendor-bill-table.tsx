@@ -1,6 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import { useApprovalNeeded } from '@/modules/approvals/hooks/use-approval-needed';
+import { WaitingHolds } from '@/modules/approvals/components/waiting-holds';
 import { VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { format } from 'date-fns';
@@ -65,6 +67,8 @@ import { VendorBillDocument } from './vendor-bill-document';
 import type { VendorBillDocumentPayload } from '@/services/financeService';
 import { SectionToolbar } from '@/modules/operations/components/section-toolbar';
 import { useI18n } from '@/context/i18n-context';
+import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
+import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
 const vendorPaymentMethods = ['Bank Transfer', 'Cash', 'Card', 'Cheque', 'Other'] as const;
 
@@ -164,6 +168,7 @@ export function VendorBillTable() {
   };
 
   const [bills, setBills] = React.useState<VendorBill[]>([]);
+  const approvalStatus = useApprovalStatuses('vendor_bill', bills);
   const [accounts, setAccounts] = React.useState<LedgerAccount[]>([]);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = React.useState<PurchaseOrder[]>([]);
@@ -198,6 +203,9 @@ export function VendorBillTable() {
     expenseAccountId: '',
     notes: '',
   });
+  /** Payments on the open bill that wait for approval: they count against what is left. */
+  const [heldOnBill, setHeldOnBill] = React.useState(0);
+  const paymentsNeedApproval = useApprovalNeeded(selectedBill?.companyId, 'vendor_payment');
   const [paymentForm, setPaymentForm] = React.useState({
     amount: '',
     method: '',
@@ -397,6 +405,7 @@ export function VendorBillTable() {
     setOpenPayment(true);
     setPaymentMode('full');
     setReversingPaymentId(null);
+    setHeldOnBill(0);
     setPaymentForm({
       amount: String(bill.outstandingAmount || 0),
       method: 'Bank Transfer',
@@ -422,7 +431,7 @@ export function VendorBillTable() {
   const handleCreatePayment = async () => {
     if (!selectedBill) return;
     const paymentAmount = Number(paymentForm.amount || 0);
-    const outstandingAmount = selectedBill.outstandingAmount || 0;
+    const outstandingAmount = Math.max(0, (selectedBill.outstandingAmount || 0) - heldOnBill);
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       toast({
         variant: 'destructive',
@@ -441,7 +450,15 @@ export function VendorBillTable() {
       return;
     }
     const remainingAmount = Math.max(0, outstandingAmount - paymentAmount);
-    if (!(await confirm({
+    if (!(await confirm(paymentsNeedApproval ? {
+      title: tr('Send this payment for approval?', 'إرسال هذه الدفعة للموافقة؟'),
+      description: tr(
+        `${money(paymentAmount)} against bill ${selectedBill.billNumber} (${vendorMethodLabel(paymentForm.method)}, ${paymentForm.paidAt}) goes for approval. Nothing is paid or posted until it is approved.`,
+        `تُرسل ${money(paymentAmount)} على الفاتورة ${selectedBill.billNumber} (${vendorMethodLabel(paymentForm.method)}، ${paymentForm.paidAt}) للموافقة. لا يُدفع ولا يُرحّل شيء قبل الاعتماد.`,
+      ),
+      confirmText: tr('Send for approval', 'إرسال للموافقة'),
+      cancelText: t('common.cancel'),
+    } : {
       title: t('vendorBills.confirmPaymentTitle'),
       description: t('vendorBills.confirmPaymentDesc')
         .replace('{amount}', money(paymentAmount))
@@ -454,7 +471,7 @@ export function VendorBillTable() {
       cancelText: t('common.cancel'),
     }))) return;
     try {
-      await createVendorBillPayment(selectedBill.id, {
+      const answer = await createVendorBillPayment(selectedBill.id, {
         amount: paymentAmount,
         method: paymentForm.method || undefined,
         note: paymentForm.note || undefined,
@@ -464,7 +481,9 @@ export function VendorBillTable() {
       setSelectedBill(null);
       setBillPayments([]);
       await load();
-      toast({ title: t('vendorBills.toastPaymentRecorded') });
+      toast(answer.held
+        ? { title: tr('Payment sent for approval', 'أُرسلت الدفعة للموافقة'), description: tr('Nothing is paid until it is approved. Follow it in Approvals → My requests.', 'لا يُدفع شيء قبل الاعتماد. تابعها في الموافقات ← طلباتي.') }
+        : { title: t('vendorBills.toastPaymentRecorded') });
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -914,6 +933,7 @@ export function VendorBillTable() {
                       </Select>
                       ) : null}
                       <Badge className={statusColor[bill.status]}>{vendorStatusLabel(bill.status)}</Badge>
+                      <ApprovalChip docType="vendor_bill" row={approvalStatus.statusOf(bill.id)} onChanged={() => { void approvalStatus.reload(); void load(); }} />
                     </div>
                   </TableCell>
                   <TableCell className="text-end">
@@ -1136,6 +1156,15 @@ export function VendorBillTable() {
           </DialogHeader>
           {selectedBill && (
             <div className="space-y-4">
+              <WaitingHolds
+                companyId={selectedBill.companyId} docType="vendor_payment" targetId={selectedBill.id}
+                onTotal={(held) => {
+                  setHeldOnBill(held);
+                  // The full payment is what is left after payments waiting for approval.
+                  const left = Math.max(0, (selectedBill.outstandingAmount || 0) - held);
+                  setPaymentForm((prev) => (prev.amount === String(selectedBill.outstandingAmount || 0) ? { ...prev, amount: String(Number(left.toFixed(3))) } : prev));
+                }}
+              />
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-md border p-3 text-sm">
                   <div className="text-muted-foreground">{t('vendorBills.billAmount')}</div>
@@ -1163,7 +1192,7 @@ export function VendorBillTable() {
                         setPaymentMode('full');
                         setPaymentForm((prev) => ({
                           ...prev,
-                          amount: String(selectedBill.outstandingAmount || 0),
+                          amount: String(Math.max(0, (selectedBill.outstandingAmount || 0) - heldOnBill)),
                         }));
                       }}
                     >
@@ -1187,7 +1216,7 @@ export function VendorBillTable() {
                   <Input
                     type="number"
                     step="0.01"
-                    max={selectedBill.outstandingAmount || 0}
+                    max={Math.max(0, (selectedBill.outstandingAmount || 0) - heldOnBill)}
                     value={paymentForm.amount}
                     onChange={(event) => {
                       setPaymentMode('partial');
@@ -1197,7 +1226,7 @@ export function VendorBillTable() {
                   />
                   <p className="text-xs text-muted-foreground">
                     {t('vendorBills.paymentAmountHelp')
-                      .replace('{amount}', money(selectedBill.outstandingAmount || 0))}
+                      .replace('{amount}', money(Math.max(0, (selectedBill.outstandingAmount || 0) - heldOnBill)))}
                   </p>
                 </div>
                 <div className="space-y-1">
