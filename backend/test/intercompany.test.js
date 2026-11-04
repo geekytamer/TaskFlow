@@ -184,3 +184,84 @@ test('the intercompany page is for those who run finance; matching needs the pay
   assert.equal((await request(server).post(`/companies/${a.id}/intercompany/partners`).set('Authorization', as(admin)).send({ sisterId: outside.id, kind: 'client' })).status, 400);
   server.close();
 });
+
+// ── Review fixes ─────────────────────────────────────────────────────
+
+test('a credit note made from the invoice alone credits 1160, and shows as a difference', () => {
+  const { store, a, b, invoice, billOf, lineOn } = setup();
+  const inv = invoice(100);
+  store.updateVendorBillStatus(billOf(inv).id, 'Approved');
+  store.createCreditNote({ companyId: a.id, invoiceId: inv.id, lineItems: [{ description: 'Discount', amount: 40 }] });
+  const net = (code) => lineOn(a.id, code).reduce((n, l) => n + l.debit - l.credit, 0);
+  assert.equal(net('1160'), 60);
+  assert.equal(net('1100'), 0, 'trade receivables untouched');
+  const balance = store.intercompanyBalances(a.id).find((x) => x.sisterId === b.id);
+  assert.equal(balance.difference, -40);
+  assert.ok(balance.explain.some((e) => e.kind === 'credit_note' && e.amount === 40));
+});
+
+test('reversing a matched receipt offers the buyer\'s payment again', () => {
+  const { store, a, invoice, billOf } = setup();
+  const inv = invoice(100);
+  const bill = billOf(inv);
+  store.updateVendorBillStatus(bill.id, 'Approved');
+  store.createVendorBillPayment({ billId: bill.id, amount: 100, paidAt: new Date() });
+  const [item] = store.intercompanyToMatch(a.id);
+  const { payment } = store.matchIntercompanyPayment(a.id, 'bill_payment', item.paymentId);
+  assert.equal(store.intercompanyToMatch(a.id).length, 0);
+  store.reverseInvoicePayment(payment.id);
+  assert.equal(store.intercompanyToMatch(a.id).length, 1, 'offered again');
+});
+
+test('when both sides recorded their own payment, matching links them instead of paying twice', () => {
+  const { store, a, b, invoice, billOf } = setup();
+  const inv = invoice(100);
+  const bill = billOf(inv);
+  store.updateVendorBillStatus(bill.id, 'Approved');
+  store.createVendorBillPayment({ billId: bill.id, amount: 100, paidAt: new Date() });
+  store.createPayment({ invoiceId: inv.id, amount: 100, paidAt: new Date() });
+  const [item] = store.intercompanyToMatch(a.id);
+  const result = store.matchIntercompanyPayment(a.id, 'bill_payment', item.paymentId);
+  assert.ok(result.linked);
+  assert.equal(store.intercompanyToMatch(a.id).length, 0);
+  assert.equal(store.intercompanyToMatch(b.id).length, 0, 'the seller\'s own receipt is linked too');
+  assert.equal(store.listPayments(inv.id).length, 1, 'no second receipt');
+});
+
+test('after a credit note the match records only what is still open', () => {
+  const { store, a, invoice, billOf } = setup();
+  const inv = invoice(100);
+  const bill = billOf(inv);
+  store.updateVendorBillStatus(bill.id, 'Approved');
+  store.createCreditNote({ companyId: a.id, invoiceId: inv.id, lineItems: [{ description: 'Discount', amount: 30 }] });
+  store.createVendorBillPayment({ billId: bill.id, amount: 100, paidAt: new Date() });
+  const [item] = store.intercompanyToMatch(a.id);
+  const { payment } = store.matchIntercompanyPayment(a.id, 'bill_payment', item.paymentId);
+  assert.equal(payment.amount, 70);
+});
+
+test('a mirrored bill keeps the invoice\'s amount, VAT and supplier', () => {
+  const { store, invoice, billOf } = setup();
+  const bill = billOf(invoice(100));
+  assert.throws(() => store.updateVendorBill(bill.id, { amount: 80 }), (e) => e.status === 409);
+  assert.ok(store.updateVendorBill(bill.id, { notes: 'Checked' }), 'other fields can change');
+});
+
+test('a company that leaves the group is an ordinary client again', () => {
+  const { store, a, b, lineOn } = setup();
+  const client = store.ensureIntercompanyPartner(a.id, b.id, 'client');
+  store.setCompanyParent(b.id, null, null);
+  store.createInvoice({ companyId: a.id, clientId: client.id, issueDate: new Date(), dueDate: new Date(), status: 'Sent', lineItems: [{ description: 'W', quantity: 1, unitPrice: 10, amount: 10, itemType: 'Manual' }] });
+  assert.equal(lineOn(a.id, '1160').length, 0);
+  assert.equal(lineOn(a.id, '1100').length, 1);
+});
+
+test('an invoice moved back to Draft takes its Draft bill along, and issuing it again brings it back', () => {
+  const { store, invoice, billOf } = setup();
+  const inv = invoice(50);
+  assert.ok(billOf(inv));
+  store.updateInvoiceStatus(inv.id, 'Draft');
+  assert.equal(billOf(inv), undefined);
+  store.updateInvoiceStatus(inv.id, 'Sent');
+  assert.ok(billOf(inv), 'mirrored again');
+});

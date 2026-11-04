@@ -6,7 +6,7 @@ Builds on "A group is a company" (2026-11-02), § Group finance. The owner said 
 
 Companies in the same group tree trade with each other in a way both sets of books agree on.
 
-1. **Sister companies as partners.** In a company's client and supplier pickers, every other company in its tree can be chosen as "Group company". On first use the system creates a client record (and a supplier record when buying) for that sister, marked `intercompanyCompanyId`. One record per sister per side; renaming the sister company renames it. Ordinary clients and suppliers can't be marked intercompany by hand.
+1. **Sister companies as partners.** In a company's client and supplier pickers, every other company in its tree can be chosen as "Group company". On first use the system creates a client record (and a supplier record when buying) for that sister, marked `intercompanyCompanyId`. One record per sister per side; it keeps the name it was made with (rename it like any client or supplier). Ordinary clients and suppliers can't be marked intercompany by hand.
 2. **Their own accounts.** Each company gets two system accounts:
    - **1160 Due from group companies** (Asset)
    - **2050 Due to group companies** (Liability)
@@ -48,3 +48,20 @@ Consolidated reports and eliminations (stage 5). Intercompany loans and journal 
   - a purchase order → sales order
   - authorization under all three permission engines
 - Browser: one full cycle across two companies of a local group, in English and Arabic.
+
+## Review fixes (2026-11-04)
+
+An independent review found 1 Critical, 4 Important and 6 Minor issues. All are fixed and each has a regression test in `backend/test/intercompany.test.js`.
+
+- **Credit notes post to 1160.** A credit note made from an invoice, or from a customer return, used to post to 1100 because it read the client from the request instead of from the invoice.
+- **Reversing a matched payment** clears the other side's link, so that payment is offered for matching again. A link pointing at a deleted payment counts as unmatched.
+- **Both sides recorded the same payment** (the usual habit): matching now links this side's existing unmatched payment of the same amount instead of recording a second one.
+- **A match never records more than is still open.** After a credit note, the rest stays as a difference. Balances explain credit notes (`credit_note`) and bills whose amount differs from the invoice (`amount_mismatch`).
+- **A mirrored bill's amount, VAT and supplier** can't be edited (409). The fix for a wrong amount is a credit note from the seller.
+- **A company that leaves the group** is an ordinary client or supplier again: it posts to 1100 and 2000.
+- **A held match is checked when approved:** the receipt must still exist and must not already be matched.
+- **Undoing documents:**
+  - An invoice moved back to Draft deletes its Draft bill (an approved bill stops it), and issuing it again makes a new bill.
+  - A purchase order that is cancelled or moved back to Draft deletes its Draft sales order (a confirmed one stops it).
+- **Currency and wording on the page:** amounts show the currency of the side that owns them, and "its books say…" keeps the direction of the balance.
+- **Not built:** manual journal lines to 1160 or 2050 with a partner, and mirrored credit notes. Both are left for later; until then those differences show on the page.

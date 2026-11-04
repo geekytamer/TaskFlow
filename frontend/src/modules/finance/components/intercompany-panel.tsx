@@ -63,15 +63,19 @@ export function IntercompanyPanel() {
       const result = await matchPayment(companyId, item);
       toast(result.hold
         ? { title: tr('Sent for approval', 'أُرسل للموافقة'), description: tr('Payments need approval here; it is recorded once approved.', 'المدفوعات تحتاج موافقة هنا؛ تُسجَّل بعد الموافقة.') }
-        : { title: item.kind === 'bill_payment' ? tr('Receipt recorded', 'تم تسجيل التحصيل') : tr('Payment recorded', 'تم تسجيل الدفعة') });
+        : result.linked
+          ? { title: tr('Linked to the payment already recorded here', 'رُبطت بالدفعة المسجلة هنا مسبقًا') }
+          : { title: item.kind === 'bill_payment' ? tr('Receipt recorded', 'تم تسجيل التحصيل') : tr('Payment recorded', 'تم تسجيل الدفعة') });
       await load();
     } catch (error) {
       toast({ variant: 'destructive', title: tr('Not recorded', 'لم يُسجَّل'), description: (error as Error).message });
     } finally { setBusy(null); }
   };
 
-  const explainText = (e: ExplainItem, currency: string) => {
-    const amount = formatCurrency(e.amount, currency);
+  const explainText = (e: ExplainItem) => {
+    const amount = formatCurrency(Math.abs(e.amount), e.currency);
+    if (e.kind === 'credit_note') return tr(`${nameOf(e.companyId)} credited ${amount} on ${e.number}; the other side has nothing to match it`, `أصدرت ${nameOf(e.companyId)} إشعارًا دائنًا بـ ${amount} على ${e.number}؛ ولا يقابله شيء لدى الطرف الآخر`);
+    if (e.kind === 'amount_mismatch') return tr(`The bill for ${e.number} differs from the invoice by ${amount}`, `فاتورة المورد لـ ${e.number} تختلف عن الفاتورة بـ ${amount}`);
     if (e.kind === 'unmirrored_invoice') return tr(`${nameOf(e.companyId)} invoice ${e.number} (${amount}) has no matching bill yet`, `فاتورة ${nameOf(e.companyId)} رقم ${e.number} (${amount}) بلا فاتورة مورد مقابلة بعد`);
     if (e.kind === 'draft_bill') return tr(`${nameOf(e.companyId)} has not approved the bill for ${e.number} (${amount})`, `${nameOf(e.companyId)} لم تعتمد فاتورة المورد لـ ${e.number} (${amount})`);
     return tr(`${nameOf(e.companyId)} recorded ${amount} on ${e.number}; the other side has not`, `${nameOf(e.companyId)} سجّلت ${amount} على ${e.number}؛ ولم يسجّلها الطرف الآخر`);
@@ -107,8 +111,8 @@ export function IntercompanyPanel() {
                   <ArrowRightLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                   <span dir="auto" className="min-w-0 flex-1">
                     {seller
-                      ? tr(`${nameOf(m.fromCompanyId)} paid ${formatCurrency(m.amount, currencyOf(companyId))} on its bill for ${m.targetNumber}`, `دفعت ${nameOf(m.fromCompanyId)} ${formatCurrency(m.amount, currencyOf(companyId))} على فاتورة المورد لـ ${m.targetNumber}`)
-                      : tr(`${nameOf(m.fromCompanyId)} received ${formatCurrency(m.amount, currencyOf(companyId))} on invoice ${m.fromDocument}`, `استلمت ${nameOf(m.fromCompanyId)} ${formatCurrency(m.amount, currencyOf(companyId))} على الفاتورة ${m.fromDocument}`)}
+                      ? tr(`${nameOf(m.fromCompanyId)} paid ${formatCurrency(m.amount, m.currency)} on its bill for ${m.targetNumber}`, `دفعت ${nameOf(m.fromCompanyId)} ${formatCurrency(m.amount, m.currency)} على فاتورة المورد لـ ${m.targetNumber}`)
+                      : tr(`${nameOf(m.fromCompanyId)} received ${formatCurrency(m.amount, m.currency)} on invoice ${m.fromDocument}`, `استلمت ${nameOf(m.fromCompanyId)} ${formatCurrency(m.amount, m.currency)} على الفاتورة ${m.fromDocument}`)}
                     <span className="ms-2 text-xs text-muted-foreground">{format(new Date(m.paidAt), 'dd MMM yyyy')}</span>
                     {draft && <span className="mt-0.5 block text-xs text-amber-600 dark:text-amber-400">{tr(`Approve bill ${m.targetNumber} first.`, `اعتمد فاتورة المورد ${m.targetNumber} أولًا.`)}</span>}
                   </span>
@@ -139,11 +143,15 @@ export function IntercompanyPanel() {
                         {b.ours >= 0 ? tr('owes us', 'مدينة لنا بـ') : tr('we owe', 'ندين لها بـ')} {formatCurrency(Math.abs(b.ours), currency)}
                       </span>
                       {b.difference === null ? (
-                        <span className="text-xs text-muted-foreground">{tr(`Its books are in ${b.theirCurrency}: it shows ${formatCurrency(Math.abs(b.theirs), b.theirCurrency)}.`, `دفاترها بعملة ${b.theirCurrency}: تُظهر ${formatCurrency(Math.abs(b.theirs), b.theirCurrency)}.`)}</span>
+                        <span className="text-xs text-muted-foreground">{b.theirs >= 0
+                          ? tr(`Its books (${b.theirCurrency}) say it owes ${formatCurrency(b.theirs, b.theirCurrency)}.`, `دفاترها (${b.theirCurrency}) تقول إنها مدينة بـ ${formatCurrency(b.theirs, b.theirCurrency)}.`)
+                          : tr(`Its books (${b.theirCurrency}) say we owe it ${formatCurrency(-b.theirs, b.theirCurrency)}.`, `دفاترها (${b.theirCurrency}) تقول إننا مدينون لها بـ ${formatCurrency(-b.theirs, b.theirCurrency)}.`)}</span>
                       ) : agrees ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />{tr('Both sides agree', 'الطرفان متفقان')}</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />{tr(`Its books show ${formatCurrency(Math.abs(b.theirs), currency)} · difference ${formatCurrency(Math.abs(b.difference), currency)}`, `دفاترها تُظهر ${formatCurrency(Math.abs(b.theirs), currency)} · الفرق ${formatCurrency(Math.abs(b.difference), currency)}`)}</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />{b.theirs >= 0
+                          ? tr(`Its books say it owes ${formatCurrency(b.theirs, currency)} · difference ${formatCurrency(Math.abs(b.difference), currency)}`, `دفاترها تقول إنها مدينة بـ ${formatCurrency(b.theirs, currency)} · الفرق ${formatCurrency(Math.abs(b.difference), currency)}`)
+                          : tr(`Its books say we owe it ${formatCurrency(-b.theirs, currency)} · difference ${formatCurrency(Math.abs(b.difference), currency)}`, `دفاترها تقول إننا مدينون لها بـ ${formatCurrency(-b.theirs, currency)} · الفرق ${formatCurrency(Math.abs(b.difference), currency)}`)}</span>
                       )}
                     </>
                   )}
@@ -154,7 +162,7 @@ export function IntercompanyPanel() {
                 </div>
                 {b && b.explain.length > 0 && b.difference !== 0 && (
                   <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {b.explain.map((e) => <li key={`${e.kind}:${e.documentId}`} dir="auto">· {explainText(e, currency ?? '')}</li>)}
+                    {b.explain.map((e) => <li key={`${e.kind}:${e.documentId}`} dir="auto">· {explainText(e)}</li>)}
                   </ul>
                 )}
               </li>
