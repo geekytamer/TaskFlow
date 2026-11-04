@@ -23,44 +23,60 @@ import { conditionFieldName, conditionText } from '@/modules/approvals/lib/wordi
 type Tr = (en: string, ar: string) => string;
 export type ConditionOptions = Partial<Record<ConditionField, Array<{ value: string; label: string }>>>;
 
-/** The company's records a condition can name, loaded once per company (each list may fail on its own). */
-export function useConditionOptions(companyId: string | undefined): ConditionOptions {
-  const [options, setOptions] = React.useState<ConditionOptions>({});
-  React.useEffect(() => {
-    if (!companyId) return;
-    let live = true;
+type Option = { value: string; label: string };
+
+/** One company's records a condition can name (each list may fail on its own). */
+async function loadOptions(companyId: string): Promise<ConditionOptions> {
     const safe = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-    Promise.all([
+    return Promise.all([
       safe(getSuppliers(companyId)), safe(getClients(companyId)), safe(getProjects()), safe(getLeaveTypes(companyId)), safe(getDocumentTemplates(companyId)),
       // Documents are also made from the typed templates of the generic kinds.
       ...(['quote', 'letter', 'memo', 'certificate', 'statement', 'custom'] as const).map((k) => safe(getInvoiceTemplates(companyId, k))),
     ]).then(([suppliers, clients, projects, leaveTypes, templates, ...typed]) => {
-      if (!live) return;
       const list = (rows: Array<{ id: string; name?: string; title?: string }>) => rows.map((r) => ({ value: r.id, label: r.name ?? r.title ?? r.id }));
-      setOptions({
+      return {
         supplier: list(suppliers), client: list(clients),
         project: list((projects as Array<{ id: string; name: string; companyId?: string }>).filter((p) => p.companyId === companyId)),
         leaveType: list(leaveTypes), template: list([...(templates as Array<{ id: string; name: string }>), ...(typed.flat() as Array<{ id: string; name: string }>)]),
-      });
+      };
     });
-    return () => { live = false; };
-  }, [companyId]);
-  return options;
 }
 
-/** Names a condition value: the record's name, or the typed text itself. */
-export const conditionValueName = (options: ConditionOptions) => (field: ConditionField, value: string) =>
-  options[field]?.find((o) => o.value === value)?.label ?? value;
+/**
+ * The records conditions can name: the first company's are the choices; the
+ * others (companies whose inherited policy is shown) only lend their names.
+ */
+export function useConditionOptions(companyIds: string[]): { options: ConditionOptions; names: ConditionOptions } {
+  const [state, setState] = React.useState<{ options: ConditionOptions; names: ConditionOptions }>({ options: {}, names: {} });
+  const key = [...new Set(companyIds.filter(Boolean))].join(',');
+  React.useEffect(() => {
+    if (!key) return;
+    let live = true;
+    void Promise.all(key.split(',').map(loadOptions)).then((all) => {
+      if (!live) return;
+      const names: ConditionOptions = {};
+      for (const o of all) for (const [f, rows] of Object.entries(o) as Array<[ConditionField, Option[]]>) names[f] = [...(names[f] ?? []), ...rows];
+      setState({ options: all[0], names });
+    });
+    return () => { live = false; };
+  }, [key]);
+  return state;
+}
 
-export function StepConditions({ docType, conditions, onChange, canEdit, groupStep, groupHasBelow = false, options, tr }: {
+/** Names a condition value: the record's name, the typed text itself, and never a bare id. */
+export const conditionValueName = (options: ConditionOptions, tr: Tr) => (field: ConditionField, value: string) =>
+  options[field]?.find((o) => o.value === value)?.label
+  ?? (TEXT_FIELDS.includes(field) ? value : tr('a record you cannot open', 'سجل لا يمكنك فتحه'));
+
+export function StepConditions({ docType, conditions, onChange, canEdit, groupStep, groupHasBelow = false, options, names = options, tr }: {
   docType: ApprovalDocType; conditions: StepCondition[]; onChange: (next: StepCondition[]) => void; groupHasBelow?: boolean;
-  canEdit: boolean; groupStep: boolean; options: ConditionOptions; tr: Tr;
+  canEdit: boolean; groupStep: boolean; options: ConditionOptions; names?: ConditionOptions; tr: Tr;
 }) {
   // A group sign-off runs for other companies' documents: only typed-text fields mean the same there.
   const fields = CONDITION_FIELDS[docType].filter((f) => !groupStep || TEXT_FIELDS.includes(f));
   const [draft, setDraft] = React.useState<Record<number, string>>({});
   if (!canEdit) {
-    const text = conditionText(conditions, conditionValueName(options), tr);
+    const text = conditionText(conditions, conditionValueName(names, tr), tr);
     return text ? <p className="mt-2 text-xs text-muted-foreground" dir="auto">{text}</p> : null;
   }
   if (!fields.length) return null;
@@ -113,7 +129,7 @@ export function StepConditions({ docType, conditions, onChange, canEdit, groupSt
               />
             )}
           </div>
-          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label={tr('Remove condition', 'حذف الشرط')} onClick={() => onChange(conditions.filter((_, j) => j !== i))}>
+          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label={tr('Remove condition', 'حذف الشرط')} onClick={() => { onChange(conditions.filter((_, j) => j !== i)); setDraft({}); }}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
