@@ -5373,7 +5373,9 @@ test('influencers import from CSV rows and export back out', async () => {
   const exported = await auth(request(app).get('/companies/1/influencers/export'));
   assert.equal(exported.status, 200);
   assert.match(exported.headers['content-type'], /text\/csv/);
-  assert.match(exported.text, /^name,email,phone,platform,handle,niche,followers,engagementRate,rateCard,location,languages,availability/);
+  // A handle and a followers column per platform; old platform/handle files still import (above).
+  assert.match(exported.text, /^name,email,phone,instagram,instagramFollowers,tiktok,tiktokFollowers,snapchat,snapchatFollowers,youtube,youtubeFollowers,x,xFollowers,facebook,facebookFollowers,niche,engagementRate,rateCard,location,languages,availability/);
+  assert.match(exported.text, /Nova Reels,,,nova,52000,/);
   assert.match(exported.text, /Nova Reels/);
 });
 

@@ -130,6 +130,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /contacts/:id/activities': { module: 'contacts', action: 'create' },
   'POST /clients': { module: 'contacts', action: 'create' },
   'POST /companies/:companyId/suppliers': { module: 'contacts', action: 'create' },
+  'POST /companies/:companyId/influencers/quick-add': { module: 'contacts', action: 'create' },
   'POST /companies/:companyId/contacts': { module: 'contacts', action: 'contacts.create' },
   'POST /contacts/:id/workspace/contacts/:wsContactId/peak-contact': { module: 'contacts', action: 'contacts.workspace.contacts.peak-contact.create' },
   'PUT /contacts/:id': { module: 'contacts', action: 'write' },

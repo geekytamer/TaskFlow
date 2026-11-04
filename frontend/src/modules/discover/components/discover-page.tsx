@@ -19,9 +19,9 @@ import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { SectionEmptyState } from '@/modules/operations/components/section-empty-state';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
-import { getContacts, type Contact } from '@/services/contactService';
+import { duplicateHandleOf, getContacts, type Contact } from '@/services/contactService';
 import {
-  addDiscoverHandles, addPastFollowers, discoverPhotoUrl, findDiscover, getDiscoverOrNull, refreshDiscover,
+  addDiscoverHandles, addDiscoverToRoster, addPastFollowers, discoverPhotoUrl, findDiscover, getDiscoverOrNull, refreshDiscover,
   saveDiscoverSettings, updateDiscoverProfile, type DiscoverProfile, type DiscoverSummary, type ProfileStatus,
 } from '@/services/discoverService';
 
@@ -88,6 +88,19 @@ export function DiscoverPage() {
   const shown = profiles.filter((p) => (view === 'roster' ? p.isRoster
     : p.isRoster ? false
       : view === 'hidden' ? p.status === 'rejected' || p.status === 'removed' : p.status === view));
+
+  const addToRoster = async (p: DiscoverProfile) => {
+    try {
+      const res = await addDiscoverToRoster(p.id);
+      toast({ title: tr(`${res.contact.name} is now one of Peak's influencers`, `${res.contact.name} صار من مؤثري بيك`) });
+      await load();
+      if (selectedCompany) setInfluencers(await getContacts(selectedCompany.id, 'Influencer'));
+    } catch (e) {
+      const owner = duplicateHandleOf(e);
+      if (owner) toast({ variant: 'destructive', title: tr(`Already on ${owner.name}'s record`, `موجود في سجل ${owner.name}`), description: tr('Link this profile to that record with Edit.', 'اربط هذا الحساب بالسجل من زر تعديل.') });
+      else fail(e);
+    }
+  };
 
   const setStatus = async (p: DiscoverProfile, status: ProfileStatus) => {
     try { await updateDiscoverProfile(p.id, { status }); await load(); } catch (e) { fail(e); }
@@ -240,6 +253,9 @@ export function DiscoverPage() {
                     <div className="flex flex-wrap justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>{tr('Edit', 'تعديل')}</Button>
                       {p.isRoster && <span className="self-center text-xs text-muted-foreground">{tr('Shown to clients unless hidden on their record', 'يظهر للعملاء ما لم يُخفَ من سجله')}</span>}
+                      {!p.isRoster && !p.contactId && (p.status === 'candidate' || p.status === 'listed') && (
+                        <Button size="sm" variant="secondary" onClick={() => addToRoster(p)}>{tr("Add to Peak's influencers", 'أضف لمؤثري بيك')}</Button>
+                      )}
                       {!p.isRoster && p.status === 'candidate' && <>
                         <Button size="sm" onClick={() => setStatus(p, 'listed')}>{tr('Approve', 'موافقة')}</Button>
                         <Button size="sm" variant="outline" onClick={() => setStatus(p, 'rejected')}>{tr('Reject', 'رفض')}</Button>

@@ -432,6 +432,7 @@ export const ROUTES: readonly RouteDecl[] = [
   // ─── influencers ───────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/influencers/export', permission: 'influencers.export', legacyRoles: ALL },
   { method: 'POST', path: '/companies/:companyId/influencers/import', permission: 'influencers.create', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/influencers/quick-add', permission: 'influencers.create', legacyRoles: MGMT },
   { method: 'GET', path: '/contacts/:id/workspace', permission: 'influencers.use_workspace', legacyRoles: AM },
   { method: 'POST', path: '/contacts/:id/workspace/contacts/:wsContactId/peak-contact', permission: 'influencers.use_workspace', legacyRoles: AM },
   { method: 'GET', path: '/companies/:companyId/influencer-photos', permission: 'influencers.view', legacyRoles: ALL, note: 'requireCompanyAccess' },
@@ -620,6 +621,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/companies/:companyId/discover/settings', permission: 'discover.manage', legacyRoles: AM, note: 'DISCOVER_MANAGE, portal company only' },
   { method: 'PATCH', path: '/discover-profiles/:id', permission: 'discover.manage', legacyRoles: AM, note: 'DISCOVER_MANAGE, portal company only' },
   { method: 'POST', path: '/discover-profiles/:id/history', permission: 'discover.manage', legacyRoles: AM, note: 'DISCOVER_MANAGE, portal company only' },
+  { method: 'POST', path: '/discover-profiles/:id/add-to-roster', permission: 'discover.manage', legacyRoles: AM, note: 'DISCOVER_MANAGE and contacts.create, portal company only' },
   { method: 'GET', path: '/discover-profiles/:id/photo', permission: 'discover.view', legacyRoles: AM, note: 'DISCOVER_MANAGE, portal company only' },
 
   // ─── games ─────────────────────────────────────────────────────────────────

@@ -37,7 +37,9 @@ import { CustomFieldsForm } from '@/components/ui/custom-fields-form';
 import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import {
   getContacts,
+  getContact,
   createContact,
+  duplicateHandleOf,
   influencerPlatforms,
   type Contact,
   type InfluencerAccount,
@@ -49,6 +51,8 @@ import {
   type ContactForm,
 } from '@/modules/contacts/components/contact-form-fields';
 import { InfluencerEditSheet } from './influencer-edit-sheet';
+import { QuickAddPanel } from './quick-add-panel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Sparkles,
   Search,
@@ -276,7 +280,8 @@ export function InfluencersPage() {
   // The API leaves rateCardAmount out without the rate_cards field: the tile says "Hidden".
   const { can, field } = usePermissions();
   const showPricing = field('rate_cards').view;
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { money } = useCompanyCurrency();
 
@@ -339,9 +344,24 @@ export function InfluencersPage() {
       await loadInfluencers();
       toast({ title: t('contacts.created') });
     } catch (error: any) {
-      toast({ title: error?.message || t('common.error'), variant: 'destructive' });
+      const owner = duplicateHandleOf(error);
+      toast({
+        title: owner ? tr(`That account is already on ${owner.name}'s record`, `هذا الحساب موجود في سجل ${owner.name}`) : error?.message || t('common.error'),
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** A record from the quick-add results: the one just created, or the one that already had the handle. */
+  const openById = async (id: string) => {
+    try {
+      const found = influencers.find((c) => c.id === id) ?? (await getContact(id));
+      setOpenCreate(false);
+      setEditing(found);
+    } catch {
+      toast({ title: t('common.error'), variant: 'destructive' });
     }
   };
 
@@ -413,7 +433,7 @@ export function InfluencersPage() {
       description={t('influencers.subtitle')}
       actions={
         selectedCompany ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <DiscoverLink />
           <Button size="sm" onClick={() => setOpenCreate(true)}>
             <Plus className="h-4 w-4 me-1" />{t('influencers.addInfluencer', 'Add Influencer')}
@@ -423,14 +443,22 @@ export function InfluencersPage() {
             exportFilename="influencers.csv"
             importPath={can('influencers.create') ? `/companies/${selectedCompany.id}/influencers/import` : undefined}
             onImported={loadInfluencers}
+            labels={{ template: tr('Template', 'القالب'), export: tr('Export', 'تصدير'), import: tr('Import', 'استيراد') }}
             template={{
               filename: 'influencers-template.csv',
-              columns: ['name', 'email', 'phone', 'platform', 'handle', 'niche', 'followers', 'engagementRate', 'rateCard', 'location', 'languages', 'availability'],
+              // The same columns the export writes; a row updates the influencer with the same handle or email.
+              columns: [
+                'name', 'email', 'phone',
+                'instagram', 'instagramFollowers', 'tiktok', 'tiktokFollowers', 'snapchat', 'snapchatFollowers',
+                'youtube', 'youtubeFollowers', 'x', 'xFollowers', 'facebook', 'facebookFollowers',
+                'niche', 'engagementRate', ...(showPricing ? ['rateCard'] : []), 'location', 'languages', 'availability',
+              ],
               sample: {
                 name: 'Jane Doe', email: 'jane@example.com', phone: '+971500000000',
-                platform: 'Instagram', handle: '@janedoe', niche: 'Beauty',
-                followers: '52000', engagementRate: '3.4', rateCard: '1500',
-                location: 'Dubai, UAE', languages: 'English; Arabic', availability: 'Available',
+                instagram: 'https://www.instagram.com/janedoe/', instagramFollowers: '52000',
+                tiktok: '@janedoe', tiktokFollowers: '18000', niche: 'Beauty',
+                engagementRate: '3.4', rateCard: '1500',
+                location: 'Muscat, Oman', languages: 'English; Arabic', availability: 'Available',
               },
             }}
           />
@@ -567,23 +595,35 @@ export function InfluencersPage() {
           <DialogHeader>
             <DialogTitle>{t('influencers.addInfluencer', 'Add Influencer')}</DialogTitle>
           </DialogHeader>
-          <ContactFormFields form={form} setForm={setForm} lockedRole="Influencer" />
-          {customFieldDefs.length > 0 && (
-            <div className="border-t pt-3">
-              <CustomFieldsForm
-                definitions={customFieldDefs}
-                values={createCustomValues}
-                onChange={setCreateCustomValues}
-              />
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {t('influencers.addInfluencerHint', 'Platform, handle, follower and rate details can be added with Edit after creating.')}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
-            <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
-          </DialogFooter>
+          {/* min-w-0: the dialog is a grid, and its track would otherwise widen to the longest pasted line on a phone. */}
+          <Tabs defaultValue="paste" className="min-w-0">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="paste">{tr('Paste links', 'الصق الروابط')}</TabsTrigger>
+              <TabsTrigger value="details">{tr('Enter details', 'أدخل البيانات')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="paste" className="pt-2">
+              {selectedCompany && <QuickAddPanel companyId={selectedCompany.id} onAdded={loadInfluencers} onOpen={openById} />}
+            </TabsContent>
+            <TabsContent value="details" className="space-y-4 pt-2">
+              <ContactFormFields form={form} setForm={setForm} lockedRole="Influencer" />
+              {customFieldDefs.length > 0 && (
+                <div className="border-t pt-3">
+                  <CustomFieldsForm
+                    definitions={customFieldDefs}
+                    values={createCustomValues}
+                    onChange={setCreateCustomValues}
+                  />
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t('influencers.addInfluencerHint', 'Platform, handle, follower and rate details can be added with Edit after creating.')}
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
+                <Button onClick={handleCreate} disabled={saving || !form.name.trim()}>{t('common.save')}</Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

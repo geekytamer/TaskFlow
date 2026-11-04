@@ -64,7 +64,9 @@ import { sweepPortalPush } from './portal/push-alerts';
 import { releaseHeldPush } from './push/quiet-hours';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
-import { discoverTick } from './discover/jobs';
+import { discoverTick, refreshDue, syncRoster } from './discover/jobs';
+import { assertNoHandleClash, quickAddInfluencers } from './influencers/service';
+import { INFLUENCER_CSV_COLUMNS, importInfluencerRows, influencerCsvRow } from './influencers/csv';
 import {
   influencerPlatforms,
   type InfluencerAccount,
@@ -3832,12 +3834,6 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
-  // Influencer CSV columns — shared by export, import, and the download template.
-  const INFLUENCER_CSV_COLUMNS = [
-    'name', 'email', 'phone', 'platform', 'handle', 'niche',
-    'followers', 'engagementRate', 'rateCard', 'location', 'languages', 'availability',
-  ];
-
   app.get(
     '/companies/:companyId/influencers/export',
     authMiddleware,
@@ -3846,76 +3842,31 @@ export function createServer(options: CreateServerOptions = {}) {
       const showPricing = seesField(req, req.params.companyId, 'rate_cards', { moduleLock: true });
       // Exactly the influencers the contact list shows this person.
       const influencers = store.listContacts(req.params.companyId, 'Influencer' as any, viewerOf(req));
-      const csv = toCsv(
-        showPricing
-          ? INFLUENCER_CSV_COLUMNS
-          : INFLUENCER_CSV_COLUMNS.filter((col) => col !== 'rateCard'),
-        influencers.map((c) => [
-          c.name,
-          c.email ?? '',
-          c.phone ?? '',
-          c.influencerPlatform ?? '',
-          c.influencerHandle ?? '',
-          c.influencerNiche ?? '',
-          c.followerCount ?? '',
-          c.engagementRate ?? '',
-          ...(showPricing ? [c.rateCardAmount ?? ''] : []),
-          c.location ?? '',
-          (c.languages ?? []).join('; '),
-          c.availabilityStatus ?? '',
-        ]),
-      );
+      const columns = showPricing ? INFLUENCER_CSV_COLUMNS : INFLUENCER_CSV_COLUMNS.filter((col) => col !== 'rateCard');
+      const csv = toCsv(columns, influencers.map((c) => influencerCsvRow(c, columns)));
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="influencers.csv"');
       res.send(csv);
     }),
   );
 
+  // A row updates the influencer it matches (by handle, else email) and otherwise creates one (influencers/csv.ts).
   app.post(
     '/companies/:companyId/influencers/import',
     authMiddleware,
     handler((req, res) => {
-      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
+      const { companyId } = req.params;
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       const rows = Array.isArray(body.rows) ? body.rows : [];
       // A rate card in any row is a write of the rate_cards field.
       for (const r of rows) {
         if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: (r as Record<string, unknown>).rateCard }, 'create');
       }
-      let created = 0;
-      const errors: Array<{ row: number; error: string }> = [];
-      rows.forEach((raw, index) => {
-        try {
-          const row = asRecord(raw, `rows[${index}]`);
-          const languages = optionalString(row.languages)
-            ?.split(/[;,]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          withActor(req, () =>
-            store.createContact({
-              companyId: req.params.companyId,
-              kind: 'Person',
-              name: requiredString(row.name, 'name', { min: 1 }),
-              email: optionalString(row.email),
-              phone: optionalString(row.phone),
-              roles: ['Influencer'],
-              influencerPlatform: optionalString(row.platform),
-              influencerHandle: optionalString(row.handle),
-              influencerNiche: normalizeNiches(optionalString(row.niche)) ?? undefined,
-              followerCount: optionalNumber(row.followers),
-              engagementRate: optionalNumber(row.engagementRate),
-              rateCardAmount: optionalNumber(row.rateCard),
-              location: optionalString(row.location),
-              languages: languages && languages.length ? languages : undefined,
-              availabilityStatus: optionalString(row.availability),
-            }),
-          );
-          created += 1;
-        } catch (error) {
-          errors.push({ row: index + 1, error: error instanceof Error ? error.message : 'Invalid row' });
-        }
-      });
-      res.json({ created, failed: errors.length, errors: errors.slice(0, 50) });
+      res.json(importInfluencerRows(store, companyId, rows, {
+        create: (input) => withActor(req, () => store.createContact(input)),
+        update: (id, input) => withActor(req, () => store.updateContact(id, input)),
+      }));
     }),
   );
 
@@ -3928,6 +3879,14 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const body = asRecord(req.body, 'body');
 	      requireFieldEdits(req, companyId, 'contact', body, 'create');
 	      const managesAll = allowsRule(req, companyId, 'CONTACTS_ALL_WRITE');
+	      const influencerAccounts = parseInfluencerAccounts(body.influencerAccounts);
+	      if (Array.isArray(body.roles) && body.roles.includes('Influencer')) {
+	        assertNoHandleClash(store, companyId, {
+	          influencerPlatform: optionalString(body.influencerPlatform),
+	          influencerHandle: optionalString(body.influencerHandle),
+	          influencerAccounts,
+	        });
+	      }
 	      let contact;
 	      try {
 	      contact = store.createContact({
@@ -3960,7 +3919,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        location: optionalString(body.location),
 	        languages: Array.isArray(body.languages) ? body.languages.map((item, index) => requiredString(item, `languages[${index}]`)) : undefined,
 	        availabilityStatus: optionalString(body.availabilityStatus),
-	        influencerAccounts: parseInfluencerAccounts(body.influencerAccounts),
+	        influencerAccounts,
 	        customFields: optionalCustomFields(body.customFields),
 	      });
 	      } catch (error: any) {
@@ -3992,6 +3951,14 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       requireFieldEdits(req, existing.companyId, 'contact', body, existing);
+      const influencerAccounts = body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined;
+      if (existing.roles?.includes('Influencer')) {
+        assertNoHandleClash(store, existing.companyId, {
+          influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : existing.influencerPlatform,
+          influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : existing.influencerHandle,
+          influencerAccounts: influencerAccounts ?? existing.influencerAccounts,
+        }, existing);
+      }
       let contact;
       try {
       contact = store.updateContact(req.params.id, {
@@ -4016,7 +3983,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	          ? requiredArray(body.languages, 'languages').map((item, index) => requiredString(item, `languages[${index}]`))
 	          : undefined,
 	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
-	        influencerAccounts: body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined,
+	        influencerAccounts: influencerAccounts,
 	        customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
 	      });
 	      } catch (error: any) {
@@ -4036,6 +4003,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
       const body = asRecord(req.body, 'body');
       const role = requiredString(body.role, 'role') as any;
+      if (role === 'Influencer' && !contact.roles?.includes('Influencer')) assertNoHandleClash(store, contact.companyId, contact);
       store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
       res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
@@ -8661,6 +8629,31 @@ export function createServer(options: CreateServerOptions = {}) {
     setInterval(tick, 60 * 60 * 1000).unref?.();
     setTimeout(tick, 2 * 60 * 1000).unref?.();
   }
+
+  // Add influencers by pasting profile links; on the portal company their Instagram figures are fetched straight away.
+  app.post(
+    '/companies/:companyId/influencers/quick-add',
+    authMiddleware,
+    handler((req, res) => {
+      const { companyId } = req.params;
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant'], 'influencers.create');
+      const body = asRecord(req.body, 'body');
+      if (typeof body.text !== 'string') throw new HttpError(400, 'Paste at least one profile link or @handle.');
+      if (body.text.length > 20_000) throw new HttpError(400, 'That is too much text at once. Paste at most 100 lines.');
+      const results = quickAddInfluencers(store, companyId, body.text, (input) => withActor(req, () => store.createContact(input)));
+      let fetching = false;
+      if (companyId === portalCompanyId && results.some((r) => r.status === 'created')) {
+        if (discoverScraper && !store.discover.running(companyId)) {
+          fetching = true;
+          void refreshDue(store, discoverScraper, companyId, { monthlyCap: discoverCap }).catch((error) => logger.error('[discover] quick-add fetch failed', error));
+        } else {
+          // Accounts the directory already fetched write back now.
+          syncRoster(store, companyId);
+        }
+      }
+      res.json({ results, fetching });
+    }),
+  );
   if (portalCompanyId && process.env.NODE_ENV !== 'test') {
     const portalBase = (audience: 'client' | 'influencer') =>
       (audience === 'client' ? process.env.PORTAL_CLIENT_URL || 'http://localhost:9003' : process.env.PORTAL_INFLUENCER_URL || 'http://localhost:9004').replace(/\/+$/, '');
@@ -8746,6 +8739,13 @@ export function createServer(options: CreateServerOptions = {}) {
       authMiddleware: authMiddleware as unknown as RequestHandler,
       requireCompanyAccess: (req, companyId) => requireCompanyAccess(req as AuthedRequest, companyId),
       canManage: (req, companyId) => allowsRule(req as AuthedRequest, companyId, 'DISCOVER_MANAGE'),
+      createContact: (req, input) => withActor(req as AuthedRequest, () => store.createContact(input)),
+      // Adding to the roster creates a contact, so it needs that permission as well as the directory rule.
+      canCreateContacts: (req, companyId) => {
+        const authed = req as AuthedRequest;
+        if (!authed.user) return false;
+        return allowsKey(authed, companyId, 'contacts.create', ['Admin', 'Manager', 'Employee', 'Accountant']);
+      },
       scraper: discoverScraper,
       monthlyCap: discoverCap,
     }));

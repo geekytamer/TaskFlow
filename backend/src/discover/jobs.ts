@@ -37,6 +37,13 @@ export function instagramHandleOf(contact: Contact): string | null {
   return raw ? parseHandleList(raw).handles[0] ?? null : null;
 }
 
+/** A record added by its handle alone (named "@handle") takes the Instagram name once it is known. */
+function nameFromInstagram(store: DataStore, contactId: string, username: string, fullName: string | null): void {
+  const name = fullName?.trim();
+  if (!name || store.getContactById(contactId)?.name !== `@${username}`) return;
+  store.updateContact(contactId, { name });
+}
+
 /** Influencers whose Instagram connection works: Meta keeps their figures, so they are never scraped. */
 export function connectedContactIds(store: DataStore, companyId: string): Set<string> {
   return new Set(store.social.activeAccounts(companyId).filter((a) => a.tokenSealed).map((a) => a.contactId));
@@ -68,6 +75,7 @@ export function syncRoster(store: DataStore, companyId: string): { linked: numbe
     if (p?.followers != null && p.lastFetchedAt && !connected.has(contactId)) {
       store.syncInfluencerInstagram(contactId, handle, { followers: p.followers, engagementRate: p.engagementRate }, p.lastFetchedAt);
     }
+    if (p) nameFromInstagram(store, contactId, handle, p.fullName);
   }
   return { linked: handles.size, unlinked };
 }
@@ -101,6 +109,7 @@ export async function refreshDue(store: DataStore, scraper: DiscoverScraper, com
       // Peak's own influencers: the fresh figures go onto their record too.
       if (saved.isRoster && saved.contactId) {
         store.syncInfluencerInstagram(saved.contactId, saved.username, { followers: found.followers, engagementRate: saved.engagementRate }, now.toISOString());
+        nameFromInstagram(store, saved.contactId, saved.username, found.fullName);
       }
     }
     store.discover.finishRun(run.id, 'done', fetched.length, `${fetched.length} of ${due.length} profiles updated.`);
