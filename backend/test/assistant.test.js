@@ -320,3 +320,106 @@ test('ignoredFilters: a filter that matched is not reported', () => {
   assert.deepEqual(ignoredFilters('/x?status=Overdue', [{ status: 'Done' }]), ['status=Overdue']);
   assert.deepEqual(ignoredFilters('/x?start=2026-11-02', [{ title: 'a' }]), []);
 });
+
+test('a file attached in the chat is filed on a record once confirmed; others cannot use it', async () => {
+  const steps = [];
+  const s = setup(steps);
+  const tiny = Buffer.from('%PDF-1.4 receipt').toString('base64');
+  const up = await s.as(s.admin.id).post('/assistant/files', { companyId: '1', fileName: 'receipt.pdf', mimeType: 'application/pdf', contentBase64: tiny });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const fileId = up.body.id;
+  const task = s.store.listTasks().find((t) => t.companyId === '1');
+  steps.push(
+    (messages) => {
+      assert.match(messages.at(-1).content, new RegExp(`receipt.pdf.*fileId: ${fileId}`));
+      assert.match(messages[0].content, /Files they attached/);
+      return { content: "```js\nreturn await api.post('/companies/1/records/task/" + task.id + "/attachments', { fileId: '" + fileId + "', note: 'Receipt' }, 'Attach receipt.pdf to the task');\n```" };
+    },
+    say('Ready to attach; confirm below.'),
+    say('Attached.'),
+  );
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'attach this to the task', fileIds: [fileId] });
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  assert.deepEqual(asked.body.items[0].files.map((f) => f.name), ['receipt.pdf']);
+  assert.equal(asked.body.items[0].text, 'attach this to the task', 'the file note is not shown as text');
+  const action = asked.body.items.at(-1).actions[0];
+  assert.deepEqual(action.body, { fileId, note: 'Receipt' }, 'the proposal stays small');
+  const done = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { confirm: [action.id] });
+  assert.equal(done.status, 200);
+  const attachments = s.store.listRecordAttachments('1', 'task', task.id);
+  assert.equal(attachments.length, 1);
+  assert.equal(attachments[0].fileName, 'receipt.pdf');
+  assert.equal(done.body.items.at(-1).cards[0].title, 'receipt.pdf', 'what was made is shown as a card');
+  // Someone else cannot attach or read that file.
+  assert.equal((await s.as('user-3').post('/assistant/chat', { companyId: '1', message: 'x', fileIds: [fileId] })).status, 400);
+  assert.equal((await s.as('user-3').get(`/assistant/files/${fileId}`)).status, 404);
+  assert.equal((await s.as(s.admin.id).get(`/assistant/files/${fileId}`)).status, 200);
+  const bad = await s.as(s.admin.id).post('/assistant/files', { companyId: '1', fileName: 'x.exe', mimeType: 'application/x-msdownload', contentBase64: tiny });
+  assert.equal(bad.status, 415);
+});
+
+test('a document from a template: the blanks are checked against the template, then it is made and shown', async () => {
+  const steps = [];
+  const s = setup(steps);
+  const tpl = await s.as(s.admin.id).post('/companies/1/document-templates', { name: 'Salary certificate', type: 'certificate', manualFields: [{ key: 'employee', label: 'Employee name' }, { key: 'salary', label: 'Monthly salary' }] });
+  assert.equal(tpl.status, 201, JSON.stringify(tpl.body));
+  steps.push(
+    say("```js\ntry { await api.post('/companies/1/documents', { templateId: '" + tpl.body.id + "', fieldValues: { name: 'Ahmed' } }, 'x'); } catch (e) { return e.message; }\n```"),
+    say("```js\nreturn await api.post('/companies/1/documents', { templateId: '" + tpl.body.id + "', fieldValues: { employee: 'Ahmed', salary: '900 OMR' } }, 'Make the salary certificate for Ahmed');\n```"),
+    say('The certificate is ready to make; confirm below.'),
+    say('Made.'),
+  );
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'salary certificate for Ahmed, 900 OMR' });
+  assert.match(s.model.seen[1].at(-1).content, /does not have: name\. Its blanks: employee \(Employee name\), salary/);
+  const action = asked.body.items.at(-1).actions[0];
+  const done = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { confirm: [action.id] });
+  const card = done.body.items.at(-1).cards[0];
+  assert.equal(card.kind, 'document');
+  assert.match(card.href, /^\/document\//);
+});
+
+test('progress: while it works the screen can ask what it is doing; the prompt names the areas the person can use', async () => {
+  let seenStep;
+  let s;
+  s = setup([async (messages) => {
+    const p = await s.as(s.admin.id).get('/assistant/progress/req-12345678');
+    seenStep = p.body.step;
+    assert.match(messages[0].content, /Areas they can use here: .*tasks/);
+    return { content: 'ok' };
+  }]);
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'hi', requestId: 'req-12345678' });
+  assert.deepEqual(seenStep, { kind: 'thinking' });
+  assert.deepEqual((await s.as('user-3').get('/assistant/progress/req-12345678')).body, { step: null });
+});
+
+test('lookup() finds records by name through global search; a change on an undefined id is refused; plural kinds are corrected', async () => {
+  const s = setup([
+    say("```js\nconst found = await lookup('Develop landing');\nreturn found;\n```"),
+    say("```js\ntry { await api.post('/companies/1/records/task/undefined/attachments', { fileId: 'x' }, 'x'); } catch (e) { return e.message; }\n```"),
+    say('ok'),
+  ]);
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'find it' });
+  const found = JSON.parse(s.model.seen[1].at(-1).content.replace(/^Result of your code:\n/, '')).result;
+  assert.ok(found.some((f) => f.kind === 'task' && /landing/i.test(f.title)), JSON.stringify(found));
+  assert.match(s.model.seen[2].at(-1).content, /has a missing id/);
+  const { soundPath } = require('../dist/routes/assistant');
+  assert.equal(soundPath('/companies/1/records/tasks/t1/attachments'), '/companies/1/records/task/t1/attachments');
+  assert.equal(soundPath('/companies/1/records/sales-orders/o1/attachments'), '/companies/1/records/sales_order/o1/attachments');
+  assert.throws(() => soundPath('/companies/1/records/planets/p1/attachments'), /cannot take attachments/);
+});
+
+test('makeDocument finds the template by name (Arabic too) and maps blanks by key or label', async () => {
+  const steps = [];
+  const s = setup(steps);
+  const tpl = await s.as(s.admin.id).post('/companies/1/document-templates', { name: 'Salary certificate', type: 'certificate', manualFields: [{ key: 'employee', label: 'Employee name' }, { key: 'salary', label: 'Monthly salary' }] });
+  assert.equal(tpl.status, 201, JSON.stringify(tpl.body));
+  steps.push(
+    say("```js\nreturn await makeDocument('شهادة راتب', { 'Employee name': 'أحمد', salary: '900' }, 'شهادة راتب لأحمد');\n```"),
+    say('جاهزة للتأكيد.'),
+  );
+  const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'شهادة راتب لأحمد 900' });
+  const action = res.body.items.at(-1).actions[0];
+  assert.equal(action.body.templateId, tpl.body.id);
+  assert.deepEqual(action.body.fieldValues, { employee: 'أحمد', salary: '900' });
+  assert.equal(action.summary, 'شهادة راتب لأحمد');
+});

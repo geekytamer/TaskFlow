@@ -88,6 +88,8 @@ const KNOWN_UNGATED = new Set([
     'GET /assistant/threads',
     'GET /assistant/threads/:id',
     'DELETE /assistant/threads/:id',
+    'GET /assistant/files/:id',
+    'GET /assistant/progress/:requestId',
 ]);
 
 test('no route is ungated by accident', () => {

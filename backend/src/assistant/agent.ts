@@ -32,6 +32,10 @@ export interface AgentContext {
   today: string;
   company: { id: string; name: string; currency: string };
   companies: Array<{ id: string; name: string }>;
+  /** Areas the person can read in this company (permission prefixes: tasks, invoices, sales...). */
+  areas?: string[];
+  /** Files the person attached in this conversation. */
+  files?: Array<{ id: string; name: string; mimeType: string }>;
 }
 
 /**
@@ -47,15 +51,17 @@ export function systemPrompt(c: AgentContext, mode: AgentMode = 'text'): string 
   const how = mode === 'text'
     ? [
       'How to act: reply with ONE ```js code block and nothing else. It runs, and its result comes back to you in the next message. When you have what you need, reply to the person in plain text with no code block.',
-      'In the code: `await search(\'english words\')` lists endpoints (with body fields for common ones); `await api.get(path)`; `await api.post(path, body, summary)`, `api.put`, `api.patch`, `api.delete(path, summary)`; `return` a small value.',
+      'In the code: `await findApi(\'english words\')` lists API endpoints (with body fields for common ones); `await lookup(\'name or number\')` finds existing records of any kind (tasks, contacts, invoices, orders, items, projects, employees, document templates with their blanks) → [{ kind, id, title, subtitle, blanks? }]; `await api.get(path)`; `await api.post(path, body, summary)`, `api.put`, `api.patch`, `api.delete(path, summary)`; `await show(rows)` shows records to the person as cards with links (any kind); `return` a small value.',
     ]
     : ['How to act: use search_api to find endpoints, then run_script to call them.'];
   return [
     `You are the assistant inside TaskFlow, a business system (sales, invoices, purchasing, inventory, tasks, projects, HR, finance, inbox). You act for ${c.userName} (user id ${c.userId}), with exactly their permissions.`,
     `Today is ${c.today}. The current company is "${c.company.name}" (id ${c.company.id}, currency ${c.company.currency}). Their other companies: ${c.companies.filter((x) => x.id !== c.company.id).map((x) => `${x.name} (${x.id})`).join(', ') || 'none'}.`,
+    ...(c.areas?.length ? [`Areas they can use here: ${c.areas.join(', ')}. For anything else, say they do not have access.`] : []),
+    ...(c.files?.length ? [`Files they attached (use the fileId; the server adds the file itself): ${c.files.map((f) => `"${f.name}" ${f.mimeType} fileId ${f.id}`).join('; ')}. To file one on a record: const [t] = await lookup('record name'); then api.post('/companies/${c.company.id}/records/' + t.kind.replace('-', '_') + '/' + t.id + '/attachments', { fileId, note }, summary) (kind singular: task, contact, invoice...). An endpoint field that takes an image (logo, letterhead, photo) takes "file:<fileId>".`] : []),
     ...how,
     'Rules:',
-    '- Search before using an endpoint you have not used. Company endpoints look like /companies/<id>/...; put the real id in the path. List endpoints accept query strings.',
+    '- Use findApi before an endpoint you have not used. To act on a record the person names, first lookup(\'its name\') to get its id; never guess ids. Company endpoints look like /companies/<id>/...; put the real id in the path. List endpoints accept query strings.',
     '- Code is top-level: no wrapper function. Always `await` api calls. Return only the fields that answer the question, never whole lists. After each read you are shown the real field names; use them exactly.',
     '- When the answer is a list of records (or one record), call `await show(rows)` with the records (they need their id), then answer in one or two sentences: a count or total, not the list again.',
     '- If a call fails, read the error; it names the missing or wrong field. Fix and retry once or twice.',
@@ -64,6 +70,7 @@ export function systemPrompt(c: AgentContext, mode: AgentMode = 'text'): string 
     '- A change exists only if you call api.post/put/patch/delete. It is NOT done then: it waits for the person to confirm it below. Say what you prepared and ask them to confirm; never say it is done until you are told it was confirmed. If you need the id of something new, propose it first and continue after confirmation.',
     '- Several things at once (e.g. "record these as my tasks: A, B, C"): propose ALL of them in ONE code block with a loop, so the person confirms them together. Never do them one per turn.',
     `- Example several: const titles = ['Visit the bank', 'Meet the client', 'Buy materials']; for (const title of titles) await api.post('/tasks', { title, companyId: '${c.company.id}', priority: 'Medium', status: 'Done', dueDate: '${c.today}', assignedUserIds: ['${c.userId}'] }, 'Record the done task: ' + title); return titles.length;`,
+    "- Documents (letters, certificates, memos on the letterhead): ONE call, no lookups: return await makeDocument('Salary certificate', { employee: 'Ahmed Al Balushi', salary: '900 OMR', purpose: 'Bank Muscat' }, 'Make the salary certificate for Ahmed'); The blanks are plain text from what the person said. If it fails, the error lists the templates or blanks; fix and retry.",
     '- Things the person says they already did are recorded with status Done and today\'s date.',
     '- Ids are strings: copy them exactly, in quotes.',
     '- The summary (third argument of a change) is what the person reads on the confirm button: one plain sentence in THEIR language (Arabic if they wrote Arabic).',
@@ -113,6 +120,8 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
   const added: Stored[] = [];
   let nudged = false;
   const ran = new Set<string>();
+  let lastFailed = false;
+  let fixNudged = false;
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const sent = [{ role: 'system' as const, content: system }, ...history, ...added.map(({ ui: _ui, ...m }) => m as ChatMessage)];
     const answer = await chat(sent, mode === 'native' ? TOOLS : []);
@@ -126,11 +135,20 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
         added.push(hidden({ role: 'user', content: 'You already ran exactly this code and got the result above. Change the approach (e.g. drop query filters and filter in code), or answer me now.' }));
       } else {
         ran.add(code);
-        added.push(hidden({ role: 'user', content: `Result of your code:\n${outcomeText(await tools.run(code))}` }));
+        const result = await tools.run(code);
+        lastFailed = !result.ok || /not proposed|missing id|not a TaskFlow endpoint/.test(JSON.stringify(result.value ?? ''));
+        added.push(hidden({ role: 'user', content: `Result of your code:\n${outcomeText(result)}` }));
       }
       continue;
     }
     if (calls.length === 0) {
+      // "Let me fix this" after a failed step is a plan, not an answer: one nudge to do it.
+      if (text && lastFailed && !fixNudged && mode === 'text' && /\b(let me|i will|i'll|i need to|try again)\b/i.test(text)) {
+        fixNudged = true;
+        added.push(hidden({ role: 'assistant', content: answer.content ?? '' }));
+        added.push(hidden({ role: 'user', content: 'Do it now: reply with the corrected ```js code block.' }));
+        continue;
+      }
       if (text || nudged) {
         added.push({ role: 'assistant', content: answer.content ?? null });
         return { added, reply: text };

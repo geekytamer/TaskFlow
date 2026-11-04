@@ -17,7 +17,24 @@ const TASK_STATUS = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'] as 
 const TASK_PRIORITY = ['Low', 'Medium', 'High', 'Urgent'] as const;
 
 export const OP_HINTS: Readonly<Record<string, OpHint>> = {
-  'GET /tasks': { text: `query: ?companyId=<id>. Each task: id, title, status (${TASK_STATUS.join('|')}; open = not Done), priority, dueDate, startDate, assignedUserIds, projectId.` },
+  'GET /tasks': { text: `query: ?companyId=<id> (no other filters: filter in code). Each task: id, title, status (${TASK_STATUS.join('|')}; open = not Done), priority, dueDate, startDate, assignedUserIds, projectId. "My" tasks = assignedUserIds includes the person's id.` },
+  'POST /tasks/:taskId/comments': { text: 'body { content }', required: ['content'] },
+  'POST /tasks/:taskId/time-entries': { text: 'body { hours: number (or minutes), spentOn?: "YYYY-MM-DD", note? }' },
+  'POST /companies/:companyId/contacts': {
+    text: 'body { name, kind: Organization|Person, roles?: [Lead|Client|Vendor|Influencer|Partner], email?, phone?, contactPerson?, address?, notes?, tags?: [text] }',
+    required: ['name'],
+    values: { kind: ['Organization', 'Person'] },
+  },
+  'GET /companies/:companyId/document-templates': { text: 'Each template: id, name, type, dataSource (the kind of record it reads from: none|client|invoice|contact|delivery_note|opportunity|sales_order), manualFields [{ key, label }] = the blanks you fill in.' },
+  'POST /companies/:companyId/documents': {
+    text: 'body { templateId, title?, fieldValues: { <manualField key>: text }, recordType?: the template\'s dataSource, recordId?: that record\'s id, status?: draft|final }. Read the template first and fill every manualField key. Draft unless the person says final.',
+    required: ['templateId'],
+    values: { status: ['draft', 'final'] },
+  },
+  'POST /companies/:companyId/records/:entityType/:entityId/attachments': {
+    text: 'body { fileId: "<id of a file the person attached>", note? }. entityType: task, project, client, contact, invoice, quotation, sales_order, purchase_order, vendor_bill, expense, employee, ... The server adds the file itself.',
+    required: ['fileId'],
+  },
   'POST /tasks': {
     text: `body { title, companyId, priority: ${TASK_PRIORITY.join('|')}, dueDate?: "YYYY-MM-DD", startDate?, description?, assignedUserIds?: [userId], projectId?, status?: ${TASK_STATUS.join('|')} }. The person's own id is in the system prompt. Several tasks: loop in one script. Already done: status Done, dueDate today.`,
     required: ['title', 'companyId', 'priority'],

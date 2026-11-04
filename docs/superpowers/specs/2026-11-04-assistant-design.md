@@ -52,6 +52,25 @@ The owner asked for a chatbot that does things in TaskFlow, without MCP, using w
     - quotation: `/quotation/<id>`
     - other kinds: their section page
   - The model's `**bold**` shows as bold.
+- **Capabilities (2026-11-04, "give the agent more capabilities").** Helpers available inside a script:
+  - `findApi(words)` finds endpoints; it was previously called `search`, which small models mistook for a record search. `search` still works.
+  - `lookup(text)` finds any record by name or number through global search, under the person's permissions. It also returns document templates with their blanks.
+  - `makeDocument(templateName, fields, summary)` proposes a letter or certificate in one call. The template is matched by name, with Arabic and English document words mapped to each other (شهادة ↔ certificate, راتب ↔ salary, خطاب ↔ letter…). Blanks are matched by key or label and checked against the template.
+  - `show(rows)` shows records as cards.
+- **Attaching files.**
+  - A paperclip, drag-and-drop or paste adds images, PDFs or office files (up to 20 MB) to the next message. They upload at once and are stored in `assistant_files` (migration `162_assistant_files`), visible only to their owner.
+  - The model sees the file name and its `fileId`. On a record it uses `{ fileId }`, and an image field takes `"file:<id>"`. The server fills in the actual file only when the change runs, so proposals stay small.
+  - Sent images show as thumbnails.
+- **Guards added:**
+  - A path with an id the script never had (`/undefined/`) is refused.
+  - Plural record kinds are corrected (`tasks` → `task`).
+  - The record kind on attachment paths is checked.
+  - Unknown document blanks are refused, with the template's blanks listed.
+  - A "let me fix it" reply after a failed step gets one nudge to actually fix it.
+- **Made records become cards.** After confirmation, each new record (task, document, attachment, contact…) appears as a card linking to it; an attachment links to the record it is filed on.
+- **Live progress.** The chat polls `GET /assistant/progress/:requestId` every second, showing "Thinking…", "Reading tasks…", "Preparing: …" and so on.
+- **Areas.** The system prompt lists the areas the person can read in this company, and the model says when something is outside them.
+- **More body hints:** task comments, time entries, contacts, document templates and documents, record attachments.
 - Migration `161_assistant`.
 
 ## Next

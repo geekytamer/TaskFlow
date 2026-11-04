@@ -5856,6 +5856,25 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Files the person attaches in the assistant's chat, kept for the record they get filed on.
+        id: '162_assistant_files',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS assistant_files (
+              id TEXT PRIMARY KEY,
+              userId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              fileName TEXT NOT NULL,
+              mimeType TEXT NOT NULL,
+              sizeBytes INTEGER NOT NULL,
+              content BLOB NOT NULL,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_assistant_files_user ON assistant_files (userId, createdAt);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6696,6 +6715,17 @@ export class DataStore {
     const info = this.db.prepare("UPDATE assistant_actions SET status = ?, result = ?, decidedAt = ? WHERE id = ? AND status IN ('pending', 'running')")
       .run(status, result === undefined ? null : JSON.stringify(result), new Date().toISOString(), id);
     return info.changes > 0;
+  }
+
+  createAssistantFile(input: { userId: string; companyId: string; fileName: string; mimeType: string; content: Buffer }): AssistantFileRow {
+    const row: AssistantFileRow = { id: uuid(), userId: input.userId, companyId: input.companyId, fileName: input.fileName.slice(0, 200), mimeType: input.mimeType, sizeBytes: input.content.length, createdAt: new Date().toISOString() };
+    this.db.prepare('INSERT INTO assistant_files (id, userId, companyId, fileName, mimeType, sizeBytes, content, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.userId, row.companyId, row.fileName, row.mimeType, row.sizeBytes, input.content, row.createdAt);
+    return row;
+  }
+
+  getAssistantFile(id: string, withContent = false): (AssistantFileRow & { content?: Buffer }) | undefined {
+    return this.db.prepare(`SELECT id, userId, companyId, fileName, mimeType, sizeBytes, createdAt${withContent ? ', content' : ''} FROM assistant_files WHERE id = ?`).get(id) as (AssistantFileRow & { content?: Buffer }) | undefined;
   }
 
   /** Claims a pending action for running, so a double click runs it once. */
@@ -25284,6 +25314,16 @@ export class DataStore {
       ],
     });
   }
+}
+
+export interface AssistantFileRow {
+  id: string;
+  userId: string;
+  companyId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
 }
 
 export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired';

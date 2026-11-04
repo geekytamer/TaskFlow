@@ -9,7 +9,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   ArrowUpRight, Banknote, Box, Briefcase, CalendarDays, CheckSquare, ChevronLeft, ChevronRight, FileText, FolderKanban,
-  Megaphone, ReceiptText, ShoppingCart, Ship, Target, User, Users,
+  Clock, Megaphone, MessageSquare, Paperclip, ReceiptText, ShoppingCart, Ship, Target, User, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatCurrency } from '@/lib/currency';
@@ -37,6 +37,11 @@ const KINDS: Record<string, { en: string; ar: string; icon: React.ComponentType<
   shipment: { en: 'Shipment', ar: 'شحنة', icon: Ship },
   opportunity: { en: 'Opportunity', ar: 'فرصة', icon: Target },
   campaign: { en: 'Campaign', ar: 'حملة', icon: Megaphone },
+  document: { en: 'Document', ar: 'مستند', icon: FileText },
+  'document-template': { en: 'Template', ar: 'قالب', icon: FileText },
+  attachment: { en: 'Attachment', ar: 'مرفق', icon: Paperclip },
+  comment: { en: 'Comment', ar: 'تعليق', icon: MessageSquare },
+  'time-entry': { en: 'Time', ar: 'وقت', icon: Clock },
 };
 
 const kindOf = (kind: string) => KINDS[kind] ?? { en: kind.replace(/-/g, ' '), ar: kind.replace(/-/g, ' '), icon: FileText };

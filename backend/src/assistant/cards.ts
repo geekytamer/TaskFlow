@@ -45,9 +45,11 @@ const HREF: Record<string, (id: string) => string> = {
   client: () => '/contacts',
   supplier: () => '/contacts',
   approval: () => '/approvals',
+  document: (id) => `/document/${encodeURIComponent(id)}`,
+  'document-template': () => '/documents?tab=templates',
 };
 
-const TITLE_FIELDS = ['title', 'name', 'invoiceNumber', 'quoteNumber', 'quotationNumber', 'orderNumber', 'billNumber', 'number', 'reference', 'lotNumber', 'subject', 'sku', 'email'];
+const TITLE_FIELDS = ['title', 'name', 'fileName', 'templateName', 'invoiceNumber', 'quoteNumber', 'quotationNumber', 'orderNumber', 'billNumber', 'number', 'reference', 'lotNumber', 'subject', 'sku', 'email'];
 const SUBTITLE_FIELDS = ['clientName', 'supplierName', 'vendorName', 'customerName', 'contactName', 'company', 'category', 'sku', 'email', 'phone'];
 
 export interface CardLookups {
@@ -83,7 +85,9 @@ export function cardOf(kind: string, record: Record<string, unknown>, look: Card
     ...(value !== undefined ? { amount: { value, currency: str(record.currency) ?? look.currency } } : {}),
     ...(due ? { date: { label: 'due' as const, value: due } } : other ? { date: { label: 'date' as const, value: other } } : {}),
     ...(people.length ? { people } : {}),
-    ...((kind === 'client' || kind === 'supplier') && str(record.contactId)
+    ...(kind === 'attachment' && str(record.entityType) && str(record.entityId) && HREF[String(record.entityType).replace(/_/g, '-')]
+      ? { href: HREF[String(record.entityType).replace(/_/g, '-')](String(record.entityId)) }
+      : (kind === 'client' || kind === 'supplier') && str(record.contactId)
       ? { href: `/contacts/${encodeURIComponent(String(record.contactId))}` }
       : HREF[kind] ? { href: HREF[kind](id) } : {}),
   };

@@ -6,7 +6,7 @@
  * you, through the same permissions and approvals as your own clicks.
  */
 import * as React from 'react';
-import { Bot, Check, ChevronDown, History, Loader2, MessageSquarePlus, SendHorizontal, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, Trash2, TriangleAlert, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +17,9 @@ import { isApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
 import {
-  askAssistant, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantThread, listAssistantThreads,
-  type AssistantAction, type AssistantStatus, type AssistantThread, type AssistantThreadSummary,
+  askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
+  listAssistantThreads, uploadAssistantFile,
+  type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
 
 type Tr = (en: string, ar: string) => string;
@@ -53,6 +54,43 @@ export function AssistantPage() {
   const [threads, setThreads] = React.useState<AssistantThreadSummary[]>([]);
   const endRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  // Files for the next message: uploaded as soon as they are picked, sent by id.
+  const [attached, setAttached] = React.useState<Array<{ key: string; name: string; file?: AssistantFile; failed?: string }>>([]);
+  const [dragging, setDragging] = React.useState(false);
+  // What it is doing right now ("Reading tasks…"), asked every second while it works.
+  const [step, setStep] = React.useState<AssistantStep | null>(null);
+  const requestRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!working) { setStep(null); return; }
+    const timer = window.setInterval(() => {
+      const id = requestRef.current;
+      if (id) void getAssistantProgress(id).then((p) => setStep(p.step)).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [working]);
+  const newRequestId = () => {
+    const id = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    requestRef.current = id;
+    return id;
+  };
+
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list || !selectedCompany) return;
+    const companyForFiles = selectedCompany.id;
+    for (const file of Array.from(list).slice(0, 5)) {
+      const key = `${file.name}-${file.size}-${Math.random()}`;
+      if (file.size > 20 * 1024 * 1024) {
+        setAttached((a) => [...a, { key, name: file.name, failed: tr('Over 20 MB', 'أكبر من 20 ميغابايت') }]);
+        continue;
+      }
+      setAttached((a) => [...a, { key, name: file.name }]);
+      uploadAssistantFile(companyForFiles, file)
+        .then((f) => setAttached((a) => a.map((x) => (x.key === key ? { ...x, file: f } : x))))
+        .catch((err) => setAttached((a) => a.map((x) => (x.key === key ? { ...x, failed: err instanceof Error ? err.message : String(err) } : x))));
+    }
+  };
+  const uploading = attached.some((a) => !a.file && !a.failed);
 
   React.useEffect(() => { void assistantStatusOnce().then(setStatus); }, []);
   React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [thread, pendingQuestion, working]);
@@ -82,17 +120,21 @@ export function AssistantPage() {
   };
 
   const send = async (text: string) => {
-    const message = text.trim();
-    if (!message || !selectedCompany || working) return;
+    const fileIds = attached.flatMap((a) => (a.file ? [a.file.id] : []));
+    const message = text.trim() || (fileIds.length ? tr('Here are the files.', 'هذه الملفات.') : '');
+    if (!message || !selectedCompany || working || uploading) return;
+    const sentFiles = attached;
     setError(null);
     setDraft('');
+    setAttached([]);
     setPendingQuestion(message);
     setWorking('asking');
     try {
-      setThread(await askAssistant({ message, companyId: selectedCompany.id, ...(thread ? { threadId: thread.id } : {}) }));
+      setThread(await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), ...(thread ? { threadId: thread.id } : {}) }));
     } catch (err) {
       setError(failMessage(err));
       setDraft(message);
+      setAttached(sentFiles);
       if (thread) setThread(await getAssistantThread(thread.id).catch(() => thread));
     } finally {
       setPendingQuestion(null);
@@ -106,7 +148,7 @@ export function AssistantPage() {
     setError(null);
     setWorking('deciding');
     try {
-      setThread(await decideAssistantActions(thread.id, { confirm, decline }));
+      setThread(await decideAssistantActions(thread.id, { confirm, decline, requestId: newRequestId() }));
     } catch (err) {
       setError(failMessage(err));
       setThread(await getAssistantThread(thread.id).catch(() => thread));
@@ -178,7 +220,7 @@ export function AssistantPage() {
         ) : null}
 
         {items.map((item, i) => item.role === 'user' ? (
-          <UserBubble key={i} text={item.text} />
+          <UserBubble key={i} text={item.text} files={item.files} />
         ) : (
           <div key={i} className="flex flex-col gap-2">
             {item.text ? <ReplyText text={item.text} /> : null}
@@ -201,7 +243,7 @@ export function AssistantPage() {
         {working ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {working === 'asking' ? tr('Working on it…', 'يعمل على ذلك…') : tr('Running your confirmed changes…', 'ينفّذ التغييرات المؤكدة…')}
+            {stepText(step, tr) ?? (working === 'asking' ? tr('Working on it…', 'يعمل على ذلك…') : tr('Running your confirmed changes…', 'ينفّذ التغييرات المؤكدة…'))}
           </div>
         ) : null}
         {error ? (
@@ -213,14 +255,39 @@ export function AssistantPage() {
       </div>
 
       <form
-        className="sticky bottom-0 -mx-1 flex items-end gap-2 border-t bg-background px-1 pb-1 pt-3"
+        className={cn('sticky bottom-0 -mx-1 flex flex-col gap-2 border-t bg-background px-1 pb-1 pt-3', dragging && 'ring-2 ring-primary/60')}
         onSubmit={(e) => { e.preventDefault(); void send(draft); }}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
       >
+        {attached.length ? (
+          <div className="flex flex-wrap gap-2">
+            {attached.map((a) => (
+              <span key={a.key} className={cn('inline-flex max-w-[16rem] items-center gap-1.5 rounded-md border px-2 py-1 text-xs', a.failed ? 'border-destructive/50 text-destructive' : 'bg-muted/50')}>
+                {a.file || a.failed ? <FileText className="h-3.5 w-3.5 shrink-0" /> : <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+                <span className="truncate">{a.name}</span>
+                {a.failed ? <span className="shrink-0">· {a.failed}</span> : null}
+                <button type="button" className="shrink-0 rounded hover:bg-muted" aria-label={tr(`Remove ${a.name}`, `إزالة ${a.name}`)} onClick={() => setAttached((all) => all.filter((x) => x.key !== a.key))}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex items-end gap-2">
+        <input ref={fileRef} type="file" multiple hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        <Button type="button" variant="ghost" size="icon" className="h-11 w-11 shrink-0" disabled={!selectedCompany || Boolean(working)}
+          onClick={() => fileRef.current?.click()} aria-label={tr('Attach files', 'إرفاق ملفات')}>
+          <Paperclip className="h-4 w-4" />
+        </Button>
         <Textarea
           ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(draft); } }}
+          onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
           placeholder={tr('Ask the assistant…', 'اسأل المساعد…')}
           aria-label={tr('Message to the assistant', 'رسالة إلى المساعد')}
           rows={1}
@@ -228,9 +295,10 @@ export function AssistantPage() {
           className="max-h-40 min-h-[2.75rem] resize-none"
           disabled={!selectedCompany}
         />
-        <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={!draft.trim() || Boolean(working) || !selectedCompany} aria-label={tr('Send', 'إرسال')}>
+        <Button type="submit" size="icon" className="h-11 w-11 shrink-0" disabled={(!draft.trim() && !attached.some((a) => a.file)) || uploading || Boolean(working) || !selectedCompany} aria-label={tr('Send', 'إرسال')}>
           <SendHorizontal className="h-4 w-4 rtl:rotate-180" />
         </Button>
+        </div>
       </form>
 
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
@@ -272,8 +340,49 @@ function ReplyText({ text }: { text: string }) {
   );
 }
 
-function UserBubble({ text }: { text: string }) {
-  return <div className="ms-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-ee-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">{text}</div>;
+function UserBubble({ text, files }: { text: string; files?: AssistantFile[] }) {
+  return (
+    <div className="ms-auto flex max-w-[85%] flex-col items-end gap-1.5">
+      {files?.length ? <div className="flex flex-wrap justify-end gap-1.5">{files.map((f) => <FileChip key={f.id} file={f} />)}</div> : null}
+      <div className="whitespace-pre-wrap rounded-2xl rounded-ee-sm bg-primary px-3.5 py-2 text-sm text-primary-foreground">{text}</div>
+    </div>
+  );
+}
+
+/** An attached file in a sent message: images as a thumbnail, others as a name. */
+function FileChip({ file }: { file: AssistantFile }) {
+  const [url, setUrl] = React.useState<string | null>(null);
+  const isImage = file.mimeType.startsWith('image/');
+  React.useEffect(() => {
+    if (!isImage) return;
+    let made: string | null = null;
+    void assistantFileUrl(file.id).then((u) => { made = u; setUrl(u); });
+    return () => { if (made) URL.revokeObjectURL(made); };
+  }, [file.id, isImage]);
+  if (isImage && url) {
+    // eslint-disable-next-line @next/next/no-img-element -- a private object URL, not an optimisable asset
+    return <img src={url} alt={file.name} className="h-20 w-20 rounded-lg border object-cover" />;
+  }
+  return (
+    <span className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs">
+      <FileText className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{file.name}</span>
+    </span>
+  );
+}
+
+function stepText(step: AssistantStep | null, tr: Tr): string | null {
+  if (!step) return null;
+  const d = step.detail ? step.detail.replace(/-/g, ' ') : '';
+  switch (step.kind) {
+    case 'thinking': return tr('Thinking…', 'يفكر…');
+    case 'search': return tr(`Looking for how to ${d ? `do “${d}”` : 'do it'}…`, `يبحث عن الطريقة${d ? `: “${d}”` : ''}…`);
+    case 'read': return tr(`Reading ${d || 'records'}…`, `يقرأ ${d || 'السجلات'}…`);
+    case 'prepare': return tr(`Preparing: ${d}`, `يجهّز: ${d}`);
+    case 'show': return tr('Preparing the cards…', 'يجهّز البطاقات…');
+    case 'run': return tr('Working…', 'يعمل…');
+    case 'confirm': return tr(`Doing: ${d}`, `ينفّذ: ${d}`);
+    default: return null;
+  }
 }
 
 const kindOf = (a: AssistantAction, tr: Tr) =>

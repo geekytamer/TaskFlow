@@ -905,7 +905,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // scans, small PDFs) go through while other endpoints keep the stricter limit.
   const attachmentJson = express.json({ limit: '28mb' });
   app.use((req, res, next) => (
-    /^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) && req.method === 'POST'
+    ((/^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) || req.path === '/assistant/files') && req.method === 'POST')
       ? attachmentJson(req, res, next)
       : next()
   ));
