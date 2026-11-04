@@ -133,15 +133,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               const evt = new KeyboardEvent('keydown', { key: 'k', metaKey: true });
               window.dispatchEvent(evt);
             }}
-            className="ms-2 hidden items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted md:flex"
+            aria-label={t('cmdk.button')}
+            className="ms-2 hidden shrink-0 items-center gap-2 whitespace-nowrap rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-muted md:flex"
           >
             <Search className="h-3.5 w-3.5" />
-            <span>{t('cmdk.button')}</span>
+            {/* The words only where there is room; between tablet and desktop the icon is enough. */}
+            <span className="hidden xl:inline">{t('cmdk.button')}</span>
             <kbd className="ms-2 hidden rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground lg:inline">
               ⌘K
             </kbd>
           </button>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2 xl:gap-4">
             <button
               type="button"
               aria-label={t('cmdk.button')}
@@ -151,7 +153,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Search className="h-4 w-4" />
             </button>
             <NotificationBell />
-            <div className="hidden items-center gap-4 md:flex">
+            <div className="hidden shrink-0 items-center gap-2 md:flex xl:gap-4">
               <ThemeSwitcher />
               <LanguageSwitcher />
             </div>

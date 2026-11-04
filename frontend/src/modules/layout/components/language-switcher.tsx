@@ -16,9 +16,9 @@ export function LanguageSwitcher() {
 
   return (
     <div className="flex items-center gap-2">
-      <Globe className="h-4 w-4 text-muted-foreground" />
+      <Globe className="hidden h-4 w-4 text-muted-foreground xl:block" />
       <Select value={language} onValueChange={(value) => setLanguage(value as 'en' | 'ar')}>
-        <SelectTrigger className="w-[150px]" data-academy="language">
+        <SelectTrigger className="w-[104px] xl:w-[150px]" data-academy="language">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
