@@ -33,6 +33,32 @@ export type Approver =
   | { kind: 'manager' };
 export type Need = 'any' | 'all';
 
+/** What a step can route on besides amount (spec 2026-11-04, "Conditions other than amount"). */
+export type ConditionField = 'supplier' | 'client' | 'category' | 'project' | 'department' | 'leaveType' | 'template';
+export type ConditionOp = 'is' | 'is_not';
+export interface StepCondition { field: ConditionField; op: ConditionOp; values: string[] }
+/** The facts of one document that conditions are checked against. */
+export type ApprovalFacts = Partial<Record<ConditionField, string | null | undefined>>;
+/** Typed text, matched without regard to case or surrounding spaces (the others are record ids). */
+export const TEXT_FIELDS: ConditionField[] = ['category', 'department'];
+/** The fields each document records. */
+export const CONDITION_FIELDS: Record<ApprovalDocType, ConditionField[]> = {
+  purchase_order: ['supplier'], vendor_bill: ['supplier'], vendor_payment: ['supplier'],
+  expense: ['category', 'project'], invoice: ['client'], quotation: ['client'], credit_note: ['client'],
+  purchase_requisition: ['department', 'supplier'], leave_request: ['leaveType'], document: ['template'], payroll_run: [],
+};
+
+const norm = (field: ConditionField, v: string) => (TEXT_FIELDS.includes(field) ? v.trim().toLowerCase() : v);
+/** Every condition holds for these facts: "is" needs the value among them; "is not" passes a missing value. */
+export function conditionsHold(conditions: StepCondition[], facts: ApprovalFacts): boolean {
+  return conditions.every((c) => {
+    const raw = facts[c.field];
+    const value = raw === null || raw === undefined || raw === '' ? null : norm(c.field, String(raw));
+    const listed = value !== null && c.values.some((v) => norm(c.field, v) === value);
+    return c.op === 'is' ? listed : !listed;
+  });
+}
+
 export interface ApprovalRule {
   id: string; companyId: string; docType: ApprovalDocType; minAmount: number; maxAmount: number | null;
   /** The first role among the approvers, kept for older screens. */
@@ -40,6 +66,8 @@ export interface ApprovalRule {
   approvers: Approver[]; need: Need; position: number;
   /** On a group company: this step also runs, after their own, for documents of every company below. */
   alsoBelow: boolean;
+  /** Besides the amount band, every condition must hold for the step to apply. */
+  conditions: StepCondition[];
 }
 export type StepStatus = 'pending' | 'approved' | 'rejected';
 export interface ApprovalStep {
@@ -104,10 +132,10 @@ export function rolesActingAs(companyRole: string | undefined): ApproverRole[] {
 
 /** The steps a document of this amount needs, in order. */
 export type ApprovalLevel = { minAmount: number; approverRole: ApproverRole; approvers: Approver[]; need: Need; ownerCompanyId?: string; alsoBelow?: boolean };
-export function levelsFor(rules: ApprovalRule[], amount: number): ApprovalLevel[] {
+export function levelsFor(rules: ApprovalRule[], amount: number, facts: ApprovalFacts = {}): ApprovalLevel[] {
   return [...rules]
     .sort((a, b) => a.position - b.position || a.minAmount - b.minAmount)
-    .filter((r) => amount >= r.minAmount && (r.maxAmount === null || amount <= r.maxAmount))
+    .filter((r) => amount >= r.minAmount && (r.maxAmount === null || amount <= r.maxAmount) && conditionsHold(r.conditions ?? [], facts))
     .map((r) => ({ minAmount: r.minAmount, approverRole: r.approverRole, approvers: r.approvers, need: r.need, alsoBelow: r.alsoBelow }));
 }
 
@@ -139,7 +167,7 @@ export class ApprovalStore {
         id: r.id, companyId: r.companyId, docType: r.docType, minAmount: Number(r.minAmount) || 0,
         maxAmount: r.maxAmount === null || r.maxAmount === undefined ? null : Number(r.maxAmount),
         approverRole: firstRole(approvers), approvers, need: r.need === 'all' ? 'all' : 'any', position: Number(r.position) || 0,
-        alsoBelow: Boolean(r.alsoBelow),
+        alsoBelow: Boolean(r.alsoBelow), conditions: parse<StepCondition[]>(r.conditions, []),
       };
     });
   }
@@ -160,7 +188,7 @@ export class ApprovalStore {
 
   /** Replaces a document type's policy. No steps: the company has none (and uses its group's, if any). */
   setPolicy(companyId: string, docType: ApprovalDocType, input: {
-    steps: Array<{ approvers: Approver[]; need: Need; minAmount?: number | null; maxAmount?: number | null; alsoBelow?: boolean }>;
+    steps: Array<{ approvers: Approver[]; need: Need; minAmount?: number | null; maxAmount?: number | null; alsoBelow?: boolean; conditions?: StepCondition[] }>;
     allowSelf?: boolean; reminderHours?: number; escalateHours?: number;
   }): void {
     this.db.transaction(() => {
@@ -168,10 +196,11 @@ export class ApprovalStore {
       this.db.prepare('DELETE FROM approval_policies WHERE companyId = ? AND docType = ?').run(companyId, docType);
       if (!input.steps.length) return;
       const insert = this.db.prepare(
-        'INSERT INTO approval_rules (id, companyId, docType, minAmount, maxAmount, approverRole, approvers, need, position, alsoBelow) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO approval_rules (id, companyId, docType, minAmount, maxAmount, approverRole, approvers, need, position, alsoBelow, conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       );
       input.steps.forEach((s, i) => insert.run(
         uuid(), companyId, docType, s.minAmount ?? 0, s.maxAmount ?? null, firstRole(s.approvers), JSON.stringify(s.approvers), s.need, i, s.alsoBelow ? 1 : 0,
+        s.conditions?.length ? JSON.stringify(s.conditions) : null,
       ));
       this.db.prepare('INSERT INTO approval_policies (companyId, docType, allowSelf, reminderHours, escalateHours) VALUES (?, ?, ?, ?, ?)')
         .run(companyId, docType, input.allowSelf ? 1 : 0, input.reminderHours ?? 24, input.escalateHours ?? 72);

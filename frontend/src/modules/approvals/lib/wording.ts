@@ -1,5 +1,5 @@
 /** How approvals read, in either language (approvers, the list chip, the trail). */
-import type { Approver, ApprovalStatusRow, Need, TrailEntry } from '@/services/approvalService';
+import type { Approver, ApprovalStatusRow, ConditionField, Need, StepCondition, TrailEntry } from '@/services/approvalService';
 
 type Tr = (en: string, ar: string) => string;
 
@@ -48,4 +48,25 @@ export function trailText(t: TrailEntry, tr: Tr, nameOf: (userId: string) => str
     case 'noted': return tr(`Note on${step}`, `ملاحظة على${step}`);
     default: return t.kind;
   }
+}
+
+/** A condition field's name in the reader's language. */
+export function conditionFieldName(field: ConditionField, tr: Tr): string {
+  return ({
+    supplier: tr('the supplier', 'المورد'), client: tr('the client', 'العميل'), category: tr('the category', 'الفئة'),
+    project: tr('the project', 'المشروع'), department: tr('the department', 'القسم'), leaveType: tr('the leave type', 'نوع الإجازة'),
+    template: tr('the template', 'القالب'),
+  } as Record<ConditionField, string>)[field];
+}
+
+/** A step's conditions as one sentence ("Only when the supplier is Globex or Initech"); '' when none. */
+export function conditionText(conditions: StepCondition[] | undefined, name: (field: ConditionField, value: string) => string, tr: Tr): string {
+  if (!conditions?.length) return '';
+  const parts = conditions.map((c) => {
+    const values = c.values.map((v) => name(c.field, v)).join(c.op === 'is' ? tr(' or ', ' أو ') : tr(' or ', ' أو '));
+    return c.op === 'is'
+      ? tr(`${conditionFieldName(c.field, tr)} is ${values}`, `${conditionFieldName(c.field, tr)} ${values}`)
+      : tr(`${conditionFieldName(c.field, tr)} is not ${values}`, `${conditionFieldName(c.field, tr)} ليس ${values}`);
+  });
+  return tr(`Only when ${parts.join(', and ')}`, `فقط عندما يكون ${parts.join('، و')}`);
 }

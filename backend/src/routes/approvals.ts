@@ -1,4 +1,4 @@
-import { APPROVAL_DOC_TYPES, APPROVER_ROLES, ApprovalError, type ApprovalDocType, type Approver, type ApproverRole } from '../approvals/approvals';
+import { APPROVAL_DOC_TYPES, APPROVER_ROLES, ApprovalError, CONDITION_FIELDS, TEXT_FIELDS, type ApprovalDocType, type Approver, type ApproverRole, type ConditionField, type StepCondition } from '../approvals/approvals';
 import { subtreeIds } from '../companies/tree';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalString, requiredNumber } from '../validation';
@@ -66,6 +66,36 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
       res.json(store.approvals.rules(req.params.companyId));
     }),
   );
+
+  /**
+   * A step's conditions: fields this document records, at least one value
+   * each, ids from this company's own records. A group's sign-off runs for
+   * other companies' documents, so it takes only the typed-text fields.
+   */
+  const parseConditions = (companyId: string, docType: ApprovalDocType, raw: unknown, i: number, alsoBelow: boolean): StepCondition[] => {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw) || raw.length > 5) throw new HttpError(400, `Step ${i + 1}: conditions must be a list of up to 5.`);
+    const allowed = CONDITION_FIELDS[docType];
+    const owns: Partial<Record<ConditionField, (id: string) => boolean>> = {
+      supplier: (id) => store.getSupplierById(id)?.companyId === companyId,
+      client: (id) => store.getClientById(id)?.companyId === companyId,
+      project: (id) => store.getProjectById(id)?.companyId === companyId,
+      leaveType: (id) => store.getLeaveTypeById(id)?.companyId === companyId,
+      template: (id) => store.getDocumentTemplateById(id)?.companyId === companyId,
+    };
+    return raw.map((c, j) => {
+      const cond = asRecord(c, `steps[${i}].conditions[${j}]`);
+      const field = enumValue(cond.field, `steps[${i}].conditions[${j}].field`, allowed as readonly ConditionField[]) as ConditionField;
+      const op = enumValue(cond.op ?? 'is', `steps[${i}].conditions[${j}].op`, ['is', 'is_not'] as const) as 'is' | 'is_not';
+      if (!Array.isArray(cond.values) || !cond.values.length || cond.values.length > 50) throw new HttpError(400, `Step ${i + 1}: each condition needs from 1 to 50 values.`);
+      const values = [...new Set(cond.values.map((v) => String(v ?? '').trim()).filter(Boolean))].map((v) => v.slice(0, 120));
+      if (!values.length) throw new HttpError(400, `Step ${i + 1}: each condition needs a value.`);
+      if (TEXT_FIELDS.includes(field)) return { field, op, values };
+      if (alsoBelow) throw new HttpError(400, `Step ${i + 1}: a group sign-off runs for other companies' documents, so it can only use category or department conditions.`);
+      if (!values.every((id) => owns[field]?.(id))) throw new HttpError(400, `Step ${i + 1}: a ${field} in the condition isn't one of this company's.`);
+      return { field, op, values };
+    });
+  };
 
   /** Who signs off what is the company's administration (settings.manage_approvals). */
   const requireManageApprovals = (req: AuthedRequest, companyId: string) => {
@@ -186,7 +216,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
         steps: rules
           // A fallback to the group's policy shows its ordinary steps; its sign-off is listed below.
           .filter((r) => from === req.params.companyId || !r.alsoBelow)
-          .map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount, alsoBelow: r.alsoBelow })),
+          .map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount, alsoBelow: r.alsoBelow, conditions: r.conditions })),
         // Whether this company has companies below (its steps may be their group sign-off).
         hasCompaniesBelow: subtreeIds(store.companyTreeNodes(), req.params.companyId).length > 1,
         // What each group above adds after this company's own steps.
@@ -194,7 +224,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
           const signOff = store.approvals.rules(groupId, docType).filter((r) => r.alsoBelow);
           return signOff.length ? [{
             companyId: groupId, name: store.getCompanyById(groupId)?.name ?? groupId,
-            steps: signOff.map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount })),
+            steps: signOff.map((r) => ({ approvers: r.approvers.map((a) => ({ ...a, label: store.approvals.label(a) })), need: r.need, minAmount: r.minAmount || null, maxAmount: r.maxAmount, conditions: r.conditions })),
           }] : [];
         }),
       };
@@ -218,6 +248,7 @@ export function registerApprovalRoutes(app: Express, ctx: RouteContext, { docSum
         approvers: parseApprovers(req.params.companyId, st.approvers, `steps[${i}].approvers`, st.alsoBelow === true),
         need: enumValue(st.need ?? 'any', `steps[${i}].need`, ['any', 'all'] as const),
         minAmount, maxAmount, alsoBelow: st.alsoBelow === true,
+        conditions: parseConditions(req.params.companyId, docType, st.conditions, i, st.alsoBelow === true),
       };
     });
     const hours = (v: unknown, fallback: number) => {

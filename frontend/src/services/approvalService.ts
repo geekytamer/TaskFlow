@@ -20,8 +20,21 @@ export type Approver =
 export type Need = 'any' | 'all';
 export type ApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected' | 'changes_requested';
 
+/** What a step can route on besides amount; mirrors backend CONDITION_FIELDS. */
+export type ConditionField = 'supplier' | 'client' | 'category' | 'project' | 'department' | 'leaveType' | 'template';
+export interface StepCondition { field: ConditionField; op: 'is' | 'is_not'; values: string[] }
+export const CONDITION_FIELDS: Record<ApprovalDocType, ConditionField[]> = {
+  purchase_order: ['supplier'], vendor_bill: ['supplier'], vendor_payment: ['supplier'],
+  expense: ['category', 'project'], invoice: ['client'], quotation: ['client'], credit_note: ['client'],
+  purchase_requisition: ['department', 'supplier'], leave_request: ['leaveType'], document: ['template'], payroll_run: [],
+};
+/** Typed text (matched ignoring case); the others are this company's records. A group sign-off takes only these. */
+export const TEXT_FIELDS: ConditionField[] = ['category', 'department'];
+
 export interface PolicyStep {
   approvers: Approver[]; need: Need; minAmount: number | null; maxAmount: number | null;
+  /** Besides the amount band, every condition must hold. */
+  conditions?: StepCondition[];
   /** On a group company: also for every company below, after their own steps (group sign-off). */
   alsoBelow?: boolean;
 }

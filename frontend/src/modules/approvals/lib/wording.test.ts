@@ -31,3 +31,15 @@ describe('approval wording', () => {
     assert.equal(trailText({ level: 1, kind: 'reminded', userId: null, userName: null, onBehalfOf: null, note: null, at }, ar, () => ''), 'تذكير بالخطوة 1');
   });
 });
+
+describe('condition wording', () => {
+  it('says each condition as a sentence, naming records', async () => {
+    const { conditionText } = await import('./wording');
+    const name = (f: string, v: string) => ({ s1: 'Globex', s2: 'Initech' } as Record<string, string>)[v] ?? v;
+    assert.equal(conditionText([{ field: 'supplier', op: 'is', values: ['s1', 's2'] }], name, en), 'Only when the supplier is Globex or Initech');
+    assert.equal(conditionText([{ field: 'category', op: 'is_not', values: ['Meals'] }, { field: 'project', op: 'is', values: ['p'] }], name, en),
+      'Only when the category is not Meals, and the project is p');
+    assert.equal(conditionText([{ field: 'leaveType', op: 'is', values: ['Annual'] }], name, ar), 'فقط عندما يكون نوع الإجازة Annual');
+    assert.equal(conditionText([], name, en), '');
+  });
+});

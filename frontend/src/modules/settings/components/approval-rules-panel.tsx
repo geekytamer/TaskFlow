@@ -23,8 +23,10 @@ import { getUsersByCompany } from '@/services/userService';
 import {
   POLICY_DOC_TYPES, deleteApprovalTeam, docTypeGate, docTypeLabel, getApprovalPolicies, getApprovalTeams, roleLabel,
   saveApprovalPolicy, saveApprovalTeam, type ApprovalDocType, type ApprovalPolicy, type ApprovalTeam, type Approver, type PolicyStep,
-  amountIsDays,
+  amountIsDays, TEXT_FIELDS,
 } from '@/services/approvalService';
+import { conditionText } from '@/modules/approvals/lib/wording';
+import { StepConditions, conditionValueName, useConditionOptions, type ConditionOptions } from './step-conditions';
 
 type Tr = (en: string, ar: string) => string;
 const ROLES = ['Manager', 'Accountant', 'Admin'] as const;
@@ -47,6 +49,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   const [teams, setTeams] = React.useState<ApprovalTeam[]>([]);
   const [policies, setPolicies] = React.useState<Record<string, ApprovalPolicy> | null>(null);
   const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
+  const conditionOptions = useConditionOptions(companyId);
   const [editingTeam, setEditingTeam] = React.useState<Partial<ApprovalTeam> | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, ApprovalPolicy>>({});
 
@@ -75,6 +78,10 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   const savePolicy = async (t: ApprovalDocType) => {
     try {
       const p = policyOf(t);
+      if (p.steps.some((st) => st.conditions?.some((c) => !c.values.length))) {
+        toast({ variant: 'destructive', title: tr('Each condition needs at least one value', 'كل شرط يحتاج قيمة واحدة على الأقل') });
+        return;
+      }
       await saveApprovalPolicy(companyId, t, { steps: p.steps, allowSelf: p.allowSelf, reminderHours: p.reminderHours, escalateHours: p.escalateHours });
       toast({ title: tr('Approval policy saved', 'تم حفظ سياسة الموافقة') });
       await load();
@@ -163,7 +170,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
               <ol className="space-y-2">
                 {p.steps.map((s, i) => (
                   <StepEditor
-                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)} days={amountIsDays(t)}
+                    key={i} index={i} step={s} count={p.steps.length} canEdit={canEdit && !(p.inheritedFrom && !dirty)} tr={tr} label={label} isGroup={Boolean(p.hasCompaniesBelow)} days={amountIsDays(t)} docType={t} options={conditionOptions}
                     teams={teams} people={people}
                     onChange={(next) => edit(t, (q) => ({ ...q, inheritedFrom: null, steps: q.steps.map((x, j) => (j === i ? next : x)) }))}
                     onMove={(d) => edit(t, (q) => { const steps = [...q.steps]; const [x] = steps.splice(i, 1); steps.splice(i + d, 0, x); return { ...q, steps }; })}
@@ -175,7 +182,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
                 <p key={g.companyId} className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                   {tr(`Then ${g.name} signs off: `, `ثم تعتمد ${g.name}: `)}
                   {g.steps.map((st) => st.approvers.map((a) => label(a)).join(st.need === 'all' ? tr(' and ', ' و') : tr(' or ', ' أو '))
-                    + (st.minAmount ? tr(` (from ${st.minAmount}`, ` (من ${st.minAmount}`) + (st.maxAmount ? tr(` up to ${st.maxAmount})`, ` حتى ${st.maxAmount})`) : ')') : st.maxAmount ? tr(` (up to ${st.maxAmount})`, ` (حتى ${st.maxAmount})`) : '')).join(tr(', then ', '، ثم '))}
+                    + (st.minAmount ? tr(` (from ${st.minAmount}`, ` (من ${st.minAmount}`) + (st.maxAmount ? tr(` up to ${st.maxAmount})`, ` حتى ${st.maxAmount})`) : ')') : st.maxAmount ? tr(` (up to ${st.maxAmount})`, ` (حتى ${st.maxAmount})`) : '')
+                    + (st.conditions?.length ? ` · ${conditionText(st.conditions, conditionValueName(conditionOptions), tr)}` : '')).join(tr(', then ', '، ثم '))}
                   {amountIsDays(t) ? tr(' In days.', ' بالأيام.') : tr(` In ${g.name}'s currency.`, ` بعملة ${g.name}.`)}
                 </p>
               ))}
@@ -256,8 +264,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   );
 }
 
-function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove, isGroup, days = false }: {
-  days?: boolean;
+function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onChange, onMove, onRemove, isGroup, days = false, docType, options }: {
+  days?: boolean; docType: ApprovalDocType; options: ConditionOptions;
   index: number; step: PolicyStep; count: number; canEdit: boolean; tr: Tr; label: (a: Approver) => string; isGroup: boolean;
   teams: ApprovalTeam[]; people: Array<{ id: string; name: string }>;
   onChange: (s: PolicyStep) => void; onMove: (d: -1 | 1) => void; onRemove: () => void;
@@ -320,9 +328,17 @@ function StepEditor({ index, step, count, canEdit, tr, label, teams, people, onC
         <Input type="number" min={0} className="h-7 w-24" placeholder={tr('any', 'أي')} disabled={!canEdit} value={step.maxAmount ?? ''} onChange={(e) => onChange({ ...step, maxAmount: amount(e.target.value) })} />
         {days ? tr('days of leave', 'أيام إجازة') : tr('(in the document\'s company currency)', '(بعملة شركة المستند)')}
       </div>
+      <StepConditions
+        docType={docType} conditions={step.conditions ?? []} onChange={(conditions) => onChange({ ...step, conditions })}
+        canEdit={canEdit} groupStep={Boolean(step.alsoBelow)} groupHasBelow={isGroup} options={options} tr={tr}
+      />
       {isGroup && (
         <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <Switch checked={Boolean(step.alsoBelow)} onCheckedChange={(v) => onChange({ ...step, alsoBelow: v })} disabled={!canEdit} />
+          <Switch
+            checked={Boolean(step.alsoBelow)} disabled={!canEdit}
+            // Other companies' suppliers and clients are other records: a group sign-off keeps only text conditions.
+            onCheckedChange={(v) => onChange({ ...step, alsoBelow: v, conditions: v ? (step.conditions ?? []).filter((c) => TEXT_FIELDS.includes(c.field)) : step.conditions })}
+          />
           {tr('Group sign-off: also for every company below, after their own approvals', 'اعتماد المجموعة: أيضًا لكل شركة تحتها، بعد اعتماداتها')}
         </label>
       )}

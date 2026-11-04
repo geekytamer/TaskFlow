@@ -24,7 +24,7 @@ import { buildWpsFile } from '../hr/wps';
 import { QualityStore } from '../inventory/quality';
 import { ColdChainStore } from '../inventory/cold-chain';
 import { ShipmentStore } from '../logistics/shipments';
-import { ApprovalStore, levelsFor, type ApprovalLevel, type ApprovalDocType, type ApprovalHold, type HoldDocType } from '../approvals/approvals';
+import { ApprovalStore, levelsFor, type ApprovalFacts, type ApprovalLevel, type ApprovalDocType, type ApprovalHold, type HoldDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
 import { WorkspaceStore } from '../workspace/workspace-store';
@@ -5749,6 +5749,14 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Steps can route on supplier, client, category, project, department, leave type or template.
+        id: '158_approval_conditions',
+        run: () => {
+          const has = (t: string, c: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).some((x) => x.name === c);
+          if (!has('approval_rules', 'conditions')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN conditions TEXT');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -9213,7 +9221,7 @@ export class DataStore {
     const totalAmount = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     // The policy that applies here (own, or the group's) and every group's sign-off above.
     const poPolicy = this.approvalApplies(existing.companyId, 'purchase_order');
-    const levels = this.approvalLevels(existing.companyId, 'purchase_order', totalAmount);
+    const levels = this.approvalLevels(existing.companyId, 'purchase_order', totalAmount, { supplier: updates.supplierId !== undefined ? updates.supplierId : existing.supplierId });
     const threshold = this.getCompanyFinanceSettings(existing.companyId).poApprovalThreshold;
     const requiresApproval = poPolicy ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     // What is being ordered changed: other lines, other amounts or another supplier.
@@ -15142,7 +15150,7 @@ export class DataStore {
     // With approval rules for purchase orders, they decide; otherwise the single threshold does.
     // The policy that applies here (own, or the group's) and every group's sign-off above.
     const poPolicy = this.approvalApplies(input.companyId, 'purchase_order');
-    const levels = this.approvalLevels(input.companyId, 'purchase_order', totalAmount);
+    const levels = this.approvalLevels(input.companyId, 'purchase_order', totalAmount, { supplier: input.supplierId });
     const threshold = this.getCompanyFinanceSettings(input.companyId).poApprovalThreshold;
     const requiresApproval = poPolicy ? levels.length > 0 : threshold > 0 && totalAmount >= threshold;
     const approvalStatus: PurchaseOrder['approvalStatus'] = requiresApproval ? 'pending' : 'not_required';
@@ -17299,8 +17307,31 @@ export class DataStore {
   }
 
   /** Approval levels a document of this amount needs: its policy's steps, then each group's sign-off above. */
-  approvalLevels(companyId: string, docType: ApprovalDocType, amount: number) {
-    return this.approvalChain(companyId, docType, amount);
+  approvalLevels(companyId: string, docType: ApprovalDocType, amount: number, facts: ApprovalFacts = {}) {
+    return this.approvalChain(companyId, docType, amount, facts);
+  }
+
+  /** What a document's conditions are checked against (its supplier, client, category…). */
+  approvalFacts(docType: ApprovalDocType, docId: string): ApprovalFacts {
+    switch (docType) {
+      case 'purchase_order': { const d = this.getPurchaseOrderById(docId); return { supplier: d?.supplierId }; }
+      case 'vendor_bill': { const d = this.getVendorBillById(docId); return { supplier: d?.supplierId }; }
+      case 'expense': { const d = this.getExpenseById(docId); return { category: d?.category, project: d?.projectId }; }
+      case 'invoice': return { client: this.getInvoiceById(docId)?.clientId };
+      case 'quotation': return { client: this.getQuotationById(docId)?.clientId };
+      case 'purchase_requisition': { const d = this.getPurchaseRequisitionById(docId); return { department: d?.department, supplier: d?.preferredSupplierId }; }
+      case 'leave_request': return { leaveType: this.getLeaveRequestById(docId)?.leaveTypeId };
+      case 'document': return { template: this.getDocumentById(docId)?.templateId };
+      case 'credit_note':
+      case 'vendor_payment': {
+        const h = this.getApprovalHold(docId);
+        if (!h) return {};
+        if (h.docType === 'vendor_payment') return { supplier: h.targetId ? this.getVendorBillById(h.targetId)?.supplierId : null };
+        const p = h.payload as { clientId?: string; invoiceId?: string };
+        return { client: p.clientId ?? (p.invoiceId ? this.getInvoiceById(p.invoiceId)?.clientId : null) };
+      }
+      default: return {};
+    }
   }
 
   /** The groups above a company, nearest first. */
@@ -17336,9 +17367,9 @@ export class DataStore {
    * another currency can't be compared yet (no exchange rates before
    * consolidation), so such a step applies and the trail says why.
    */
-  approvalChain(companyId: string, docType: ApprovalDocType, amount: number): ApprovalLevel[] {
+  approvalChain(companyId: string, docType: ApprovalDocType, amount: number, facts: ApprovalFacts = {}): ApprovalLevel[] {
     const policy = this.approvalPolicyCompany(companyId, docType);
-    const own = levelsFor(this.policySteps(policy, docType, policy === companyId), amount);
+    const own = levelsFor(this.policySteps(policy, docType, policy === companyId), amount, facts);
     const currency = this.getCompanyFinanceSettings(companyId).currencyCode;
     const above = this.ancestorsOf(companyId).flatMap((groupId) => {
       const signOff = this.approvals.rules(groupId, docType).filter((r) => r.alsoBelow);
@@ -17347,9 +17378,9 @@ export class DataStore {
       // No amount band (from 0, no ceiling) means nothing to compare: the currency doesn't matter.
       // Leave is counted in days, which mean the same in every currency.
       const banded = docType !== 'leave_request' && signOff.some((r) => r.minAmount > 0 || r.maxAmount !== null);
-      if (groupCurrency === currency || !banded) return levelsFor(signOff, amount).map((l) => ({ ...l, ownerCompanyId: groupId }));
+      if (groupCurrency === currency || !banded) return levelsFor(signOff, amount, facts).map((l) => ({ ...l, ownerCompanyId: groupId }));
       const name = this.getCompanyById(groupId)?.name ?? 'The group';
-      return levelsFor(signOff.map((r) => ({ ...r, minAmount: 0, maxAmount: null })), 0).map((l) => ({
+      return levelsFor(signOff.map((r) => ({ ...r, minAmount: 0, maxAmount: null })), 0, facts).map((l) => ({
         ...l, ownerCompanyId: groupId,
         note: `${name} sets its sign-off amounts in ${groupCurrency}, but this document is in another currency (${currency}), so they can't be compared yet and the group signs off.`,
       }));
@@ -17358,9 +17389,9 @@ export class DataStore {
   }
 
   /** Starts a document's approval under the policy that applies (own or the group's), then the groups' sign-off. */
-  startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null; managerUserId?: string | null }) {
+  startApproval(companyId: string, docType: ApprovalDocType, docId: string, input: { amount: number; requesterId: string | null; managerUserId?: string | null; facts?: ApprovalFacts }) {
     const policyCompany = this.approvalPolicyCompany(companyId, docType);
-    const levels = this.approvalChain(companyId, docType, input.amount);
+    const levels = this.approvalChain(companyId, docType, input.amount, input.facts ?? this.approvalFacts(docType, docId));
     if (!levels.length) {
       this.approvals.clear(docType, docId);
       return 'not_required' as const;
@@ -17713,7 +17744,7 @@ export class DataStore {
       updatedAt: new Date(nowIso),
     };
     // Above an approval level the expense waits, unposted, until it is approved.
-    const levels = this.approvalLevels(input.companyId, 'expense', expense.amount);
+    const levels = this.approvalLevels(input.companyId, 'expense', expense.amount, { category: expense.category, project: expense.projectId });
     expense.approvalStatus = levels.length ? 'pending' : 'not_required';
     this.db
       .prepare(
@@ -17826,8 +17857,10 @@ export class DataStore {
       });
       this.removeJournalEntriesBySource('expense', id);
       // A changed amount is approved afresh; an unchanged approved expense stays approved.
-      const levels = this.approvalLevels(next.companyId, 'expense', next.amount);
-      const keep = next.amount === existing.amount && existing.approvalStatus === 'approved';
+      const levels = this.approvalLevels(next.companyId, 'expense', next.amount, { category: next.category, project: next.projectId });
+      // What the approval depended on (amount, category, project) unchanged: an approved expense stays approved.
+      const keep = next.amount === existing.amount && next.category.trim().toLowerCase() === existing.category.trim().toLowerCase()
+        && (next.projectId ?? null) === (existing.projectId ?? null) && existing.approvalStatus === 'approved';
       const status: Expense['approvalStatus'] = !levels.length ? 'not_required' : keep ? 'approved' : 'pending';
       this.db.prepare('UPDATE expenses SET approvalStatus = ? WHERE id = ?').run(status, id);
       if (status === 'pending') this.startDocApproval(next.companyId, 'expense', id, levels);

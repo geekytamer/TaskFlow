@@ -171,3 +171,46 @@ under a payment policy; a second return blocked by a waiting credit;
 amounts readable by any member through the details route; a manager who
 recorded leave for their own staff unable to decide it; a hold saved
 without its request on failure. All fixed with regression tests.
+
+## Conditions other than amount (2026-11-04)
+
+Owner: "build the non-amount conditions too". World-class systems (NetSuite
+approval routing, SAP flexible workflow, D365 workflow conditions, Coupa
+approval chains) route on supplier, customer, category, department,
+project and type as well as amount. Decided:
+
+- A step can carry **conditions**, each *field is one of …* or *field is
+  not any of …*. A step applies only when its amount band **and every
+  condition** hold. A document with no value for a field fails an *is*
+  condition and passes an *is not* one.
+- Fields per document (only what each document actually records):
+
+  | Document | Fields |
+  |---|---|
+  | Purchase order | supplier |
+  | Vendor bill, vendor payment | supplier |
+  | Expense | category, project |
+  | Invoice, quotation, credit note | client |
+  | Purchase requisition | department, preferred supplier |
+  | Leave request | leave type |
+  | Document | template |
+  | Payroll run | none |
+
+- Supplier, client, project, leave type and template are chosen from the
+  company's own records (ids); category and department are typed text,
+  matched without regard to case or surrounding spaces.
+- **Group sign-off steps** run for documents of other companies, whose
+  suppliers and clients are different records, so they take only the text
+  fields (category, department). Saving a group sign-off step with an id
+  condition is refused.
+- Changing a field a running request depended on asks again (counterparty
+  changes already did; an expense's category or project now does too).
+- Migration 158: `approval_rules.conditions` (JSON).
+- Settings shows each step's conditions as a sentence ("Only when the
+  supplier is Globex or Initech"); the inbox shows nothing new (the step
+  is simply there or not).
+- A company below that falls back to its group's ordinary steps meets the
+  group's supplier/client/project/leave-type/template ids, which are the
+  group's own records: an *is* step never applies to it and an *is not*
+  step always does (more approval rather than less). Settings says so on a
+  group company's steps.
