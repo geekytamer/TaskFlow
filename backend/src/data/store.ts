@@ -448,6 +448,7 @@ const defaultLedgerAccounts: Array<
   { code: '1000', name: 'Cash', type: 'Asset', detailType: 'Cash and cash equivalents', description: 'Cash on hand and petty cash.', isActive: true, isSystem: true },
   { code: '1010', name: 'Bank Accounts', type: 'Asset', detailType: 'Bank', description: 'Operating and settlement bank balances.', isActive: true, isSystem: true },
   { code: '1100', name: 'Accounts Receivable', type: 'Asset', detailType: 'Trade receivables', description: 'Outstanding customer invoice balances.', isActive: true, isSystem: true },
+  { code: '1160', name: 'Due from Group Companies', type: 'Asset', detailType: 'Intercompany receivables', description: 'What other companies in the group owe this company.', isActive: true, isSystem: true },
   { code: '1200', name: 'Inventory', type: 'Asset', detailType: 'Inventory asset', description: 'Tracked inventory on hand.', isActive: true, isSystem: true },
   { code: '1300', name: 'Prepaid Expenses', type: 'Asset', detailType: 'Prepayments', description: 'Advance payments for future periods.', isActive: true, isSystem: true },
   { code: '1150', name: 'Recoverable VAT (Input Tax)', type: 'Asset', detailType: 'Tax asset', description: 'Input VAT recoverable on purchases.', isActive: true, isSystem: true },
@@ -455,6 +456,7 @@ const defaultLedgerAccounts: Array<
   { code: '1590', name: 'Accumulated Depreciation', type: 'Asset', detailType: 'Accumulated depreciation', description: 'Depreciation charged to date on fixed assets; a credit balance that reduces their cost.', isActive: true, isSystem: true },
   { code: '1510', name: 'Furniture and Fixtures', type: 'Asset', detailType: 'Fixed assets', description: 'Office furniture and fixtures.', isActive: true, isSystem: true },
   { code: '2000', name: 'Accounts Payable', type: 'Liability', detailType: 'Trade payables', description: 'Outstanding supplier invoices.', isActive: true, isSystem: true },
+  { code: '2050', name: 'Due to Group Companies', type: 'Liability', detailType: 'Intercompany payables', description: 'What this company owes other companies in the group.', isActive: true, isSystem: true },
   { code: '2100', name: 'Accrued Expenses', type: 'Liability', detailType: 'Accruals', description: 'Expenses incurred but not yet invoiced.', isActive: true, isSystem: true },
   { code: '2200', name: 'Sales Tax Payable', type: 'Liability', detailType: 'Tax liability', description: 'Collected VAT and sales tax payable.', isActive: true, isSystem: true },
   { code: '2300', name: 'Commissions Payable', type: 'Liability', detailType: 'Accrued payroll', description: 'Approved but unpaid sales commissions owed to staff.', isActive: true, isSystem: true },
@@ -5757,6 +5759,38 @@ export class DataStore {
           if (!has('approval_rules', 'conditions')) this.db.exec('ALTER TABLE approval_rules ADD COLUMN conditions TEXT');
         },
       },
+      {
+        // Intercompany (group stage 4): sister companies as partners, their own accounts, mirrored documents.
+        id: '159_intercompany',
+        run: () => {
+          const has = (t: string, c: string) => (this.db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).some((x) => x.name === c);
+          const add = (t: string, c: string) => { if (!has(t, c)) this.db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} TEXT`); };
+          add('clients', 'intercompanyCompanyId');
+          add('suppliers', 'intercompanyCompanyId');
+          add('journal_lines', 'partnerCompanyId');
+          add('invoices', 'mirrorBillId');
+          add('vendor_bills', 'mirrorInvoiceId');
+          add('purchase_orders', 'mirrorSalesOrderId');
+          add('sales_orders', 'mirrorPurchaseOrderId');
+          add('payments', 'matchedBillPaymentId');
+          add('vendor_bill_payments', 'matchedPaymentId');
+          this.db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_journal_lines_partner ON journal_lines(partnerCompanyId);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_intercompany ON clients(companyId, intercompanyCompanyId) WHERE intercompanyCompanyId IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_intercompany ON suppliers(companyId, intercompanyCompanyId) WHERE intercompanyCompanyId IS NOT NULL;
+          `);
+          const companies = this.db.prepare('SELECT id FROM companies').all() as Array<{ id: string }>;
+          const exists = this.db.prepare('SELECT 1 FROM ledger_accounts WHERE companyId = ? AND code = ? LIMIT 1');
+          const insert = this.db.prepare(
+            'INSERT INTO ledger_accounts (id, companyId, code, name, type, detailType, description, isActive, isSystem) VALUES (@id, @companyId, @code, @name, @type, @detailType, @description, 1, 1)',
+          );
+          for (const c of companies) {
+            for (const a of defaultLedgerAccounts.filter((x) => x.code === '1160' || x.code === '2050')) {
+              if (!exists.get(c.id, a.code)) insert.run({ id: uuid(), companyId: c.id, code: a.code, name: a.name, type: a.type, detailType: a.detailType ?? null, description: a.description ?? null });
+            }
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -9131,6 +9165,10 @@ export class DataStore {
     if (payment) {
       throw new Error('Cannot delete an invoice that has recorded payments. Reverse the payments first.');
     }
+    const mirrorBill = this.mirrorOf('invoices', 'mirrorBillId', id, (x) => this.getVendorBillById(x));
+    if (mirrorBill && mirrorBill.status !== 'Draft') {
+      throw new HttpError(409, `${this.getCompanyById(mirrorBill.companyId)?.name ?? 'The group company'} has approved the matching bill ${mirrorBill.billNumber}.`);
+    }
     this.assertNotReferenced(
       [{ table: 'credit_notes', column: 'invoiceId', label: 'credit note(s)' }],
       id,
@@ -9180,6 +9218,7 @@ export class DataStore {
       // regenerates cleanly instead of chasing a dangling reference.
       this.db.prepare('UPDATE crm_campaigns SET invoiceId = NULL WHERE invoiceId = ?').run(id);
       this.db.prepare('UPDATE quotations SET invoiceId = NULL WHERE invoiceId = ?').run(id);
+      if (mirrorBill) this.deleteVendorBill(mirrorBill.id);
       this.db.prepare('DELETE FROM invoices WHERE id = ?').run(id);
     });
     trx();
@@ -9199,6 +9238,7 @@ export class DataStore {
     const trx = this.db.transaction(() => {
       this.db.prepare('UPDATE opportunities SET wonSalesOrderId = NULL WHERE wonSalesOrderId = ?').run(id);
       this.db.prepare('UPDATE quotations SET salesOrderId = NULL WHERE salesOrderId = ?').run(id);
+      this.db.prepare('UPDATE purchase_orders SET mirrorSalesOrderId = NULL WHERE mirrorSalesOrderId = ?').run(id);
       this.db.prepare('DELETE FROM sales_orders WHERE id = ?').run(id);
     });
     trx();
@@ -9276,6 +9316,10 @@ export class DataStore {
     if (bill) {
       throw new Error('Cannot delete a purchase order that is linked to a vendor bill. Delete the vendor bill first.');
     }
+    const mirrorSo = this.mirrorOf('purchase_orders', 'mirrorSalesOrderId', id, (x) => this.getSalesOrderById(x));
+    if (mirrorSo && mirrorSo.status !== 'Draft') {
+      throw new HttpError(409, `${this.getCompanyById(mirrorSo.companyId)?.name ?? 'The group company'} has confirmed the matching sales order ${mirrorSo.orderNumber}.`);
+    }
     const receipt = this.db.prepare('SELECT 1 FROM purchase_receipts WHERE purchaseOrderId = ? LIMIT 1').get(id);
     if (receipt || order.status === 'Received' || order.status === 'Partially Received') {
       throw new Error('Cannot delete a purchase order that has received stock.');
@@ -9287,6 +9331,7 @@ export class DataStore {
         )
         .run(new Date().toISOString(), id);
       this.db.prepare('UPDATE rfqs SET purchaseOrderId = NULL WHERE purchaseOrderId = ?').run(id);
+      if (mirrorSo) this.deleteSalesOrder(mirrorSo.id);
       this.db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(id);
     });
     trx();
@@ -9350,6 +9395,7 @@ export class DataStore {
       this.db
         .prepare('UPDATE campaign_deliverables SET vendorBillId = NULL, updatedAt = ? WHERE vendorBillId = ?')
         .run(new Date().toISOString(), id);
+      this.db.prepare('UPDATE invoices SET mirrorBillId = NULL WHERE mirrorBillId = ?').run(id);
       this.db.prepare('DELETE FROM vendor_bills WHERE id = ?').run(id);
     });
     trx();
@@ -15236,6 +15282,9 @@ export class DataStore {
       summary: `Purchase order ${order.orderNumber} created.`,
       metadata: { status: order.status, totalAmount: order.totalAmount },
     });
+    if (order.status === 'Ordered' && this.intercompanyPartner('supplier', order.supplierId)) {
+      try { this.mirrorPurchaseOrderToSalesOrder(order.id); } catch (error) { console.error('Failed to mirror intercompany purchase order', error); }
+    }
 
     return order;
   }
@@ -15297,6 +15346,9 @@ export class DataStore {
         summary: `Purchase order ${result.orderNumber} moved to ${result.status}.`,
         metadata: { status: result.status },
       });
+    }
+    if (result?.status === 'Ordered' && this.intercompanyPartner('supplier', result.supplierId)) {
+      try { this.mirrorPurchaseOrderToSalesOrder(result.id); } catch (error) { console.error('Failed to mirror intercompany purchase order', error); }
     }
     return result;
   }
@@ -18198,6 +18250,8 @@ export class DataStore {
       const currency = (invoice.currency || base).toUpperCase();
       if (currency === base) continue;
       if (invoice.issueDate.getTime() > asOf.getTime()) continue;
+      // Group balances stay at their booked rate (1160, not 1100); translation is the consolidation's job.
+      if (this.intercompanyPartner('client', invoice.clientId)) continue;
       const outstanding = Number(invoice.outstandingAmount || 0);
       if (!(outstanding > 0.0001)) continue;
 
@@ -18716,6 +18770,7 @@ export class DataStore {
       invoice.currency,
       invoice.exchangeRate,
     );
+    this.assertIntercompanyCurrency(invoice.companyId, invoice.clientId, money.currency);
     const newInvoice: Invoice = {
       ...invoice,
       currency: money.currency,
@@ -18957,6 +19012,7 @@ export class DataStore {
     };
     this.assertOpenFinancialDate(merged.companyId, new Date(merged.issueDate), 'Invoice issue date');
     this.assertUniqueInvoiceNumber(merged.companyId, merged.invoiceNumber, invoiceId);
+    this.assertIntercompanyCurrency(merged.companyId, merged.clientId, merged.currency);
     // Re-freeze the appearance snapshot only when the chosen template changes;
     // otherwise the invoice keeps the look it was issued with.
     const templateChanged =
@@ -19156,7 +19212,7 @@ export class DataStore {
       // same way the invoice was posted: revenue takes only the net back, and the
       // VAT already declared in 2200 is reversed too. Crediting the full gross to
       // revenue would understate revenue and leave the tax permanently declared.
-      const arAccountId = this.getSystemAccountId(input.companyId, '1100');
+      const ar = this.receivableAccount(input.companyId, input.clientId);
       const revenueAccountId = this.getSystemAccountId(input.companyId, '4000');
       const sourceInvoice = note.invoiceId ? this.getInvoiceById(note.invoiceId) : undefined;
       // Credit VAT in the invoice's own proportion: an invoice with zero-rated or
@@ -19168,7 +19224,7 @@ export class DataStore {
       const netCredit = Number((booked * netShare).toFixed(2));
       const taxCredit = Number((booked - netCredit).toFixed(2));
 
-      const creditLines = [
+      const creditLines: JournalEntryLine[] = [
         { id: uuid(), accountId: revenueAccountId, description: 'Revenue reversal', debit: netCredit, credit: 0 },
       ];
       if (taxCredit > 0) {
@@ -19180,7 +19236,7 @@ export class DataStore {
           credit: 0,
         });
       }
-      creditLines.push({ id: uuid(), accountId: arAccountId, description: 'Accounts receivable', debit: 0, credit: Number((netCredit + taxCredit).toFixed(2)) });
+      creditLines.push({ id: uuid(), accountId: ar.accountId, description: ar.partnerCompanyId ? 'Due from group company' : 'Accounts receivable', debit: 0, credit: Number((netCredit + taxCredit).toFixed(2)), partnerCompanyId: ar.partnerCompanyId });
 
       this.createJournalEntry({
         companyId: input.companyId,
@@ -19908,6 +19964,7 @@ export class DataStore {
         description: line.description,
         debit: Number(line.debit || 0),
         credit: Number(line.credit || 0),
+        partnerCompanyId: line.partnerCompanyId ?? null,
       }))
       .filter((line) => line.debit > 0 || line.credit > 0);
 
@@ -19945,7 +20002,7 @@ export class DataStore {
       'INSERT INTO journal_entries (id, companyId, sourceType, sourceId, memo, entryDate, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     const insertLine = this.db.prepare(
-      'INSERT INTO journal_lines (id, entryId, accountId, description, debit, credit) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO journal_lines (id, entryId, accountId, description, debit, credit, partnerCompanyId) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
 
     const trx = this.db.transaction(() => {
@@ -19966,6 +20023,7 @@ export class DataStore {
           line.description ?? null,
           line.debit,
           line.credit,
+          line.partnerCompanyId,
         );
       });
     });
@@ -20365,6 +20423,11 @@ export class DataStore {
           paidAt: payment.paidAt.toISOString(),
         });
 
+      // Intercompany: this payment answers the seller's receipt; link both ways so neither side offers it again.
+      if (input.matchedPaymentId) {
+        this.db.prepare('UPDATE vendor_bill_payments SET matchedPaymentId = ? WHERE id = ?').run(input.matchedPaymentId, payment.id);
+        this.db.prepare('UPDATE payments SET matchedBillPaymentId = ? WHERE id = ?').run(payment.id, input.matchedPaymentId);
+      }
       const nextPaidAmount = Number(((bill.paidAmount ?? 0) + payment.amount).toFixed(2));
       const nextOutstandingAmount = Number(Math.max(0, bill.amount - nextPaidAmount).toFixed(2));
       const nextStatus =
@@ -24312,6 +24375,7 @@ export class DataStore {
         description: line.description ?? undefined,
         debit: Number(line.debit) || 0,
         credit: Number(line.credit) || 0,
+        ...(line.partnerCompanyId ? { partnerCompanyId: line.partnerCompanyId } : {}),
       })),
     };
   }
@@ -24349,6 +24413,206 @@ export class DataStore {
       ...bucket,
       amount: Number(bucket.amount.toFixed(2)),
     }));
+  }
+
+  // ── Intercompany (group stage 4; spec 2026-11-04-intercompany-design) ──
+
+  /** The document linked to this one in a sister company, if it still exists. */
+  private mirrorOf<T>(table: 'invoices' | 'purchase_orders', column: 'mirrorBillId' | 'mirrorSalesOrderId', id: string, get: (id: string) => T | undefined): T | undefined {
+    const linked = (this.db.prepare(`SELECT ${column} AS id FROM ${table} WHERE id = ?`).get(id) as { id?: string | null } | undefined)?.id;
+    return linked ? get(linked) : undefined;
+  }
+
+  /** The sister company a client or supplier record stands for, if any. */
+  intercompanyPartner(kind: 'client' | 'supplier', id: string | null | undefined): string | null {
+    if (!id) return null;
+    const row = this.db.prepare(`SELECT intercompanyCompanyId AS p FROM ${kind === 'client' ? 'clients' : 'suppliers'} WHERE id = ?`).get(id) as { p?: string | null } | undefined;
+    return row?.p ?? null;
+  }
+
+  /** The other companies of this company's group tree. */
+  sisterCompanyIds(companyId: string): string[] {
+    const nodes = this.companyTreeNodes();
+    return subtreeIds(nodes, topOf(nodes, companyId)).filter((id) => id !== companyId);
+  }
+
+  /** This company's client or supplier record for a sister, if made. */
+  intercompanyRecord(companyId: string, sisterId: string, kind: 'client' | 'supplier'): string | null {
+    return (this.db.prepare(`SELECT id FROM ${kind === 'client' ? 'clients' : 'suppliers'} WHERE companyId = ? AND intercompanyCompanyId = ?`).get(companyId, sisterId) as { id?: string } | undefined)?.id ?? null;
+  }
+
+  /** This company's client (selling) or supplier (buying) record for a sister, made on first use. */
+  ensureIntercompanyPartner(companyId: string, sisterId: string, kind: 'client' | 'supplier'): { id: string; name: string } {
+    if (!this.sisterCompanyIds(companyId).includes(sisterId)) throw new HttpError(400, 'That company is not in this company’s group.');
+    const table = kind === 'client' ? 'clients' : 'suppliers';
+    const found = this.db.prepare(`SELECT id, name FROM ${table} WHERE companyId = ? AND intercompanyCompanyId = ?`).get(companyId, sisterId) as { id: string; name: string } | undefined;
+    if (found) return found;
+    const sister = this.getCompanyById(sisterId)!;
+    const made = kind === 'client'
+      ? this.createClient({ companyId, name: sister.name, email: '', address: '', notes: 'Group company' } as CreateClientInput)
+      : this.createSupplier({ companyId, name: sister.name, notes: 'Group company' } as CreateSupplierInput);
+    this.db.prepare(`UPDATE ${table} SET intercompanyCompanyId = ? WHERE id = ?`).run(sisterId, made.id);
+    return { id: made.id, name: made.name };
+  }
+
+  /** Where a receivable posts: 1160 with the partner for a sister, else 1100. */
+  private receivableAccount(companyId: string, clientId: string | null | undefined): { accountId: string; partnerCompanyId: string | null } {
+    const partner = this.intercompanyPartner('client', clientId);
+    return { accountId: this.getSystemAccountId(companyId, partner ? '1160' : '1100'), partnerCompanyId: partner };
+  }
+
+  /** Where a payable posts: 2050 with the partner for a sister, else 2000. */
+  private payableAccount(companyId: string, supplierId: string | null | undefined): { accountId: string; partnerCompanyId: string | null } {
+    const partner = this.intercompanyPartner('supplier', supplierId);
+    return { accountId: this.getSystemAccountId(companyId, partner ? '2050' : '2000'), partnerCompanyId: partner };
+  }
+
+  /** An invoice to a sister is in the sister's own currency: its bill is kept in base currency. */
+  private assertIntercompanyCurrency(companyId: string, clientId: string | null | undefined, currency: string | null | undefined) {
+    const sister = this.intercompanyPartner('client', clientId);
+    if (!sister) return;
+    const want = this.getCompanyFinanceSettings(sister).currencyCode.toUpperCase();
+    const got = (currency || this.getCompanyFinanceSettings(companyId).currencyCode).toUpperCase();
+    if (got !== want) {
+      throw new HttpError(400, `Invoices to ${this.getCompanyById(sister)?.name ?? 'a group company'} are in ${want}, its own currency.`, { code: 'INTERCOMPANY_CURRENCY', currency: want });
+    }
+  }
+
+  /** The sister's Draft bill for an issued intercompany invoice (idempotent). */
+  mirrorInvoiceToBill(invoiceId: string): VendorBill {
+    const invoice = this.getInvoiceById(invoiceId);
+    if (!invoice) throw new HttpError(404, 'Invoice not found.');
+    const linked = (this.db.prepare('SELECT mirrorBillId AS id FROM invoices WHERE id = ?').get(invoiceId) as { id?: string | null }).id;
+    if (linked) { const bill = this.getVendorBillById(linked); if (bill) return bill; }
+    const sister = this.intercompanyPartner('client', invoice.clientId);
+    if (!sister) throw new HttpError(400, 'This invoice is not to a group company.');
+    if (invoice.status === 'Draft') throw new HttpError(409, 'Issue the invoice first.');
+    this.assertIntercompanyCurrency(invoice.companyId, invoice.clientId, invoice.currency);
+    const seller = this.getCompanyById(invoice.companyId)!;
+    const supplier = this.ensureIntercompanyPartner(sister, invoice.companyId, 'supplier');
+    return this.db.transaction(() => {
+      const bill = this.createVendorBill({
+        companyId: sister, vendorName: supplier.name, supplierId: supplier.id,
+        referenceInvoiceNumber: invoice.invoiceNumber, issueDate: invoice.issueDate, dueDate: invoice.dueDate,
+        amount: invoice.total, taxRate: Number(invoice.taxRate) > 0 ? Number(invoice.taxRate) : undefined,
+        status: 'Draft', notes: `From ${seller.name} invoice ${invoice.invoiceNumber}`,
+      });
+      this.db.prepare('UPDATE vendor_bills SET mirrorInvoiceId = ? WHERE id = ?').run(invoice.id, bill.id);
+      this.db.prepare('UPDATE invoices SET mirrorBillId = ? WHERE id = ?').run(bill.id, invoice.id);
+      return bill;
+    })();
+  }
+
+  /** The sister's Draft sales order for a purchase order placed with it (idempotent). */
+  mirrorPurchaseOrderToSalesOrder(orderId: string): SalesOrder {
+    const order = this.getPurchaseOrderById(orderId);
+    if (!order) throw new HttpError(404, 'Purchase order not found.');
+    const linked = (this.db.prepare('SELECT mirrorSalesOrderId AS id FROM purchase_orders WHERE id = ?').get(orderId) as { id?: string | null }).id;
+    if (linked) { const so = this.getSalesOrderById(linked); if (so) return so; }
+    const sister = this.intercompanyPartner('supplier', order.supplierId);
+    if (!sister) throw new HttpError(400, 'This purchase order is not to a group company.');
+    const buyer = this.getCompanyById(order.companyId)!;
+    const client = this.ensureIntercompanyPartner(sister, order.companyId, 'client');
+    return this.db.transaction(() => {
+      // Items are each company's own: the lines travel as text with quantity and price.
+      const so = this.createSalesOrder({
+        companyId: sister, clientId: client.id, orderDate: new Date(), expectedDate: order.expectedDate, status: 'Draft',
+        items: order.items.map((i) => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitCost, lineTotal: i.lineTotal })),
+        notes: `From ${buyer.name} purchase order ${order.orderNumber}`,
+      });
+      this.db.prepare('UPDATE sales_orders SET mirrorPurchaseOrderId = ? WHERE id = ?').run(order.id, so.id);
+      this.db.prepare('UPDATE purchase_orders SET mirrorSalesOrderId = ? WHERE id = ?').run(so.id, order.id);
+      return so;
+    })();
+  }
+
+  /**
+   * Payments the other side recorded that this company hasn't: the seller's
+   * receipts for a buyer, the buyer's payments for a seller. A match already
+   * waiting for approval is not offered twice.
+   */
+  intercompanyToMatch(companyId: string): Array<{
+    kind: 'invoice_payment' | 'bill_payment'; paymentId: string; amount: number; paidAt: string;
+    fromCompanyId: string; fromDocument: string; targetId: string; targetNumber: string; targetStatus: string;
+  }> {
+    const asSeller = this.db.prepare(`
+      SELECT 'bill_payment' AS kind, vbp.id AS paymentId, vbp.amount, vbp.paidAt, b.companyId AS fromCompanyId, b.billNumber AS fromDocument,
+             i.id AS targetId, i.invoiceNumber AS targetNumber, i.status AS targetStatus
+      FROM vendor_bill_payments vbp JOIN vendor_bills b ON b.id = vbp.billId JOIN invoices i ON i.id = b.mirrorInvoiceId
+      WHERE i.companyId = ? AND vbp.matchedPaymentId IS NULL
+      ORDER BY vbp.paidAt`).all(companyId) as any[];
+    const asBuyer = this.db.prepare(`
+      SELECT 'invoice_payment' AS kind, p.id AS paymentId, p.amount, p.paidAt, i.companyId AS fromCompanyId, i.invoiceNumber AS fromDocument,
+             b.id AS targetId, b.billNumber AS targetNumber, b.status AS targetStatus
+      FROM payments p JOIN invoices i ON i.id = p.invoiceId JOIN vendor_bills b ON b.id = i.mirrorBillId
+      WHERE b.companyId = ? AND p.matchedBillPaymentId IS NULL
+        AND NOT EXISTS (SELECT 1 FROM approval_holds h WHERE h.docType = 'vendor_payment' AND h.status = 'pending' AND json_extract(h.payload, '$.matchedPaymentId') = p.id)
+      ORDER BY p.paidAt`).all(companyId) as any[];
+    return [...asSeller, ...asBuyer].map((r) => ({ ...r, amount: Number(r.amount) }));
+  }
+
+  /** Records the matching payment on this company's linked document (a supplier payment may be held for approval). */
+  matchIntercompanyPayment(companyId: string, kind: 'invoice_payment' | 'bill_payment', paymentId: string): { payment?: Payment | VendorBillPayment; hold?: ApprovalHold } {
+    const item = this.intercompanyToMatch(companyId).find((x) => x.kind === kind && x.paymentId === paymentId);
+    if (!item) throw new HttpError(404, 'Nothing to match: it was matched already, or it is not this company’s.');
+    const from = this.getCompanyById(item.fromCompanyId)?.name ?? 'group company';
+    const note = `Matches ${from} ${kind === 'bill_payment' ? 'payment of' : 'receipt on'} ${item.fromDocument}`;
+    if (kind === 'bill_payment') {
+      return this.db.transaction(() => {
+        const payment = this.createPayment({ invoiceId: item.targetId, amount: item.amount, method: 'Intercompany', note, paidAt: new Date(item.paidAt) });
+        this.db.prepare('UPDATE payments SET matchedBillPaymentId = ? WHERE id = ?').run(paymentId, payment.id);
+        this.db.prepare('UPDATE vendor_bill_payments SET matchedPaymentId = ? WHERE id = ?').run(payment.id, paymentId);
+        return { payment };
+      })();
+    }
+    if (item.targetStatus === 'Draft') throw new HttpError(409, `Approve bill ${item.targetNumber} first.`);
+    const result = this.requestVendorPayment({ billId: item.targetId, amount: item.amount, method: 'Intercompany', note, paidAt: new Date(item.paidAt), matchedPaymentId: paymentId });
+    return result.hold ? { hold: result.hold } : { payment: result.payment };
+  }
+
+  /**
+   * What this company and each sister say they owe each other (base
+   * currencies), and the documents that explain a difference.
+   */
+  intercompanyBalances(companyId: string): Array<{
+    sisterId: string; ours: number; theirs: number; currency: string; theirCurrency: string;
+    /** Null when the two keep books in different currencies (the group report translates them). */
+    difference: number | null;
+    explain: Array<{ kind: 'unmirrored_invoice' | 'draft_bill' | 'unmatched_payment'; companyId: string; documentId: string; number: string; amount: number }>;
+  }> {
+    // Net due from the partner in one company's books: 1160 debit balance less 2050 credit balance.
+    const net = (owner: string, partner: string) => {
+      const row = this.db.prepare(`
+        SELECT COALESCE(SUM(CASE WHEN a.code = '1160' THEN l.debit - l.credit ELSE 0 END), 0)
+             - COALESCE(SUM(CASE WHEN a.code = '2050' THEN l.credit - l.debit ELSE 0 END), 0) AS n
+        FROM journal_lines l JOIN journal_entries e ON e.id = l.entryId JOIN ledger_accounts a ON a.id = l.accountId
+        WHERE e.companyId = ? AND l.partnerCompanyId = ? AND a.code IN ('1160', '2050')`).get(owner, partner) as { n: number };
+      return Number(Number(row.n || 0).toFixed(2));
+    };
+    return this.sisterCompanyIds(companyId).map((sisterId) => {
+      const ours = net(companyId, sisterId);
+      const theirs = Number((-net(sisterId, companyId)).toFixed(2));
+      const currency = this.getCompanyFinanceSettings(companyId).currencyCode;
+      const theirCurrency = this.getCompanyFinanceSettings(sisterId).currencyCode;
+      const comparable = currency === theirCurrency;
+      const explain: Array<{ kind: 'unmirrored_invoice' | 'draft_bill' | 'unmatched_payment'; companyId: string; documentId: string; number: string; amount: number }> = [];
+      if (!comparable || Math.abs(ours - theirs) > 0.005) {
+        for (const [seller, buyer] of [[companyId, sisterId], [sisterId, companyId]]) {
+          const invoices = this.db.prepare(`
+            SELECT i.id, i.invoiceNumber, i.total, i.mirrorBillId, b.status AS billStatus
+            FROM invoices i JOIN clients c ON c.id = i.clientId LEFT JOIN vendor_bills b ON b.id = i.mirrorBillId
+            WHERE i.companyId = ? AND c.intercompanyCompanyId = ? AND i.status != 'Draft'`).all(seller, buyer) as any[];
+          for (const i of invoices) {
+            if (!i.mirrorBillId) explain.push({ kind: 'unmirrored_invoice', companyId: seller, documentId: i.id, number: i.invoiceNumber, amount: Number(i.total) });
+            else if (i.billStatus === 'Draft') explain.push({ kind: 'draft_bill', companyId: buyer, documentId: i.mirrorBillId, number: i.invoiceNumber, amount: Number(i.total) });
+          }
+        }
+        for (const m of [...this.intercompanyToMatch(companyId), ...this.intercompanyToMatch(sisterId)].filter((x) => x.fromCompanyId === companyId || x.fromCompanyId === sisterId)) {
+          explain.push({ kind: 'unmatched_payment', companyId: m.fromCompanyId, documentId: m.paymentId, number: m.fromDocument, amount: m.amount });
+        }
+      }
+      return { sisterId, ours, theirs, currency, theirCurrency, difference: comparable ? Number((ours - theirs).toFixed(2)) : null, explain };
+    });
   }
 
   private getSystemAccountId(companyId: string, code: string): string {
@@ -24407,7 +24671,7 @@ export class DataStore {
       gross = Number((net + tax).toFixed(2));
     }
 
-    const arAccountId = this.getSystemAccountId(invoice.companyId, '1100');
+    const ar = this.receivableAccount(invoice.companyId, invoice.clientId);
     const revenueAccountId = this.getSystemAccountId(invoice.companyId, '4000');
 
     // Receivables carry the gross, revenue only the net, and the VAT collected
@@ -24415,10 +24679,11 @@ export class DataStore {
     const lines = [
       {
         id: uuid(),
-        accountId: arAccountId,
-        description: 'Accounts receivable',
+        accountId: ar.accountId,
+        description: ar.partnerCompanyId ? 'Due from group company' : 'Accounts receivable',
         debit: gross,
         credit: 0,
+        partnerCompanyId: ar.partnerCompanyId,
       },
       {
         id: uuid(),
@@ -24426,6 +24691,7 @@ export class DataStore {
         description: 'Revenue',
         debit: 0,
         credit: net,
+        partnerCompanyId: null,
       },
     ];
     if (tax > 0) {
@@ -24435,6 +24701,7 @@ export class DataStore {
         description: `Output VAT ${rate}%`,
         debit: 0,
         credit: tax,
+        partnerCompanyId: null,
       });
     }
 
@@ -24446,6 +24713,14 @@ export class DataStore {
       entryDate: invoice.issueDate,
       lines,
     });
+    // An invoice to a sister company puts the matching bill in its books (a failure leaves it to be made from Intercompany).
+    if (ar.partnerCompanyId) {
+      try {
+        this.mirrorInvoiceToBill(invoice.id);
+      } catch (error) {
+        console.error('Failed to mirror intercompany invoice', error);
+      }
+    }
 
   }
 
@@ -24465,7 +24740,7 @@ export class DataStore {
     if (!invoice) return;
 
     const cashAccountId = this.getSystemAccountId(invoice.companyId, '1000');
-    const arAccountId = this.getSystemAccountId(invoice.companyId, '1100');
+    const ar = this.receivableAccount(invoice.companyId, invoice.clientId);
 
     // Payments are recorded in the invoice's currency; the ledger holds base
     // currency, so clear receivables at the invoice's own rate.
@@ -24488,10 +24763,11 @@ export class DataStore {
         },
         {
           id: uuid(),
-          accountId: arAccountId,
-          description: 'Accounts receivable settlement',
+          accountId: ar.accountId,
+          description: ar.partnerCompanyId ? 'Due from group company settlement' : 'Accounts receivable settlement',
           debit: 0,
           credit: baseAmount,
+          partnerCompanyId: ar.partnerCompanyId,
         },
       ],
     });
@@ -24596,7 +24872,7 @@ export class DataStore {
       return;
     }
 
-    const apAccountId = this.getSystemAccountId(bill.companyId, '2000');
+    const ap = this.payableAccount(bill.companyId, bill.supplierId);
     // A bill against a purchase order settles stock that was already capitalized
     // on receipt, so it clears the goods-received accrual rather than booking a
     // second expense — the cost reaches the P&L through COGS when the goods sell.
@@ -24621,10 +24897,11 @@ export class DataStore {
       },
       {
         id: uuid(),
-        accountId: apAccountId,
-        description: 'Accounts payable',
+        accountId: ap.accountId,
+        description: ap.partnerCompanyId ? 'Due to group company' : 'Accounts payable',
         debit: 0,
         credit: bill.amount,
+        partnerCompanyId: ap.partnerCompanyId,
       },
     ];
     if (tax > 0) {
@@ -24634,6 +24911,7 @@ export class DataStore {
         description: `Recoverable input VAT ${rate}%`,
         debit: tax,
         credit: 0,
+        partnerCompanyId: null,
       });
     }
 
@@ -24728,7 +25006,7 @@ export class DataStore {
     if (!bill) return;
 
     const cashAccountId = this.getSystemAccountId(bill.companyId, '1000');
-    const apAccountId = this.getSystemAccountId(bill.companyId, '2000');
+    const ap = this.payableAccount(bill.companyId, bill.supplierId);
 
     this.createJournalEntry({
       companyId: bill.companyId,
@@ -24739,10 +25017,11 @@ export class DataStore {
       lines: [
         {
           id: uuid(),
-          accountId: apAccountId,
-          description: 'Accounts payable settlement',
+          accountId: ap.accountId,
+          description: ap.partnerCompanyId ? 'Due to group company settlement' : 'Accounts payable settlement',
           debit: payment.amount,
           credit: 0,
+          partnerCompanyId: ap.partnerCompanyId,
         },
         {
           id: uuid(),

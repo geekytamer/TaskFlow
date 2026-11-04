@@ -163,6 +163,7 @@ import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
 import { registerApprovalRoutes } from './routes/approvals';
+import { registerIntercompanyRoutes } from './routes/intercompany';
 import { registerShipmentRoutes } from './routes/shipments';
 import { registerColdChainRoutes } from './routes/cold-chain';
 import { registerQualityRoutes } from './routes/quality';
@@ -7100,6 +7101,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerClientEmailRoutes(app, routeContext);
   registerSearchRoutes(app, routeContext);
   registerApprovalRoutes(app, routeContext, { docSummary, decideDocument });
+  registerIntercompanyRoutes(app, routeContext);
   registerShipmentRoutes(app, routeContext);
   registerColdChainRoutes(app, routeContext);
   registerQualityRoutes(app, routeContext);

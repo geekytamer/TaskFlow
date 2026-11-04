@@ -1078,6 +1078,8 @@ export interface JournalEntryLine {
   description?: string;
   debit: number;
   credit: number;
+  /** The group company on the other side of an intercompany line (1160/2050). */
+  partnerCompanyId?: string | null;
 }
 
 export interface JournalEntry {
@@ -1220,6 +1222,8 @@ export interface VendorBillPayment {
   method?: string;
   note?: string;
   paidAt: Date;
+  /** Intercompany: the seller's invoice payment this one matches. */
+  matchedPaymentId?: string;
 }
 
 export interface PurchaseOrderPayableSummary {

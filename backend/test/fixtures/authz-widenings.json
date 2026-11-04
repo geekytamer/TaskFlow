@@ -38,6 +38,7 @@
     "POST /contacts/:id/workspace/contacts/:wsContactId/peak-contact"
   ],
   "contacts:create": [
+    "POST /companies/:companyId/intercompany/partners",
     "PUT /clients/:id",
     "PUT /contacts/:id"
   ],
@@ -49,6 +50,7 @@
   "contacts:write": [
     "POST /clients",
     "POST /companies/:companyId/contacts/import",
+    "POST /companies/:companyId/intercompany/partners",
     "POST /companies/:companyId/suppliers",
     "POST /contacts/:id/activities",
     "POST /contacts/:id/roles"
@@ -114,6 +116,7 @@
     "DELETE /expenses/:id"
   ],
   "finance:read": [
+    "GET /companies/:companyId/intercompany",
     "GET /companies/:companyId/payables/pending",
     "GET /vendor-bills/:id/document",
     "GET /vendor-bills/:id/match",
@@ -175,6 +178,7 @@
   ],
   "invoices:create": [
     "PATCH /invoices/:id/status",
+    "POST /invoices/:id/intercompany-bill",
     "PUT /companies/:companyId/client-reminders",
     "PUT /invoice-templates/:id",
     "PUT /invoices/:id"
@@ -182,12 +186,16 @@
   "invoices:delete": [
     "DELETE /credit-notes/:id"
   ],
+  "invoices:pay": [
+    "POST /companies/:companyId/intercompany/match-receipt"
+  ],
   "invoices:read": [
     "GET /companies/:companyId/approval-holds"
   ],
   "invoices:write": [
     "POST /companies/:companyId/invoice-templates",
-    "POST /companies/:companyId/invoices/bulk-status"
+    "POST /companies/:companyId/invoices/bulk-status",
+    "POST /invoices/:id/intercompany-bill"
   ],
   "projects:create": [
     "DELETE /project-templates/:id",
@@ -238,6 +246,9 @@
     "POST /purchase-orders/:id/reject",
     "POST /purchase-requisitions/:id/approve"
   ],
+  "purchasing:write": [
+    "POST /purchase-orders/:id/intercompany-order"
+  ],
   "sales:create": [
     "POST /companies/:companyId/shipments"
   ],
@@ -286,6 +297,9 @@
   ],
   "vendor-bills:delete": [
     "DELETE /vendor-bills/:id"
+  ],
+  "vendor-bills:pay": [
+    "POST /companies/:companyId/intercompany/match-payment"
   ],
   "vendor-bills:read": [
     "GET /companies/:companyId/finance/supplier-payables",

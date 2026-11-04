@@ -23,6 +23,7 @@ import { ActivityLogPanel } from './activity-log-panel';
 import { FinancialReportsPanel } from './financial-reports-panel';
 import { BudgetPanel } from './budget-panel';
 import { VatPanel } from './vat-panel';
+import { IntercompanyPanel } from './intercompany-panel';
 import { useI18n } from '@/context/i18n-context';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { usePermissions } from '@/context/permissions-context';
@@ -41,6 +42,7 @@ const VALID_TABS = new Set([
   'expenses',
   'budgets',
   'vat',
+  'intercompany',
 ]);
 
 const TAB_MODULES: Record<string, string> = { invoices: 'invoices', payables: 'vendor-bills' };
@@ -58,6 +60,8 @@ export function FinancePage() {
   const onSomewhere = (m: string) => inTree
     ? companyIds.some((id) => !companies.find((c) => c.id === id)?.disabledModules?.includes(m))
     : moduleOn(m);
+  // Intercompany is offered once any company here sits in a group.
+  const inGroup = companies.some((c) => c.parentCompanyId);
   const tabOn = (tab: string) => !TAB_MODULES[tab] || onSomewhere(TAB_MODULES[tab]);
   const initialTab =
     tabFromUrl && VALID_TABS.has(tabFromUrl) && tabOn(tabFromUrl) ? tabFromUrl : 'overview';
@@ -105,6 +109,7 @@ export function FinancePage() {
           <TabsTrigger value="assets">{t('finance.tabAssets', 'Fixed assets')}</TabsTrigger>
           <TabsTrigger value="budgets">{t('finance.tabBudgets', 'Budgets')}</TabsTrigger>
           <TabsTrigger value="vat">{t('finance.tabVat', 'VAT')}</TabsTrigger>
+          {inGroup && <TabsTrigger value="intercompany">{t('finance.tabIntercompany', 'Intercompany')}</TabsTrigger>}
           </TabsList>
         </div>
         <TabsContent value="overview">
@@ -183,6 +188,11 @@ export function FinancePage() {
         <TabsContent value="vat">
           <PerCompany>
             <VatPanel />
+          </PerCompany>
+        </TabsContent>
+        <TabsContent value="intercompany">
+          <PerCompany>
+            <IntercompanyPanel />
           </PerCompany>
         </TabsContent>
       </Tabs>
