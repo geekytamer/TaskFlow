@@ -11,6 +11,7 @@ import { runAgent, systemPrompt, toolText, cleanReply, type AgentMode } from '..
 import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, type ChatMessage } from '../assistant/model';
 import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, shapeOf } from '../assistant/hints';
+import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
 /**
@@ -28,9 +29,10 @@ export interface AssistantOptions {
 }
 
 /** A stored message: the model's own shape plus what the chat screen needs. */
-type StoredMessage = ChatMessage & { ui?: { hidden?: true; actionIds?: string[] } };
+type StoredMessage = ChatMessage & { ui?: { hidden?: true; actionIds?: string[]; cards?: AssistantCard[] } };
 
 const MAX_WRITES_PER_RUN = 25;
+const MAX_CARDS = 30;
 const ACTION_TTL_MS = 60 * 60 * 1000;
 
 export function registerAssistantRoutes(app: Express, ctx: RouteContext, options: AssistantOptions = {}): void {
@@ -93,17 +95,21 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       }
     }
     const byId = new Map(actions.map((a) => [a.id, a]));
-    const items: Array<{ role: 'user' | 'assistant'; text: string; actions: ReturnType<typeof actionView>[] }> = [];
+    const items: Array<{ role: 'user' | 'assistant'; text: string; actions: ReturnType<typeof actionView>[]; cards: AssistantCard[] }> = [];
     let carried: string[] = [];
+    let carriedCards: AssistantCard[] = [];
     for (const m of thread.messages as StoredMessage[]) {
       if (m.ui?.actionIds) carried.push(...m.ui.actionIds);
+      if (m.ui?.cards) carriedCards.push(...m.ui.cards);
       if (m.ui?.hidden) continue;
-      if (m.role === 'user') items.push({ role: 'user', text: m.content, actions: [] });
+      if (m.role === 'user') items.push({ role: 'user', text: m.content, actions: [], cards: [] });
       if (m.role === 'assistant' && !m.tool_calls?.length) {
         const text = cleanReply(m.content);
         const own = carried.map((id) => byId.get(id)).filter((a): a is AssistantActionRow => Boolean(a)).map(actionView);
         carried = [];
-        if (text || own.length) items.push({ role: 'assistant', text, actions: own });
+        const shown = carriedCards;
+        carriedCards = [];
+        if (text || own.length || shown.length) items.push({ role: 'assistant', text, actions: own, cards: shown });
       }
     }
     return {
@@ -127,6 +133,22 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const company = store.getCompanyById(companyId);
     const proposed: string[] = [];
     let reads: string[] = [];
+    // Every record read this turn, by id, with its kind: show() needs only ids.
+    const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
+    const cards: AssistantCard[] = [];
+    const lookups = {
+      userName: (id: string) => store.getUserById(id)?.name,
+      clientName: (id: string) => store.getClientById(id)?.name,
+      projectName: (id: string) => store.getProjectById(id)?.name,
+      currency: store.getCompanyFinanceSettings(companyId).currencyCode,
+    };
+    const remember = (kind: string, value: unknown) => {
+      const add = (r: unknown) => {
+        if (r && typeof r === 'object' && !Array.isArray(r) && 'id' in r) seen.set(String((r as { id: unknown }).id), { kind, record: r as Record<string, unknown> });
+      };
+      if (Array.isArray(value)) value.slice(0, 2000).forEach(add);
+      else add(value);
+    };
 
     const tools = {
       search: (query: string) => {
@@ -136,13 +158,28 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       run: async (code: string) => {
         reads = [];
         const before = proposed.length;
+        const cardsBefore = cards.length;
         const outcome = await runInSandbox(code, {
         call: async (method, path, body, summary) => {
           if (method === 'SEARCH') return tools.search(path).split('\n');
+          if (method === 'SHOW') {
+            const { rows, kind } = (body ?? {}) as { rows?: unknown; kind?: unknown };
+            const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
+            let shown = 0;
+            for (const row of list) {
+              if (cards.length >= MAX_CARDS || !row || typeof row !== 'object') continue;
+              const id = String((row as { id?: unknown }).id ?? '');
+              const known = id ? seen.get(id) : undefined;
+              const card = cardOf(typeof kind === 'string' && kind ? kindOfPath(kind) : known?.kind ?? 'record', { ...(known?.record ?? {}), ...(row as Record<string, unknown>) }, lookups);
+              if (card && !cards.some((c) => c.id === card.id && c.kind === card.kind)) { cards.push(card); shown += 1; }
+            }
+            return { shown, note: shown ? 'shown to the person as cards; do not list them again in your answer' : 'nothing shown: pass records that have an id' };
+          }
           const op = matchOp(ops, method, path);
           if (!op) throw new Error(`${method} ${path.split('?')[0]} is not a TaskFlow endpoint you can use; find one with search_api`);
           if (method === 'GET') {
             const value = await callApi(token, method, path, undefined);
+            remember(kindOfPath(op.path), value);
             if (reads.length < 6) reads.push(`GET ${path} → ${shapeOf(value)}`);
             if (Array.isArray(value) && value.length === 0 && path.includes('?')) reads.push(`GET ${path} is empty: a query filter may not exist or may not match. Try without filters and filter in code before concluding there is nothing.`);
             return value;
@@ -162,6 +199,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
         if (outcome.ok && (outcome.value === null || outcome.value === undefined)) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
+        if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);
         const fresh = proposed.slice(before).map((id) => store.getAssistantAction(id)?.summary).filter(Boolean);
         if (fresh.length) notes.push(`NOT DONE YET — proposed for the person to confirm: ${fresh.join('; ')}. Tell them to confirm below; do not say it is done.`);
         return notes.length ? { ...outcome, logs: [...outcome.logs, ...notes] } : outcome;
@@ -186,6 +224,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const added = outcome.added as StoredMessage[];
     const last = added[added.length - 1];
     if (proposed.length) last.ui = { ...(last.ui ?? {}), actionIds: proposed };
+    if (cards.length) last.ui = { ...(last.ui ?? {}), cards };
     store.saveAssistantMessages(thread.id, [...thread.messages, ...added]);
   }
 

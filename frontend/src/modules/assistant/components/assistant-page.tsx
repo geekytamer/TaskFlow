@@ -15,6 +15,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { isApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { RecordCards } from './record-cards';
 import {
   askAssistant, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantThread, listAssistantThreads,
   type AssistantAction, type AssistantStatus, type AssistantThread, type AssistantThreadSummary,
@@ -148,7 +149,8 @@ export function AssistantPage() {
           <UserBubble key={i} text={item.text} />
         ) : (
           <div key={i} className="flex flex-col gap-2">
-            {item.text ? <p className="whitespace-pre-wrap text-sm leading-relaxed">{item.text}</p> : null}
+            {item.text ? <ReplyText text={item.text} /> : null}
+            {item.cards?.length ? <RecordCards cards={item.cards} tr={tr} language={language} /> : null}
             {item.actions.length ? <ActionGroup actions={item.actions} tr={tr} busy={Boolean(working)} onDecide={decide} /> : null}
           </div>
         ))}
@@ -215,6 +217,16 @@ export function AssistantPage() {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+/** The model's text, with **bold** shown as bold rather than asterisks. */
+function ReplyText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*\n]+\*\*)/g);
+  return (
+    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+      {parts.map((part, i) => (/^\*\*[^*\n]+\*\*$/.test(part) ? <strong key={i}>{part.slice(2, -2)}</strong> : part))}
+    </p>
   );
 }
 

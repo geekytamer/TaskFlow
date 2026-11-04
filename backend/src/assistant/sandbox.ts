@@ -47,6 +47,7 @@ const api = Object.freeze({
   patch: (p, b, s) => __call('PATCH', p, b, s),
   delete: (p, s) => __call('DELETE', p, undefined, s),
 });
+const show = async (rows, kind) => __j(await __host('SHOW', '/', JSON.stringify({ rows, kind: kind === undefined ? null : kind }), ''));
 const search = async (q) => __j(await __host('SEARCH', String(q), '', ''));
 const console = Object.freeze({ log: (...a) => __log(a.map((x) => typeof x === 'string' ? x : JSON.stringify(x)).join(' ')) });
 `;

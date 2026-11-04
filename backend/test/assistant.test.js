@@ -247,3 +247,34 @@ test('the same code twice is not run again; the model is told to change approach
   assert.equal(res.body.items.at(-1).text, 'One.');
   assert.match(s.model.seen[2].at(-1).content, /already ran exactly this code/);
 });
+
+test('show(rows) turns records of any kind into cards with links, from just their ids', async () => {
+  const s = setup([
+    say("```js\nconst tasks = await api.get('/tasks?companyId=1');\nawait show(tasks.slice(0, 2).map(t => ({ id: t.id })));\nconst inv = await api.get('/companies/1/invoices');\nawait show(inv.slice(0, 1));\nreturn tasks.length;\n```"),
+    say('Here they are.'),
+  ]);
+  const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'show me' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const reply = res.body.items.at(-1);
+  assert.equal(reply.text, 'Here they are.');
+  const tasks = reply.cards.filter((c) => c.kind === 'task');
+  assert.equal(tasks.length, 2);
+  const task = s.store.listTasks().find((t) => t.id === tasks[0].id);
+  assert.equal(tasks[0].title, task.title, 'the full record is used though the script passed only the id');
+  assert.equal(tasks[0].href, `/tasks?task=${task.id}`);
+  assert.ok(tasks[0].status);
+  const invoices = reply.cards.filter((c) => c.kind === 'invoice');
+  if (invoices.length) {
+    assert.match(invoices[0].href, /^\/invoice\//);
+    assert.ok(invoices[0].amount && typeof invoices[0].amount.value === 'number');
+  }
+  assert.match(s.model.seen[1].at(-1).content, /shown to the person as cards/);
+});
+
+test('cards: kinds come from the endpoint path', () => {
+  const { kindOfPath } = require('../dist/assistant/cards');
+  assert.equal(kindOfPath('/companies/:companyId/purchase-orders'), 'purchase-order');
+  assert.equal(kindOfPath('/tasks'), 'task');
+  assert.equal(kindOfPath('/companies/:companyId/opportunities'), 'opportunity');
+  assert.equal(kindOfPath('/companies/:companyId/invoices'), 'invoice');
+});

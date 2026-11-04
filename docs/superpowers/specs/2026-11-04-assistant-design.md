@@ -41,6 +41,17 @@ The owner asked for a chatbot that does things in TaskFlow, without MCP, using w
   - history in a side sheet
   - action cards with a details view (method, path and body)
   - "Confirm all" when several changes are waiting
+- **Records as cards** (owner's request, 2026-11-04). A script calls `show(rows)`. The server finds the full record for each id among everything read during that turn, so passing `{ id }` is enough. It takes the kind from the endpoint (`/companies/:id/purchase-orders` becomes `purchase-order`) and builds a card (`assistant/cards.ts`) with title, subtitle (client, supplier or project), status, amount (outstanding when unpaid), due or other date, people and a link.
+  - One card shows on its own. Several show in a sideways carousel (scroll-snap with arrows, right-to-left aware).
+  - The model is told the records are on screen, so its text stays to a sentence or two.
+  - Links:
+    - task: `/tasks?task=<id>` (new; opens the task panel)
+    - project: `/projects/<id>`
+    - contact: `/contacts/<id>`; a client or supplier with a contact links to it
+    - invoice: `/invoice/<id>`
+    - quotation: `/quotation/<id>`
+    - other kinds: their section page
+  - The model's `**bold**` shows as bold.
 - Migration `161_assistant`.
 
 ## Next

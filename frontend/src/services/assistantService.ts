@@ -11,7 +11,18 @@ export interface AssistantAction {
   body: unknown;
   error: string | null;
 }
-export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[] }
+export interface AssistantCard {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  amount?: { value: number; currency: string };
+  date?: { label: 'due' | 'date'; value: string };
+  people?: string[];
+  href?: string;
+}
+export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[]; cards?: AssistantCard[] }
 export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number }
 export interface AssistantThreadSummary { id: string; title: string; companyId: string; updatedAt: string }
 export interface AssistantStatus { enabled: boolean; model: string | null }
