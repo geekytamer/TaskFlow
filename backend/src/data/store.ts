@@ -5823,6 +5823,39 @@ export class DataStore {
           `);
         },
       },
+      {
+        // The assistant: chat threads (model messages as JSON) and the changes it proposed, which wait for the person.
+        id: '161_assistant',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS assistant_threads (
+              id TEXT PRIMARY KEY,
+              userId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              title TEXT NOT NULL,
+              messages TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_assistant_threads_user ON assistant_threads (userId, updatedAt);
+            CREATE TABLE IF NOT EXISTS assistant_actions (
+              id TEXT PRIMARY KEY,
+              threadId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              method TEXT NOT NULL,
+              path TEXT NOT NULL,
+              body TEXT,
+              summary TEXT NOT NULL,
+              status TEXT NOT NULL,
+              result TEXT,
+              createdAt TEXT NOT NULL,
+              decidedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_assistant_actions_thread ON assistant_actions (threadId, createdAt);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6608,6 +6641,66 @@ export class DataStore {
     return (this.db.prepare('SELECT id FROM schema_migrations ORDER BY id ASC').all() as Array<{ id: string }>).map(
       (row) => row.id,
     );
+  }
+
+  // ─── assistant ─────────────────────────────────────────────────────────────
+  createAssistantThread(input: { userId: string; companyId: string; title: string }): AssistantThreadRow {
+    const now = new Date().toISOString();
+    const row: AssistantThreadRow = { id: uuid(), userId: input.userId, companyId: input.companyId, title: input.title.slice(0, 120), messages: [], createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO assistant_threads (id, userId, companyId, title, messages, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.userId, row.companyId, row.title, '[]', now, now);
+    return row;
+  }
+
+  getAssistantThread(id: string): AssistantThreadRow | undefined {
+    const r = this.db.prepare('SELECT * FROM assistant_threads WHERE id = ?').get(id) as (Omit<AssistantThreadRow, 'messages'> & { messages: string }) | undefined;
+    return r ? { ...r, messages: JSON.parse(r.messages) } : undefined;
+  }
+
+  listAssistantThreads(userId: string, limit = 30): Array<Omit<AssistantThreadRow, 'messages'>> {
+    return this.db.prepare('SELECT id, userId, companyId, title, createdAt, updatedAt FROM assistant_threads WHERE userId = ? ORDER BY updatedAt DESC LIMIT ?')
+      .all(userId, limit) as Array<Omit<AssistantThreadRow, 'messages'>>;
+  }
+
+  saveAssistantMessages(id: string, messages: unknown[]): void {
+    this.db.prepare('UPDATE assistant_threads SET messages = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(messages), new Date().toISOString(), id);
+  }
+
+  deleteAssistantThread(id: string): void {
+    this.db.prepare('DELETE FROM assistant_actions WHERE threadId = ?').run(id);
+    this.db.prepare('DELETE FROM assistant_threads WHERE id = ?').run(id);
+  }
+
+  createAssistantAction(input: Omit<AssistantActionRow, 'id' | 'status' | 'result' | 'createdAt' | 'decidedAt'>): AssistantActionRow {
+    const row: AssistantActionRow = { ...input, id: uuid(), status: 'pending', result: null, createdAt: new Date().toISOString(), decidedAt: null };
+    this.db.prepare('INSERT INTO assistant_actions (id, threadId, userId, companyId, method, path, body, summary, status, result, createdAt, decidedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)')
+      .run(row.id, row.threadId, row.userId, row.companyId, row.method, row.path, row.body === undefined ? null : JSON.stringify(row.body), row.summary, row.status, row.createdAt);
+    return row;
+  }
+
+  private decodeAssistantAction(r: Record<string, unknown>): AssistantActionRow {
+    return { ...(r as unknown as AssistantActionRow), body: r.body == null ? undefined : JSON.parse(String(r.body)), result: r.result == null ? null : JSON.parse(String(r.result)) };
+  }
+
+  getAssistantAction(id: string): AssistantActionRow | undefined {
+    const r = this.db.prepare('SELECT * FROM assistant_actions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? this.decodeAssistantAction(r) : undefined;
+  }
+
+  listAssistantActions(threadId: string): AssistantActionRow[] {
+    return (this.db.prepare('SELECT * FROM assistant_actions WHERE threadId = ? ORDER BY createdAt, rowid').all(threadId) as Array<Record<string, unknown>>).map((r) => this.decodeAssistantAction(r));
+  }
+
+  /** Moves a pending action on; false when it was no longer pending (decided twice, or in a race). */
+  decideAssistantAction(id: string, status: Exclude<AssistantActionStatus, 'pending'>, result: unknown): boolean {
+    const info = this.db.prepare("UPDATE assistant_actions SET status = ?, result = ?, decidedAt = ? WHERE id = ? AND status IN ('pending', 'running')")
+      .run(status, result === undefined ? null : JSON.stringify(result), new Date().toISOString(), id);
+    return info.changes > 0;
+  }
+
+  /** Claims a pending action for running, so a double click runs it once. */
+  claimAssistantAction(id: string): boolean {
+    return this.db.prepare("UPDATE assistant_actions SET status = 'running' WHERE id = ? AND status = 'pending'").run(id).changes > 0;
   }
 
   getUserByToken(token: string): SanitizedUser | undefined {
@@ -25191,4 +25284,31 @@ export class DataStore {
       ],
     });
   }
+}
+
+export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired';
+
+export interface AssistantThreadRow {
+  id: string;
+  userId: string;
+  companyId: string;
+  title: string;
+  messages: unknown[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssistantActionRow {
+  id: string;
+  threadId: string;
+  userId: string;
+  companyId: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  summary: string;
+  status: AssistantActionStatus;
+  result: unknown;
+  createdAt: string;
+  decidedAt: string | null;
 }

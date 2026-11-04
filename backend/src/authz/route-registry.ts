@@ -721,6 +721,13 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'DELETE', path: '/companies/:companyId/approvals/teams/:teamId', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
   { method: 'GET', path: '/companies/:companyId/approvals/policies', permission: 'per_record', legacyRoles: ALL, note: 'company member: who approves what' },
   { method: 'PUT', path: '/companies/:companyId/approvals/policies/:docType', permission: 'settings.manage_approvals', legacyRoles: A, legacyOverride: true, note: 'ADMINISTRATION in the handler' },
+  // assistant (routes/assistant.ts): your own conversations; what it does goes through the routes above as you
+  { method: 'GET', path: '/assistant/status', permission: 'self' },
+  { method: 'GET', path: '/assistant/threads', permission: 'self', note: 'your own conversations' },
+  { method: 'GET', path: '/assistant/threads/:id', permission: 'self', note: 'your own conversation' },
+  { method: 'DELETE', path: '/assistant/threads/:id', permission: 'self', note: 'your own conversation' },
+  { method: 'POST', path: '/assistant/chat', permission: 'self', note: 'company reach for the conversation\'s company; each call its scripts make is checked by its own route' },
+  { method: 'POST', path: '/assistant/threads/:id/decide', permission: 'self', note: 'your own proposed changes; each runs through its own route as you' },
   { method: 'GET', path: '/me/approval-delegation', permission: 'self' },
   { method: 'PUT', path: '/me/approval-delegation', permission: 'self' },
 

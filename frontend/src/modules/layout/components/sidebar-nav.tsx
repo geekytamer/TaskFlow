@@ -13,7 +13,7 @@ import {
   SidebarGroupContent,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, Users, Network, FolderKanban, Settings, Banknote, ReceiptText, Package, ShoppingCart, Handshake, Truck, BookUser, CalendarClock, ChartNoAxesCombined, BarChart3, Megaphone, UserRoundSearch, BadgeDollarSign, CheckSquare, MessageSquare, Sparkles, Contact2, CalendarOff, CalendarCheck, Wallet, ClipboardCheck, FileQuestion, Scale, Factory, Building2, FileText, ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare, Gauge, FileCheck, UserPlus, Settings2, Layers } from 'lucide-react';
+import { LayoutDashboard, Users, Network, FolderKanban, Settings, Banknote, ReceiptText, Package, ShoppingCart, Handshake, Truck, BookUser, CalendarClock, ChartNoAxesCombined, BarChart3, Megaphone, UserRoundSearch, BadgeDollarSign, CheckSquare, MessageSquare, Sparkles, Contact2, CalendarOff, CalendarCheck, Wallet, ClipboardCheck, FileQuestion, Scale, Factory, Building2, FileText, ShieldCheck, ClipboardList, GraduationCap, Lock, Ship, ScanLine, Inbox, MessagesSquare, Gauge, FileCheck, UserPlus, Settings2, Layers, Bot } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
@@ -29,6 +29,7 @@ import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { useAcademy } from '@/modules/academy/academy-context';
 import { moduleForPath, modulesForPath } from '@/modules/companies/lib/company-modules';
+import { assistantStatusOnce } from '@/services/assistantService';
 
 type NavItem = {
   href: string;
@@ -47,6 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
     labelKey: 'nav.section.workspace',
     items: [
       { href: '/inbox', labelKey: 'nav.inbox', icon: MessagesSquare },
+      { href: '/assistant', labelKey: 'nav.assistant', icon: Bot },
       { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, tutorial: 'nav-dashboard' },
       { href: '/academy', labelKey: 'nav.academy', icon: GraduationCap, tutorial: 'nav-academy' },
       { href: '/projects', labelKey: 'nav.projects', icon: FolderKanban, tutorial: 'nav-projects' },
@@ -164,6 +166,8 @@ export function useNavAccess() {
   const academy = useAcademy();
   // Group settings belong to group administrators, not to a company role.
   const { groups: adminOfGroups } = useMyHoldingGroups();
+  const [assistantOn, setAssistantOn] = React.useState(false);
+  React.useEffect(() => { if (user) void assistantStatusOnce().then((s) => setAssistantOn(s.enabled)); }, [user]);
 
   /** Locked by an unfinished Academy mission (never inside the practice company). */
   const isLocked = (href: string) => {
@@ -180,6 +184,8 @@ export function useNavAccess() {
     // A module the company switched off is hidden whatever the role.
     if (!modulesForPath(item.href).every(moduleOn)) return false;
     if (item.href === '/settings/group') return adminOfGroups.length > 0;
+    // Listed only where the server has a model set up.
+    if (item.href === '/assistant') return assistantOn;
     // canAdmin: equals can(), plus the super admin's own surfaces (Ruling R).
     return navAllowed(item.href, canAdmin);
   };
