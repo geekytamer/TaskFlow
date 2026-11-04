@@ -8636,7 +8636,7 @@ export function createServer(options: CreateServerOptions = {}) {
     authMiddleware,
     handler((req, res) => {
       const { companyId } = req.params;
-      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant']);
+      requireCompanyRoles(req, companyId, ['Admin', 'Manager', 'Accountant'], 'influencers.create');
       const body = asRecord(req.body, 'body');
       if (typeof body.text !== 'string') throw new HttpError(400, 'Paste at least one profile link or @handle.');
       if (body.text.length > 20_000) throw new HttpError(400, 'That is too much text at once. Paste at most 100 lines.');
@@ -8744,9 +8744,7 @@ export function createServer(options: CreateServerOptions = {}) {
       canCreateContacts: (req, companyId) => {
         const authed = req as AuthedRequest;
         if (!authed.user) return false;
-        return authzEngine === 'openfga'
-          ? PermissionService.allows(authed.permissions, companyId, 'contacts', 'create')
-          : requireCompanyRole(authed.user, companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
+        return allowsKey(authed, companyId, 'contacts.create', ['Admin', 'Manager', 'Employee', 'Accountant']);
       },
       scraper: discoverScraper,
       monthlyCap: discoverCap,
