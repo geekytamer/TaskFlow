@@ -1,5 +1,5 @@
 /** How approvals read, in either language (approvers, the list chip, the trail). */
-import type { Approver, ApprovalStatusRow, Need, TrailEntry } from '@/services/approvalService';
+import type { Approver, ApprovalStatusRow, ConditionField, Need, StepCondition, TrailEntry } from '@/services/approvalService';
 
 type Tr = (en: string, ar: string) => string;
 
@@ -48,4 +48,28 @@ export function trailText(t: TrailEntry, tr: Tr, nameOf: (userId: string) => str
     case 'noted': return tr(`Note on${step}`, `ملاحظة على${step}`);
     default: return t.kind;
   }
+}
+
+/** A condition field's name in the reader's language. */
+export function conditionFieldName(field: ConditionField, tr: Tr): string {
+  return ({
+    supplier: tr('the supplier', 'المورد'), client: tr('the client', 'العميل'), category: tr('the category', 'الفئة'),
+    project: tr('the project', 'المشروع'), department: tr('the department', 'القسم'), leaveType: tr('the leave type', 'نوع الإجازة'),
+    template: tr('the template', 'القالب'),
+  } as Record<ConditionField, string>)[field];
+}
+
+/** A step's conditions as one sentence ("Only when the supplier is Globex or Initech"); '' when none. */
+export function conditionText(conditions: StepCondition[] | undefined, name: (field: ConditionField, value: string) => string, tr: Tr): string {
+  if (!conditions?.length) return '';
+  const parts = conditions.map((c) => {
+    const names = c.values.map((v) => name(c.field, v));
+    if (c.op === 'is') return tr(`${conditionFieldName(c.field, tr)} is ${names.join(' or ')}`, `${conditionFieldName(c.field, tr)} ${names.join(' أو ')}`);
+    // "is not" over several values reads as "none of", never an ambiguous "not A or B".
+    const listed = names.join(tr(', ', '، '));
+    return names.length > 1
+      ? tr(`${conditionFieldName(c.field, tr)} is none of ${listed}`, `${conditionFieldName(c.field, tr)} ليس من ${listed}`)
+      : tr(`${conditionFieldName(c.field, tr)} is not ${listed}`, `${conditionFieldName(c.field, tr)} ليس ${listed}`);
+  });
+  return tr(`Only when ${parts.join(', and ')}`, `فقط عندما يكون ${parts.join('، و')}`);
 }
