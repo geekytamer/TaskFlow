@@ -92,6 +92,12 @@ export interface Task {
   milestoneId?: string | null;
   /** First day of a task that takes several days; dueDate is the last. */
   startDate?: Date | null;
+  /** How long it should take, in minutes. */
+  estimateMinutes?: number | null;
+  /** When it was last marked Done. */
+  completedAt?: Date;
+  /** Time logged on it so far, in minutes. */
+  loggedMinutes?: number;
   assignedUserIds?: string[];
   tags: string[];
   companyId: string;

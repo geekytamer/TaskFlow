@@ -290,6 +290,12 @@ export interface Task {
   milestoneId?: string | null;
   /** First day of a task that spans days; dueDate is the last. null on an update clears it. */
   startDate?: Date | null;
+  /** How long it should take, in minutes; null on an update clears it. */
+  estimateMinutes?: number | null;
+  /** When it was last marked Done (kept by the database). */
+  completedAt?: Date;
+  /** Time logged on it so far, in minutes (read only). */
+  loggedMinutes?: number;
   invoiceImage?: string;
   invoiceVendor?: string;
   invoiceNumber?: string;
@@ -1800,6 +1806,7 @@ export type NotificationType =
   | 'task_mention'
   | 'task_start'
   | 'task_behind'
+  | 'task_week'
   | 'project_budget'
   | 'project_postponed'
   | 'task_completed'

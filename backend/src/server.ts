@@ -1,4 +1,5 @@
 import { dashboardInsights, INSIGHT_PERIODS } from './dashboard/insights';
+import { taskWeek, weekStartOf } from './tasks/task-week';
 import { redactUrl } from './log-redact';
 import path from 'node:path';
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
@@ -823,7 +824,7 @@ export function createServer(options: CreateServerOptions = {}) {
     const runReminders = () => {
       try {
         store.sweepSnoozedFollowups(); // wake snoozed follow-ups before reminding
-        const tasks = store.sweepTaskDueReminders() + store.sweepTaskStartAlerts();
+        const tasks = store.sweepTaskDueReminders() + store.sweepTaskStartAlerts() + store.sweepWeeklyTaskReports();
         store.sweepProjectBudgetAlerts();
         const followups = store.sweepFollowupDueReminders();
         const overdue = store.sweepOverdueInvoiceNotifications();
@@ -2032,6 +2033,9 @@ export function createServer(options: CreateServerOptions = {}) {
         record.startDate === undefined ? undefined : record.startDate === null || record.startDate === '' ? null : optionalDateInput(record.startDate),
       milestoneId:
         record.milestoneId === undefined ? undefined : record.milestoneId === null || record.milestoneId === '' ? null : optionalString(record.milestoneId),
+      // Minutes; null or '' clears, undefined keeps.
+      estimateMinutes:
+        record.estimateMinutes === undefined ? undefined : record.estimateMinutes === null || record.estimateMinutes === '' ? null : optionalNumber(record.estimateMinutes),
       assignedUserIds:
         record.assignedUserIds !== undefined
           ? stringArray(record.assignedUserIds, 'assignedUserIds')
@@ -2067,6 +2071,9 @@ export function createServer(options: CreateServerOptions = {}) {
     }
     if (payload.startDate && payload.dueDate && Date.parse(payload.startDate) > Date.parse(payload.dueDate)) {
       throw new HttpError(400, 'The start date must be on or before the due date.');
+    }
+    if (payload.estimateMinutes != null && (!Number.isInteger(payload.estimateMinutes) || payload.estimateMinutes < 1 || payload.estimateMinutes > 60000)) {
+      throw new HttpError(400, 'The estimate is a whole number of minutes, up to 1000 hours.');
     }
     return payload;
   };
@@ -3510,6 +3517,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  /** The weekly report: the tasks this person can see in one company, for the week holding ?start (default this week). */
+  app.get(
+    '/companies/:companyId/tasks/week',
+    authMiddleware,
+    handler((req, res) => {
+      const { companyId } = req.params;
+      requireCompanyAccess(req, companyId);
+      if (!store.isModuleEnabled(companyId, 'tasks')) throw new HttpError(404, 'Tasks are switched off in this company.');
+      const asked = typeof req.query.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.start) ? new Date(`${req.query.start}T00:00:00Z`) : new Date();
+      const start = weekStartOf(asked);
+      const end = new Date(start.getTime() + 7 * 864e5);
+      const tasks = store.listVisibleTasks([{ companyId, viewer: viewerOf(req), platformSupport: Boolean(req.user!.isSuperAdmin) }]);
+      const logged = store.taskTimeInRange(companyId, tasks.map((t) => t.id), start, end);
+      res.json(taskWeek(tasks, logged, (uid) => store.getUserById(uid)?.name ?? uid, start, new Date()));
+    }),
+  );
+
   app.get(
     '/tasks/:id',
     authMiddleware,
@@ -3565,6 +3589,7 @@ export function createServer(options: CreateServerOptions = {}) {
           dueDate: payload.dueDate ? new Date(payload.dueDate) : undefined,
           startDate: payload.startDate ? new Date(payload.startDate) : undefined,
           milestoneId: payload.milestoneId ?? undefined,
+          estimateMinutes: payload.estimateMinutes ?? undefined,
           assignedUserIds: payload.assignedUserIds || [],
           tags: payload.tags || [],
           companyId: payload.companyId!,

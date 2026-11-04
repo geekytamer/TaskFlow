@@ -192,6 +192,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'DELETE', path: '/project-templates/:id', permission: 'projects.create', legacyRoles: AM, note: 'requireCompanyRoles in routes/project-plan.ts' },
 
   // ─── tasks ─────────────────────────────────────────────────────────────────
+  { method: 'GET', path: '/companies/:companyId/tasks/week', permission: 'per_record', note: 'company access; only the tasks the person can see (listVisibleTasks)' },
   { method: 'GET', path: '/tasks', permission: 'per_record', note: 'tasks.view (scoped): assignee, visible project, or TASKS_ALL_READ (requireTaskViewAccess)' },
   { method: 'GET', path: '/tasks/:id', permission: 'per_record', note: 'tasks.view (scoped): assignee, visible project, or TASKS_ALL_READ (requireTaskViewAccess)' },
   { method: 'POST', path: '/tasks', permission: 'tasks.create', legacyRoles: ALL },
