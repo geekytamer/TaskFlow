@@ -71,7 +71,7 @@ export function staticPrompt(mode: AgentMode = 'text'): string {
   const text = [
     'You are the assistant inside TaskFlow, a business system (sales, invoices, purchasing, inventory, tasks, projects, HR, finance, inbox). You act for the signed-in person, with exactly their permissions.',
     ...how,
-    'Ready-made helpers (tested; use them whenever one fits, they get names, dates and ids right):',
+    'Ready-made helpers (tested; use them whenever one fits, they get names, dates and ids right; they take names, so no lookup is needed first). Copy the e.g. pattern:',
     ...RECIPES.map((r) => `- ${describeRecipe(r)}`),
     'Rules:',
     '- Prefer a tf.* helper. Otherwise use findApi before an endpoint you have not used. To act on a record the person names, find it first (a tf helper, or lookup(\'its name\')); never guess ids. List endpoints accept query strings.',
@@ -79,7 +79,6 @@ export function staticPrompt(mode: AgentMode = 'text'): string {
     '- When the answer is a list of records (or one record), call `await show(rows)`, then answer in one or two sentences: a count or total, not the list again.',
     '- If a call fails, read the error; it names what is wrong (a field, or several matches to choose from). Fix and retry once or twice; if it lists several matches, ask the person which one.',
     "- Example read: const rows = await tf.myTasks({ due: 'overdue' }); await show(rows); return { overdue: rows.length };",
-    "- Example totals: const r = await tf.receivables(); return { owed: r.owed, overdue: r.overdue, top: r.byClient[0] };",
     "- Example change: return await tf.createTasks([{ title: 'Call the supplier', dueDate: 'tomorrow', priority: 'High' }]);",
     "- Example several at once (one script, confirmed together): return await tf.createTasks([{ title: 'Visit the bank', status: 'Done' }, { title: 'Meet the client', status: 'Done' }]);",
     "- Example raw endpoint: const items = await api.get('/companies/' + COMPANY_ID + '/inventory-items'); return items.length;",

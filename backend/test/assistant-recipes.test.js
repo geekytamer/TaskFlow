@@ -40,6 +40,7 @@ test('recipes: names are letters only and unique; every recipe is found by its o
   for (const r of RECIPES) {
     assert.match(r.name, /^[a-zA-Z]+$/);
     assert.ok(searchRecipes(r.words[0]).some((x) => x.name === r.name), r.name);
+    assert.ok(r.example.includes(`tf.${r.name}(`), `${r.name} has a usage example`);
   }
 });
 
@@ -110,8 +111,9 @@ test('invoices and receivables: unpaid, overdue and owed, base currency, largest
   assert.equal(overdue.result.length, 3, JSON.stringify(overdue.result));
   assert.ok(overdue.result.every((i) => i.overdue && i.outstanding > 0));
   const rec = await run('return await tf.receivables();');
-  assert.equal(rec.result.owed, 4450);
-  assert.equal(rec.result.overdue, 3650);
+  assert.equal(rec.result.totalOwed, 4450);
+  assert.equal(rec.result.overdueAmount, 3650);
+  assert.equal(rec.result.overdueInvoices, 3);
   assert.equal(rec.result.byClient[0].client, 'Desert Rose Hotel');
   const text = await run("return (await tf.invoices('overdue')).length;");
   assert.equal(text.result, 3, 'a bare status word is the status, not a client');
@@ -142,7 +144,7 @@ test('stock, onLeave, findContact: the fixture\'s truth', async () => {
   const low = await run('return (await tf.stock({ low: true })).map((i) => i.name).sort();');
   assert.deepEqual(low.result, ['Campaign Flyers', 'Demo USB Kits']);
   const shirts = await run("return await tf.stock('promo t-shirts');");
-  assert.equal(shirts.result[0].onHand, 42);
+  assert.equal(shirts.result[0].inStock, 42);
   const leave = await run('return (await tf.onLeave()).map((l) => l.employee);');
   assert.deepEqual(leave.result, ['Fatma Al Lawati']);
   const ahmed = await run("return await tf.findContact('ahmed balushi');");

@@ -11,7 +11,8 @@ const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 export const stock: Recipe = {
   name: 'stock',
   signature: 'stock({ item?: name|sku, low?: true })',
-  returns: 'items [{ id, name, sku, onHand, unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
+  returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
+  example: "const [item] = await tf.stock({ item: 'printer paper' }); return item ? { name: item.name, inStock: item.inStock, unit: item.unit } : 'not found';",
   words: ['stock', 'inventory', 'item', 'items', 'quantity', 'low', 'reorder', 'warehouse', 'available', 'product'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -19,7 +20,7 @@ export const stock: Recipe = {
     const want = norm(a.item ?? (textIsLow ? '' : a.text));
     return (await ctx.get<ItemRow[]>(co(ctx, '/inventory-items')))
       .map((i) => ({
-        id: i.id, name: i.name, sku: i.sku, onHand: Number(i.onHand), unit: i.unit, reorderPoint: Number(i.reorderPoint),
+        id: i.id, name: i.name, sku: i.sku, inStock: Number(i.onHand), unit: i.unit, reorderPoint: Number(i.reorderPoint),
         low: Boolean(i.tracksInventory) && Number(i.onHand) <= Number(i.reorderPoint), ...(i.location ? { location: i.location } : {}),
       }))
       .filter((r) => !want || norm(r.name).includes(want) || norm(r.sku) === want)
@@ -31,6 +32,7 @@ export const onLeave: Recipe = {
   name: 'onLeave',
   signature: "onLeave({ date?: 'YYYY-MM-DD'|'today'|'tomorrow' })",
   returns: 'approved leave covering that day [{ id, employee, from, to, days }]; today by default',
+  example: "const away = await tf.onLeave({ date: 'tomorrow' }); return away.map((l) => l.employee);",
   words: ['leave', 'vacation', 'holiday', 'absent', 'off', 'away', 'sick'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -50,6 +52,7 @@ export const findContact: Recipe = {
   name: 'findContact',
   signature: 'findContact(text: name, phone or email)',
   returns: 'up to 10 contacts [{ id, name, kind, phone, email, roles }]',
+  example: "const [c] = await tf.findContact('Salim Al Harthy'); return c ? { name: c.name, phone: c.phone, email: c.email } : 'not found';",
   words: ['contact', 'phone', 'number', 'email', 'lead', 'person', 'customer', 'supplier', 'call'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -68,6 +71,7 @@ export const createContact: Recipe = {
   name: 'createContact',
   signature: "createContact({ name, phone?, email?, kind?: 'Person'|'Organization', roles?: ['Lead'|'Client'|'Vendor'|'Influencer'|'Partner'], notes? })",
   returns: 'one proposal adding the contact',
+  example: "return await tf.createContact({ name: 'Maryam Al Zadjali', phone: '+968 9000 0000', roles: ['Lead'] });",
   words: ['contact', 'add', 'new', 'lead', 'customer', 'person', 'save', 'number'],
   changes: true,
   async run(ctx, args) {
@@ -89,6 +93,7 @@ export const pendingApprovals: Recipe = {
   name: 'pendingApprovals',
   signature: 'pendingApprovals()',
   returns: 'what waits for the person to approve [{ id, docType, number, amount, party, date, requester }]',
+  example: "const waiting = await tf.pendingApprovals(); return { count: waiting.length, first: waiting[0] };",
   words: ['approval', 'approvals', 'approve', 'pending', 'waiting', 'sign', 'review', 'request'],
   async run(ctx) {
     const rows = await ctx.get<Array<{ docType: string; docId: string; number: string; amount?: number; party?: string | null; date?: string; requesterId?: string }>>(co(ctx, '/approvals'));

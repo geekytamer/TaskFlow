@@ -31,6 +31,8 @@ export interface Recipe {
   signature: string;
   /** What it returns, in a few words. */
   returns: string;
+  /** One call as a small model should copy it (made-up names, never real data). */
+  example: string;
   /** English search words for findApi (the name counts too). */
   words: string[];
   /** True when it proposes changes rather than only reading. */

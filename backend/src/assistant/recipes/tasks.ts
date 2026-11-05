@@ -23,6 +23,7 @@ export const myTasks: Recipe = {
   name: 'myTasks',
   signature: "myTasks({ status?: 'open'|'done'|'all', due?: 'overdue'|'today'|'week', everyone?: true })",
   returns: "tasks [{ id, title, status, priority, dueDate, project, assignees }]: the person's own (everyone: true for all they can see), open by default, soonest first",
+  example: "const late = await tf.myTasks({ due: 'overdue' }); await show(late); return { late: late.length };",
   words: ['task', 'tasks', 'todo', 'overdue', 'due', 'week', 'today', 'work', 'late'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -51,6 +52,7 @@ export const createTasks: Recipe = {
   name: 'createTasks',
   signature: "createTasks([{ title, dueDate?: 'YYYY-MM-DD'|'today'|'tomorrow', priority?: 'Low'|'Medium'|'High'|'Urgent', status?: 'To Do'|'In Progress'|'Done', assignTo?: name|'me', description? }])",
   returns: 'one proposal per task, confirmed together; assigned to the person unless assignTo; status Done without a date means today',
+  example: "return await tf.createTasks([{ title: 'Send the brochure to Gulf Star', dueDate: 'tomorrow', priority: 'High' }]);",
   words: ['create', 'add', 'new', 'task', 'remind', 'record', 'done', 'todo'],
   changes: true,
   async run(ctx, args) {
@@ -84,6 +86,7 @@ export const updateTask: Recipe = {
   name: 'updateTask',
   signature: "updateTask({ task: title|id, status?, priority?, dueDate?, assignTo?: name|'me', newTitle? })",
   returns: 'one proposal with only the fields that change',
+  example: "return await tf.updateTask({ task: 'Order printer paper', status: 'Done' });",
   words: ['update', 'change', 'assign', 'complete', 'finish', 'done', 'status', 'priority', 'postpone', 'reschedule', 'rename', 'task'],
   changes: true,
   async run(ctx, args) {
@@ -110,6 +113,7 @@ export const logTime: Recipe = {
   name: 'logTime',
   signature: "logTime({ task: title|id, hours, date?: 'YYYY-MM-DD'|'today', note? })",
   returns: 'one proposal logging the time on that task',
+  example: "return await tf.logTime({ task: 'Design the menu', hours: 1.5 });",
   words: ['time', 'hours', 'log', 'spent', 'timesheet', 'worked'],
   changes: true,
   async run(ctx, args) {

@@ -32,4 +32,4 @@ export function searchRecipes(query: string, limit = 4): Recipe[] {
 }
 
 /** One line for the prompt and findApi. */
-export const describeRecipe = (r: Recipe): string => `tf.${r.signature} → ${r.returns}${r.changes ? ' (proposes; the person confirms)' : ''}`;
+export const describeRecipe = (r: Recipe): string => `tf.${r.signature} → ${r.returns}${r.changes ? ' (proposes; the person confirms)' : ''}. e.g. ${r.example}`;

@@ -25,7 +25,8 @@ function rowOf(ctx: RecipeContext, i: InvoiceRow) {
 export const invoices: Recipe = {
   name: 'invoices',
   signature: "invoices({ status?: 'unpaid'|'overdue'|'paid'|'draft'|'all', client?: name })",
-  returns: 'invoices [{ id, invoiceNumber, client, status, total, outstanding, currency, dueDate, overdue, daysOverdue }], unpaid by default, oldest due first',
+  returns: 'invoices [{ id, invoiceNumber, client, status, total, outstanding, currency, dueDate, overdue, daysOverdue }], unpaid by default, oldest due first; .length is how many',
+  example: "const late = await tf.invoices({ status: 'overdue' }); await show(late); return { count: late.length };",
   words: ['invoice', 'invoices', 'unpaid', 'overdue', 'outstanding', 'bill', 'billing', 'paid', 'client'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -45,7 +46,8 @@ export const invoices: Recipe = {
 export const receivables: Recipe = {
   name: 'receivables',
   signature: 'receivables()',
-  returns: '{ currency, owed, overdue, unpaidInvoices, overdueInvoices, byClient: [{ client, owed, overdue }] largest first }, in the company currency',
+  returns: '{ currency, totalOwed, overdueAmount, unpaidInvoices (count), overdueInvoices (count), byClient: [{ client, owed, overdue }] largest first }, amounts in the company currency',
+  example: "const r = await tf.receivables(); return { owed: r.totalOwed, currency: r.currency, topClient: r.byClient[0] };",
   words: ['owe', 'owed', 'receivable', 'receivables', 'debt', 'debtor', 'outstanding', 'collect', 'total', 'money'],
   async run(ctx) {
     const rows = (await listInvoices(ctx)).map((i) => rowOf(ctx, i)).filter((r) => r.outstanding > 0);
@@ -58,8 +60,8 @@ export const receivables: Recipe = {
     }
     return {
       currency: ctx.currency,
-      owed: round(rows.reduce((s, r) => s + r.outstandingBase, 0)),
-      overdue: round(rows.filter((r) => r.overdue).reduce((s, r) => s + r.outstandingBase, 0)),
+      totalOwed: round(rows.reduce((s, r) => s + r.outstandingBase, 0)),
+      overdueAmount: round(rows.filter((r) => r.overdue).reduce((s, r) => s + r.outstandingBase, 0)),
       unpaidInvoices: rows.length,
       overdueInvoices: rows.filter((r) => r.overdue).length,
       byClient: [...byClient.values()].sort((x, y) => y.owed - x.owed).slice(0, 10),
@@ -71,6 +73,7 @@ export const salesSummary: Recipe = {
   name: 'salesSummary',
   signature: "salesSummary({ from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD' })",
   returns: '{ from, to, currency, invoiced, collected, outstanding, invoices } for invoices issued in the period (drafts left out); this month by default',
+  example: "return await tf.salesSummary({ from: '2026-01-01', to: '2026-03-31' });",
   words: ['sales', 'revenue', 'invoiced', 'income', 'turnover', 'month', 'year', 'period', 'sold'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -88,7 +91,8 @@ export const salesSummary: Recipe = {
 export const recordPayment: Recipe = {
   name: 'recordPayment',
   signature: "recordPayment({ invoice: invoice number|id|client name, amount?: number (default: all that is owed), date?: 'YYYY-MM-DD'|'today', method?, note? })",
-  returns: 'one proposal recording the payment on that invoice',
+  returns: 'one proposal recording the payment on that invoice (give the client\'s name when the person names no invoice number)',
+  example: "return await tf.recordPayment({ invoice: 'Gulf Star Trading', amount: 250 });",
   words: ['payment', 'paid', 'pay', 'received', 'receipt', 'collected', 'cash', 'transfer', 'cheque'],
   changes: true,
   async run(ctx, args) {
