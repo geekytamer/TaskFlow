@@ -162,3 +162,37 @@ WhatsApp and routines add no new way to write.
 ## Order and first step
 
 Waves 1 → 2 → 3 → 4 → 5. Wave 1 starts with the eval suite, because every later change is judged by it. Its plan will be written to `docs/superpowers/plans/2026-11-05-assistant-wave-1.md`.
+
+## Wave 1 results (2026-11-05)
+
+Built as planned (`plans/2026-11-05-assistant-wave-1.md`), on `feature/permissions-v2`. Measured with `npm run eval:assistant` against qwen3:8b on Ollama on the owner's 16 GB Mac, with thinking off. The history is in `backend/eval/assistant/history.jsonl`.
+
+| Run | Passed | Score | Median per request |
+| --- | --- | --- | --- |
+| Baseline (before Wave 1) | 15/40 | 37.5% | 10.3 s |
+| Recipes, static-first prompt, examples | 30/40 | 75% | 6.0 s |
+| + a copyable example per recipe, clearer field names | 33/40 | 82.5% | 4.2 s |
+| + named leave cards, typo-tolerant names, findApi misuse explained, payment miss lists invoices | 39/40 | 97.5% | 4.5 s |
+
+What the eval taught:
+
+- **Small models copy examples; they read signatures loosely.** One `e.g.` call per recipe did more than any rule. The examples use made-up names, never the eval's, so the score does not come from memorising the eval.
+- **Ambiguous field names get misused.** `overdue` (an amount) answered "how many are overdue". Renamed to `overdueAmount`, next to `overdueInvoices` (a count). `onHand` became `inStock`.
+- **An error that lists the choices lets the model fix itself.** This worked for names one letter off, and for a client named in Arabic when it is stored in English.
+- **The eval found a real interface bug:** leave cards had no name on them.
+
+Changes from the review (all in the branch):
+
+- Learned examples are **each person's own**. Another person's code can hold figures this person may not see, and their words must never become this person's instructions.
+- A 👍 saves a change only once it was confirmed and done.
+- A follow-up turn after a decision keeps no example.
+- There is no feedback while a turn is running.
+- A repeated request replaces its older example.
+
+Still open:
+
+- **Arabic "how many promo t-shirts in stock"**: the model adds `low: true` on its own. This is model noise, so recipes are not bent to fit it.
+- **Each score is one run.** Expect a few points of variance, and lower scores on requests the eval does not cover. More cases come from real use. Every 👎, and every failure the owner reports, becomes a case.
+- **Fast-model routing** is still deferred. Try it now that the eval exists.
+- **The real production number** needs the GPU host and Qwen3-Coder-30B. Run the same eval there before setting `AI_BASE_URL` in production.
+- **Next:** Wave 2 (trust). The editable cards and undo matter most once real people use it.
