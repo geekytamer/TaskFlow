@@ -159,3 +159,48 @@ test('undo: a created task is deleted within 10 minutes; an edit gets its old va
   assert.equal((await as(fx.admin.id).post(`/assistant/threads/${edit.id}/undo`, { actionId: e.id })).status, 200);
   assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'In Progress', 'old value back');
 });
+
+test('settings: admins set them; off, roles, areas, most changes and learning are all enforced', async () => {
+  const { store, fx, as, ask } = setupFx();
+  const got = await as(fx.admin.id).get('/companies/1/assistant/settings');
+  assert.equal(got.status, 200);
+  assert.equal(got.body.settings.enabled, true);
+  assert.ok(got.body.areas.includes('tasks') && got.body.areas.includes('contacts'));
+  assert.equal((await as(fx.charlie.id).put('/companies/1/assistant/settings', { enabled: false })).status, 403);
+
+  assert.equal((await as(fx.admin.id).put('/companies/1/assistant/settings', { roles: ['Manager'] })).status, 200);
+  const blocked = await as(fx.charlie.id).post('/assistant/chat', { companyId: '1', message: 'hi' });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.code, 'ASSISTANT_OFF');
+
+  await as(fx.admin.id).put('/companies/1/assistant/settings', { changeAreas: ['tasks'], maxChanges: 2 });
+  const contact = await ask("return await tf.createContact({ name: 'Nope' });");
+  assert.equal(contact.items.at(-1).actions.length, 0);
+  assert.match(JSON.stringify(store.getAssistantThread(contact.id).messages), /Changes to contacts through the assistant are turned off/);
+  const three = await ask("return await tf.createTasks(['a', 'b', 'c']);");
+  assert.equal(three.items.at(-1).actions.length, 0, 'over the limit: nothing proposed');
+  assert.match(JSON.stringify(store.getAssistantThread(three.id).messages), /at most 2 changes at once/);
+
+  await as(fx.admin.id).put('/companies/1/assistant/settings', { enabled: false });
+  assert.equal((await as(fx.admin.id).post('/assistant/chat', { companyId: '1', message: 'hi' })).status, 403, 'off is off for admins too');
+});
+
+test('log: admins see every assistant change in the company, filtered; employees cannot', async () => {
+  const { fx, as, ask } = setupFx();
+  const made = await ask("return await tf.createTasks(['Logged']);");
+  await as(fx.admin.id).post(`/assistant/threads/${made.id}/decide`, { confirm: [made.items.at(-1).actions[0].id] });
+  const log = await as(fx.admin.id).get('/companies/1/assistant/actions?status=done');
+  assert.equal(log.status, 200);
+  assert.equal(log.body[0].summary, 'Create the task: Logged');
+  assert.equal(log.body[0].userName, 'Admin User');
+  assert.equal(log.body[0].area, 'tasks');
+  assert.equal((await as(fx.charlie.id).get('/companies/1/assistant/actions')).status, 403);
+});
+
+test('a script that fails part-way proposes nothing (no half batch, no duplicates on the retry)', async () => {
+  const { store, ask } = setupFx();
+  const view = await ask("await tf.createTasks(['first']); throw new Error('oops');");
+  assert.equal(view.items.at(-1).actions.length, 0);
+  assert.equal(view.pending, 0);
+  assert.ok(store.listAssistantActions(view.id).every((a) => a.status === 'expired'));
+});

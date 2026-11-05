@@ -14,6 +14,8 @@ import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assis
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import { RECIPES, describeRecipe, recipeByName, searchRecipes } from '../assistant/recipes';
 import { similarExamples } from '../assistant/examples';
+import { DEFAULT_ASSISTANT_SETTINGS, ASSISTANT_ROLES, mayUseAssistant, parseAssistantSettings, type AssistantSettings } from '../assistant/settings';
+import type { UserRole } from '../types';
 import { applyEdits, areaOf, changesOf, docTypeOf, fieldsOf, inverseOf, type Inverse, type Namer, type ReviewChange } from '../assistant/review';
 import { norm } from '../assistant/recipes/util';
 import type { RecipeContext } from '../assistant/recipes';
@@ -114,6 +116,19 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     return undefined;
   };
   const UNDO_MS = 10 * 60 * 1000;
+  /** The areas the assistant could change (Settings → Assistant offers these). */
+  const changeAreasCatalogue = [...new Set(ops.filter((op) => op.method !== 'GET').map(areaOf))].sort();
+  const settingsOf = (companyId: string): AssistantSettings => {
+    try { return parseAssistantSettings(store.getAssistantSettingsRaw(companyId), changeAreasCatalogue); } catch { return DEFAULT_ASSISTANT_SETTINGS; }
+  };
+  const roleIn = (req: AuthedRequest, companyId: string): UserRole | undefined =>
+    (req.user as { companyRoles?: Array<{ companyId: string; role: UserRole }> } | undefined)?.companyRoles?.find((r) => r.companyId === companyId)?.role ?? req.user?.role;
+  /** The company's settings decide whether this person may use the assistant there at all. */
+  const requireAssistantFor = (req: AuthedRequest, companyId: string) => {
+    if (!mayUseAssistant(settingsOf(companyId), roleIn(req, companyId), Boolean(req.user?.isSuperAdmin))) {
+      throw new HttpError(403, 'The assistant is turned off for you in this company.', { code: 'ASSISTANT_OFF' });
+    }
+  };
   const busy = new Set<string>();
   const progress = new Map<string, { userId: string; step: Step; at: number }>();
   const stepper = (req: AuthedRequest, requestId: string | undefined) => (step: Step) => {
@@ -213,6 +228,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
 
   /** Saves an example; the person's older one for the same request is replaced, so repeats do not crowd out the rest. */
   function saveExample(companyId: string, userId: string, request: string, code: string, kind: 'read' | 'change') {
+    if (!settingsOf(companyId).learn) return { id: undefined };
     const key = norm(request);
     for (const old of store.listAssistantExamples(companyId, 1000, userId)) if (norm(old.request) === key) store.deleteAssistantExample(old.id);
     return store.createAssistantExample({ companyId, userId, request, code, kind });
@@ -312,6 +328,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
     const cards: AssistantCard[] = [];
     const lookups = cardLookups(companyId);
+    const settings = settingsOf(companyId);
     const today = new Date().toISOString().slice(0, 10);
     const lastAsked = [...(thread.messages as StoredMessage[])].reverse().find((m) => m.role === 'user' && !m.ui?.hidden);
     const request = String(lastAsked?.content ?? '').replace(/\n\n\[Attached files:[\s\S]*$/, '');
@@ -432,7 +449,10 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           if (op.method === 'POST' && op.path === '/companies/:companyId/documents') checkDocument(body, companyId);
           step({ kind: 'prepare', detail: (summary ?? '').slice(0, 80) });
           if (!open) throw new Error('the script has already ended');
-          if (proposed.length >= MAX_WRITES_PER_RUN) throw new Error(`at most ${MAX_WRITES_PER_RUN} changes at once`);
+          const area = areaOf(op);
+          if (settings.changeAreas && !settings.changeAreas.includes(area)) throw new Error(`Changes to ${area} through the assistant are turned off in this company; the person can do it in TaskFlow itself.`);
+          const most = Math.min(settings.maxChanges, MAX_WRITES_PER_RUN);
+          if (proposed.length >= most) throw new Error(`at most ${most} changes at once`);
           // What the change touches, read now as the person: the card shows before → after, a delete shows what goes.
           let before: Record<string, unknown> | null = null;
           if (method !== 'POST' && matchOp(ops, 'GET', path)) {
@@ -443,7 +463,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           }
           const action = store.createAssistantAction({
             threadId: thread.id, userId: user.id, companyId, method, path, body,
-            summary: (summary ?? `${method} ${path}`).slice(0, 300), before, area: areaOf(op),
+            summary: (summary ?? `${method} ${path}`).slice(0, 300), before, area,
           });
           proposed.push(action.id);
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
@@ -453,6 +473,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         if (outcome.ok) {
           lastOkCode = code;
           if (proposed.length > before) proposingCode = code;
+        } else if (proposed.length > before) {
+          // A script that failed proposes nothing: half a batch would confuse, and the corrected retry would double it.
+          for (const id of proposed.splice(before)) store.decideAssistantAction(id, 'expired', null);
         }
         // Records the script returned but did not show() still reach the person as cards.
         if (outcome.ok && cards.length === cardsBefore) {
@@ -475,7 +498,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
 
     const history = (thread.messages as StoredMessage[]).map(({ ui: _ui, ...m }) => m as ChatMessage);
     // The person's own examples only: another person's code may hold figures they may not see, and their words are not this person's instructions.
-    const examples = similarExamples(request, store.listAssistantExamples(companyId, 300, user.id));
+    const examples = settings.learn ? similarExamples(request, store.listAssistantExamples(companyId, 300, user.id)) : [];
     if (examples.length) store.touchAssistantExamples(examples.map((e) => e.id));
     const system = systemPrompt({
       userName: user.name,
@@ -599,9 +622,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     } else {
       const companyId = requiredString(body.companyId, 'companyId');
       requireCompanyAccess(req, companyId);
+      requireAssistantFor(req, companyId);
       thread = store.createAssistantThread({ userId: req.user!.id, companyId, title: message.replace(/\s+/g, ' ').slice(0, 80) });
     }
     requireCompanyAccess(req, thread.companyId);
+    requireAssistantFor(req, thread.companyId);
     const fileIds = Array.isArray(body.fileIds) ? body.fileIds.map(String).slice(0, 5) : [];
     const files: FileRef[] = fileIds.map((id) => {
       try {
@@ -629,6 +654,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   app.post('/assistant/threads/:id/decide', authMiddleware, handler(async (req, res) => {
     const thread = threadFor(req, req.params.id);
     requireCompanyAccess(req, thread.companyId);
+    requireAssistantFor(req, thread.companyId);
     const body = asRecord(req.body, 'body');
     const confirm = Array.isArray(body.confirm) ? body.confirm.map(String) : [];
     const decline = Array.isArray(body.decline) ? body.decline.map(String) : [];
@@ -721,6 +747,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   app.post('/assistant/threads/:id/undo', authMiddleware, handler(async (req, res) => {
     const thread = threadFor(req, req.params.id);
     requireCompanyAccess(req, thread.companyId);
+    requireAssistantFor(req, thread.companyId);
     const actionId = requiredString(asRecord(req.body, 'body').actionId, 'actionId');
     await turn(res, thread.id, false, async () => {
       const a = store.getAssistantAction(actionId);
@@ -772,6 +799,39 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   }));
 
   /** The company's learned examples, for whoever edits its settings (the screen comes in Wave 2). */
+  /** How far the assistant may go in this company (Settings → Assistant). */
+  app.get('/companies/:companyId/assistant/settings', authMiddleware, handler((req, res) => {
+    const { companyId } = req.params;
+    requireCompanyAccess(req, companyId);
+    requirePermission(req, companyId, 'settings.view', legacyRolesOf.get('GET /companies/:companyId/assistant/settings'));
+    res.json({ settings: settingsOf(companyId), areas: changeAreasCatalogue, roles: ASSISTANT_ROLES });
+  }));
+
+  app.put('/companies/:companyId/assistant/settings', authMiddleware, handler((req, res) => {
+    const { companyId } = req.params;
+    requireCompanyAccess(req, companyId);
+    requirePermission(req, companyId, 'settings.edit', legacyRolesOf.get('PUT /companies/:companyId/assistant/settings'));
+    let next: AssistantSettings;
+    // A partial update: what is not sent keeps its current value.
+    try { next = parseAssistantSettings({ ...settingsOf(companyId), ...asRecord(req.body, 'body') }, changeAreasCatalogue); } catch (err) { throw new HttpError(400, err instanceof Error ? err.message : String(err)); }
+    store.saveAssistantSettings(companyId, next, req.user!.id);
+    res.json({ settings: next, areas: changeAreasCatalogue, roles: ASSISTANT_ROLES });
+  }));
+
+  /** Every change the assistant proposed or made in this company, newest first (whoever edits settings sees all). */
+  app.get('/companies/:companyId/assistant/actions', authMiddleware, handler((req, res) => {
+    const { companyId } = req.params;
+    requireCompanyAccess(req, companyId);
+    requirePermission(req, companyId, 'settings.edit', legacyRolesOf.get('GET /companies/:companyId/assistant/actions'));
+    const q = (k: string) => (typeof req.query[k] === 'string' && req.query[k] ? String(req.query[k]) : undefined);
+    const rows = store.listCompanyAssistantActions(companyId, { userId: q('userId'), status: q('status'), area: q('area'), limit: Number(q('limit')) || 100 });
+    res.json(rows.map((a) => ({
+      id: a.id, userId: a.userId, userName: store.getUserById(a.userId)?.name ?? a.userId, method: a.method, path: a.path,
+      summary: a.summary, status: a.status, area: a.area ?? null, createdAt: a.createdAt, decidedAt: a.decidedAt,
+      ...(Array.isArray(a.edited) && a.edited.length ? { edited: a.edited } : {}),
+    })));
+  }));
+
   app.get('/companies/:companyId/assistant/examples', authMiddleware, handler((req, res) => {
     const { companyId } = req.params;
     requireCompanyAccess(req, companyId);

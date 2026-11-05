@@ -263,25 +263,31 @@
     "PUT /shipments/:id"
   ],
   "settings:companies.read": [
+    "GET /companies/:companyId/assistant/settings",
     "GET /companies/:companyId/custom-fields"
   ],
   "settings:custom-fields.create": [
     "DELETE /assistant/examples/:id",
     "DELETE /custom-fields/:id",
+    "GET /companies/:companyId/assistant/actions",
     "GET /companies/:companyId/assistant/examples",
+    "PUT /companies/:companyId/assistant/settings",
     "PUT /companies/:companyId/numbering-settings/:entityType",
     "PUT /companies/:id",
     "PUT /custom-fields/:id"
   ],
   "settings:custom-fields.delete": [
     "DELETE /assistant/examples/:id",
+    "GET /companies/:companyId/assistant/actions",
     "GET /companies/:companyId/assistant/examples",
     "POST /companies/:companyId/custom-fields",
+    "PUT /companies/:companyId/assistant/settings",
     "PUT /companies/:companyId/numbering-settings/:entityType",
     "PUT /companies/:id",
     "PUT /custom-fields/:id"
   ],
   "settings:custom-fields.read": [
+    "GET /companies/:companyId/assistant/settings",
     "GET /companies/:id"
   ],
   "settings:users.read": [
@@ -295,8 +301,10 @@
   "settings:write": [
     "DELETE /assistant/examples/:id",
     "DELETE /custom-fields/:id",
+    "GET /companies/:companyId/assistant/actions",
     "GET /companies/:companyId/assistant/examples",
-    "POST /companies/:companyId/custom-fields"
+    "POST /companies/:companyId/custom-fields",
+    "PUT /companies/:companyId/assistant/settings"
   ],
   "vendor-bills:create": [
     "POST /companies/:companyId/finance/vendor-bills"
