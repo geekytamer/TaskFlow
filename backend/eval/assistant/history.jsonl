@@ -2,3 +2,4 @@
 {"at":"2026-11-05T07:42:09.578Z","model":"qwen3:8b","mode":"text","passed":30,"total":40,"score":75,"medianMs":5950,"failed":["overdue-invoices/en","overdue-invoices/ar","stock-of/en","stock-of/ar","on-leave/ar","contact-phone/en","contact-phone/ar","assign-task/ar","record-payment/en","record-payment/ar"],"filtered":false}
 {"at":"2026-11-05T07:50:18.879Z","model":"qwen3:8b","mode":"text","passed":33,"total":40,"score":82.5,"medianMs":4239,"failed":["stock-of/ar","on-leave/en","on-leave/ar","contact-phone/en","contact-phone/ar","assign-task/ar","record-payment/ar"],"filtered":false}
 {"at":"2026-11-05T07:57:10.315Z","model":"qwen3:8b","mode":"text","passed":39,"total":40,"score":97.5,"medianMs":4532,"failed":["stock-of/ar"],"filtered":false}
+{"at":"2026-11-05T08:29:37.090Z","model":"qwen3:8b","mode":"text","passed":39,"total":40,"score":97.5,"medianMs":4195,"failed":["stock-of/ar"],"filtered":false}

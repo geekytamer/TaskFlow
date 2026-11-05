@@ -196,3 +196,42 @@ Still open:
 - **Fast-model routing** is still deferred. Try it now that the eval exists.
 - **The real production number** needs the GPU host and Qwen3-Coder-30B. Run the same eval there before setting `AI_BASE_URL` in production.
 - **Next:** Wave 2 (trust). The editable cards and undo matter most once real people use it.
+
+## Wave 2 results (2026-11-05)
+
+Built as planned (`plans/2026-11-05-assistant-wave-2.md`), on `feature/permissions-v2`.
+
+- **Confirm cards people can judge:**
+  - an edit shows before → after, with the old value struck through;
+  - a delete shows what it takes and says plainly that it can't be undone;
+  - the fields open as a small form ("Edit"), and the person's edits are what runs, checked against the same body rules;
+  - a document type with an approval policy says "may need approval" before it runs, and "waiting for approval: {who}" after;
+  - a change that cannot be undone afterwards says so before it is confirmed.
+- **Undo for 10 minutes:**
+  - a creation is deleted through its matching `DELETE`: tasks, contacts, documents, expenses, leave requests, payments and time entries;
+  - an edit gets back the fields as they were *right before it ran*, not when it was proposed;
+  - deletes, comments and attachments have no undo, and their cards say so.
+- **Settings → Assistant, per company:**
+  - on/off (off is off for everyone);
+  - roles (Admin always);
+  - which areas it may change, named as people know them (31 modules, in English and Arabic);
+  - most changes at once;
+  - learn from use;
+  - a log of every assistant change (who, what, when, status, edits);
+  - the learned examples.
+  - Stored settings fail closed.
+- **A script that fails part-way now proposes nothing:** no half batch, and no duplicates when the model retries.
+
+Verified:
+- 1286/1286 backend tests pass, and the frontend typechecks and lints clean.
+- In the browser: edit then confirm, before → after, undo, the settings panel, and Arabic at 375 px.
+- The eval holds at 97.5% (39/40), median 4.2 s, so there is no regression.
+- Review: 7 findings, 6 fixed. The one skipped is that before-snapshot reads run one at a time in a batch; batches are capped at 25, which stays within the time budget.
+
+Decisions recorded:
+- Roles use the company's legacy roles. A v2 `assistant.use` key comes once v2 is authoritative.
+- Approval is exact after a change runs and a soft "may" before, because predicting the exact chain needs each document's amount and facts.
+
+Still open:
+- Undo for attachments needs a link from `records/.../attachments` to `/record-attachments/:id`.
+- Wave 3 (everywhere): the side panel on every page that knows what is on screen, streaming replies, and "Ask about this" on records.
