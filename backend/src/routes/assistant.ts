@@ -690,6 +690,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       files: (thread.messages as StoredMessage[]).flatMap((m) => m.ui?.files ?? []),
       ...(lastAsked?.ui?.context ? { onScreen: lastAsked.ui.context } : {}),
       ...(group ? { group: { name: company?.name ?? companyId, companies: covered } } : {}),
+      // A helper is available when every route it calls is allowed for this person in some covered company.
+      unavailable: RECIPES.filter((r) => !covered.some((c) => r.needs.every(([m, p]) => {
+        const op = ops.find((o) => o.method === m && o.path === p);
+        return op ? allowedOp(req, c.id, op) : false;
+      }))).map((r) => r.name),
       examples,
     }, mode);
     let outcome;

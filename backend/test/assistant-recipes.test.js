@@ -236,3 +236,13 @@ test('contacts: all of them (newest first), or by role or words; findContact wit
   const badRole = await run("return await tf.contacts({ role: 'Friend' });");
   assert.match(badRole.error, /role must be one of/);
 });
+
+test('every recipe names the routes it needs; the prompt tells the model which ones this person cannot use here', async () => {
+  const { assistantOps, matchOp } = require('../dist/assistant/catalogue');
+  const ops = assistantOps();
+  for (const r of RECIPES) {
+    assert.ok(Array.isArray(r.needs) && r.needs.length, `${r.name} names what it needs`);
+    for (const [method, routePath] of r.needs) assert.ok(ops.some((o) => o.method === method && o.path === routePath), `${r.name}: ${method} ${routePath} is a catalogue route`);
+  }
+  void matchOp;
+});

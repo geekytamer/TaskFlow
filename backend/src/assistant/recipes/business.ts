@@ -10,6 +10,7 @@ const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
 export const stock: Recipe = {
   name: 'stock',
+  needs: [['GET', '/companies/:companyId/inventory-items']],
   params: ['item', 'low', 'text'],
   signature: 'stock({ item?: name|sku, low?: true })',
   returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
@@ -31,6 +32,7 @@ export const stock: Recipe = {
 
 export const onLeave: Recipe = {
   name: 'onLeave',
+  needs: [['GET', '/companies/:companyId/employees'], ['GET', '/companies/:companyId/leave-requests']],
   params: ['date', 'text'],
   signature: "onLeave({ date?: 'YYYY-MM-DD'|'today'|'tomorrow' })",
   returns: 'approved leave covering that day [{ id, employee, from, to, days }]; today by default',
@@ -54,6 +56,7 @@ const contactRow = (c: ContactRow) => ({ id: c.id, name: c.name, kind: c.kind, .
 
 export const contacts: Recipe = {
   name: 'contacts',
+  needs: [['GET', '/companies/:companyId/contacts']],
   params: ['role', 'search', 'limit'],
   signature: "contacts({ role?: 'Lead'|'Client'|'Vendor'|'Influencer'|'Partner', search?: words, limit?: number })",
   returns: 'contacts [{ id, name, kind, phone, email, roles }], newest first (30 by default): all of them, or those of a role',
@@ -75,6 +78,7 @@ export const contacts: Recipe = {
 
 export const findContact: Recipe = {
   name: 'findContact',
+  needs: [['GET', '/companies/:companyId/contacts']],
   params: ['text', 'name', 'query'],
   signature: 'findContact(text: name, phone or email)',
   returns: 'up to 10 contacts [{ id, name, kind, phone, email, roles }]',
@@ -97,6 +101,7 @@ export const findContact: Recipe = {
 
 export const createContact: Recipe = {
   name: 'createContact',
+  needs: [['POST', '/companies/:companyId/contacts']],
   params: ['name', 'text', 'phone', 'email', 'kind', 'roles', 'notes'],
   signature: "createContact({ name, phone?, email?, kind?: 'Person'|'Organization', roles?: ['Lead'|'Client'|'Vendor'|'Influencer'|'Partner'], notes? })",
   returns: 'one proposal adding the contact. Roles: Lead = a prospect, not buying yet (عميل محتمل); Client = already buys (عميل); Vendor = a supplier (مورد); Influencer (مؤثر); Partner (شريك)',
@@ -120,6 +125,7 @@ export const createContact: Recipe = {
 
 export const pendingApprovals: Recipe = {
   name: 'pendingApprovals',
+  needs: [['GET', '/companies/:companyId/approvals']],
   params: [],
   signature: 'pendingApprovals()',
   returns: 'what waits for the person to approve [{ id, docType, number, amount, party, date, requester }]',

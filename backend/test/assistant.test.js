@@ -634,3 +634,19 @@ test('a script with no return that ends in an awaited call returns that value (l
   assert.equal(withImplicitReturn('for (const t of ts) await api.post(1);'), 'for (const t of ts) await api.post(1);', 'only a whole last statement');
   assert.equal(withImplicitReturn('await show(rows);'), 'await show(rows);', 'show() already answers');
 });
+
+test('the per-turn prompt names the helpers this person cannot use here (an Employee: no invoices)', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(say('ok'));
+  const employee = s.store.listUsers().find((u) => u.email === 'charlie.d@innovatecorp.com');
+  await s.as(employee.id).post('/assistant/chat', { companyId: '1', message: 'hi' });
+  const system = s.model.seen.at(-1)[0].content;
+  const line = system.split('\n').find((l) => l.startsWith('Not available to this person here'));
+  assert.ok(line, 'the line is there');
+  assert.match(line, /tf\.receivables/);
+  assert.doesNotMatch(line, /tf\.myTasks/);
+  steps.push(say('ok'));
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'hi' });
+  assert.doesNotMatch(s.model.seen.at(-1)[0].content, /Not available to this person here/, 'an admin can use them all');
+});
