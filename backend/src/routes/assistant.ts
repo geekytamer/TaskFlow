@@ -354,7 +354,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       }
     });
     return {
-      id: thread.id, title: thread.title, companyId: thread.companyId, items,
+      id: thread.id, title: thread.title, companyId: thread.companyId, scope: thread.scope ?? 'company', items,
       pending: actions.filter((a) => a.status === 'pending').length,
       working: busy.has(thread.id),
       error: failures.get(thread.id) ?? null,

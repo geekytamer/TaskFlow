@@ -17,7 +17,7 @@ export const GROUP_AWARE_PAGES: ReadonlySet<string> = new Set([
  * About the company itself or the person, or a full-screen workspace whose
  * selection lives in the address (inbox, chats): never repeated per company.
  */
-const AS_IS = ['/settings', '/admin', '/academy', '/notifications', '/guide', '/company-profile', '/users', '/companies', '/inbox', '/whatsapp'];
+const AS_IS = ['/settings', '/admin', '/academy', '/notifications', '/guide', '/company-profile', '/users', '/companies', '/inbox', '/whatsapp', '/assistant'];
 
 /** Pages of one record (dynamic segments) under a list. */
 const RECORD_PAGES = ['/projects/', '/contacts/', '/inventory/warehouses/', '/flexi/accounts/'];

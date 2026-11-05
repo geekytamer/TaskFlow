@@ -1,5 +1,6 @@
 import type { Recipe, RecipeContext } from './types';
 import { addDays, argsOf, co, dateArg, dayOf, norm, oneOf, pickOne, round, sameName, say } from './util';
+import { listTasks } from './tasks';
 
 /**
  * The wider day-to-day work: projects, quotations, money going out (supplier
@@ -27,10 +28,12 @@ export const projects: Recipe = {
     const a = argsOf(args);
     const status = String(a.status ?? 'open');
     const want = norm(a.search ?? a.text);
-    const [list, tasks] = await Promise.all([
-      ctx.get<ProjectRow[]>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`),
-      ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`),
+    const [all, tasks] = await Promise.all([
+      ctx.get<Array<ProjectRow & { companyId?: string }>>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`),
+      listTasks(ctx) as Promise<TaskRow[]>,
     ]);
+    // Like tasks, the project list may answer for more than this company.
+    const list = all.filter((p) => !p.companyId || p.companyId === ctx.companyId);
     return list
       .filter((p) => status === 'all' || (status === 'open' ? !['Done', 'Archived'].includes(p.status ?? 'Active') : (p.status ?? 'Active').toLowerCase() === status.toLowerCase()))
       .filter((p) => !want || nameMatches(want, a.search ?? a.text, p.name))
@@ -300,8 +303,7 @@ export const addComment: Recipe = {
     const a = argsOf(args);
     const comment = String(a.comment ?? '').trim();
     if (!comment) throw new Error('say what the comment is: { task, comment }');
-    const tasks = await ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`);
-    const t = pickOne(tasks, a.task ?? a.text, (x) => x.title, 'task');
+    const t = pickOne(await listTasks(ctx), a.task ?? a.text, (x) => x.title, 'task');
     return ctx.propose('POST', `/tasks/${encodeURIComponent(t.id)}/comments`, { content: comment },
       say(ctx, `Comment on "${t.title}": ${comment.slice(0, 80)}`, `تعليق على "${t.title}": ${comment.slice(0, 80)}`));
   },

@@ -4,9 +4,11 @@ import { addDays, argsOf, dateArg, dayOf, memberId, oneOf, pickOne, say } from '
 const STATUSES = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'] as const;
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const;
 
-interface TaskRow { id: string; title: string; status: string; priority: string; dueDate?: string | null; assignedUserIds?: string[]; projectId?: string }
+interface TaskRow { id: string; title: string; status: string; priority: string; dueDate?: string | null; assignedUserIds?: string[]; projectId?: string; companyId?: string }
 
-const listTasks = (ctx: RecipeContext) => ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`);
+/** This company's tasks. GET /tasks answers with every company's tasks the person can see (its companyId filter is ignored). */
+export const listTasks = async (ctx: RecipeContext) =>
+  (await ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`)).filter((t) => !t.companyId || t.companyId === ctx.companyId);
 const findTask = async (ctx: RecipeContext, ref: unknown) => pickOne(await listTasks(ctx), ref, (t) => t.title, 'task');
 
 const view = (ctx: RecipeContext, t: TaskRow) => ({
@@ -35,7 +37,7 @@ export const myTasks: Recipe = {
     if (due !== undefined && !['overdue', 'today', 'week'].includes(due)) throw new Error("due must be 'overdue', 'today' or 'week'");
     const weekEnd = addDays(ctx.today, 7);
     // A project's tasks are everyone's in it, unless the person asked for only their own.
-    const project = a.project === undefined ? undefined : pickOne(await ctx.get<Array<{ id: string; name: string }>>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`), a.project, (p) => p.name, 'project');
+    const project = a.project === undefined ? undefined : pickOne((await ctx.get<Array<{ id: string; name: string; companyId?: string }>>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`)).filter((p) => !p.companyId || p.companyId === ctx.companyId), a.project, (p) => p.name, 'project');
     const everyone = a.everyone === true || (project !== undefined && a.everyone !== false);
     return (await listTasks(ctx))
       .filter((t) => !project || t.projectId === project.id)

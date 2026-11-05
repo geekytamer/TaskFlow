@@ -292,3 +292,13 @@ test('wider changes propose the right calls: a quote, an expense, a comment, a f
   const none = await run("return await tf.decideApproval({ item: 'PO-9', decision: 'approve' });");
   assert.match(none.error, /no approval waiting for this person matches/);
 });
+
+test("task helpers stay in their company (GET /tasks returns every company's tasks the person can see)", async () => {
+  const { run, fx, store } = setup();
+  const otherProject = store.listProjects().find((p) => p.companyId === '2');
+  store.createTask({ title: 'Synergy only task', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: '2', projectId: otherProject.id, assignedUserIds: [fx.admin.id], ownerId: fx.admin.id });
+  const mine = await run('return (await tf.myTasks({ everyone: true })).map((t) => t.title);');
+  assert.ok(!mine.result.includes('Synergy only task'), 'company 1 does not see company 2 tasks');
+  const upd = await run("return await tf.updateTask({ task: 'Synergy only task', status: 'Done' });");
+  assert.match(upd.error, /no task matches/);
+});

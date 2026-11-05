@@ -49,8 +49,8 @@ export interface AssistantFile { id: string; name: string; mimeType: string; siz
 export interface AssistantItem { role: 'user' | 'assistant'; ref?: number; feedback?: 'up' | 'down'; text: string; actions: AssistantAction[]; cards?: AssistantCard[]; suggestions?: string[]; files?: AssistantFile[] }
 export type AssistantStepKind = 'thinking' | 'search' | 'read' | 'prepare' | 'show' | 'run' | 'confirm';
 export interface AssistantStep { kind: AssistantStepKind; detail?: string }
-export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number; working?: boolean; error?: { status: number; message: string } | null }
-export interface AssistantThreadSummary { id: string; title: string; companyId: string; updatedAt: string }
+export interface AssistantThread { id: string; title: string; companyId: string; scope?: 'company' | 'group'; items: AssistantItem[]; pending: number; working?: boolean; error?: { status: number; message: string } | null }
+export interface AssistantThreadSummary { id: string; title: string; companyId: string; scope?: 'company' | 'group'; updatedAt: string }
 export interface AssistantStatus { enabled: boolean; model: string | null }
 
 export const getAssistantStatus = () => apiFetch<AssistantStatus>('/assistant/status');
@@ -85,7 +85,7 @@ export async function untilDone(first: AssistantThread, onThread?: (t: Assistant
 export interface AssistantSubject { kind: string; id: string; title: string }
 export interface ScreenContext { path?: string; subject?: AssistantSubject }
 
-export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string; context?: ScreenContext }, onThread?: (t: AssistantThread) => void) =>
+export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; scope?: 'company' | 'group'; fileIds?: string[]; requestId?: string; context?: ScreenContext }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>('/assistant/chat', { method: 'POST', body: JSON.stringify({ ...input, background: true }) }), onThread);
 export const decideAssistantActions = async (threadId: string, decision: { confirm?: string[]; decline?: string[]; edits?: Record<string, Record<string, unknown>>; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>(`/assistant/threads/${threadId}/decide`, { method: 'POST', body: JSON.stringify({ ...decision, background: true }) }), onThread);
