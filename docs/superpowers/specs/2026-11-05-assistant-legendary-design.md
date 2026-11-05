@@ -235,3 +235,45 @@ Decisions recorded:
 Still open:
 - Undo for attachments needs a link from `records/.../attachments` to `/record-attachments/:id`.
 - Wave 3 (everywhere): the side panel on every page that knows what is on screen, streaming replies, and "Ask about this" on records.
+
+## Wave 3 results (2026-11-05)
+
+Built as planned (`plans/2026-11-05-assistant-wave-3.md`), on `feature/permissions-v2`.
+
+- **On every page:**
+  - a side panel with the same conversation, opened from the header button next to the bell or with ⌘J/Ctrl+J;
+  - it opens from the right, from the left in Arabic, and full width on phones;
+  - "Open full screen" goes to `/assistant`.
+- **It knows what is on screen:**
+  - record pages register their record: the project page, the contact page, and the task sheet (a stack, so a task sheet over its project gives "this task", and closing it gives "this project" again);
+  - each question sends `{ path, subject }`, which the server checks, flattens and puts in the per-turn prompt as information;
+  - "Ask about this" opens a fresh conversation about the record, with suggestions about it and a removable "About: …" chip.
+  - In the browser, "what's left to do here?" on a project used the project's id with no lookup.
+- **Answers stream as they are written:**
+  - the model call streams, and the agent passes on only answer text (never code or thinking);
+  - `GET /assistant/stream/:requestId` belongs to the person who asked (8 open streams and 50 entries at most, per person);
+  - reply text never goes over `/live`, which stays topic names only;
+  - in the browser, 35 partial updates arrived before the final answer.
+  - Reopening the panel during a turn picks the turn back up.
+- **The browser and eval checks caught two accuracy gaps, both fixed:**
+  - recipes now refuse options they don't take: `tf.myTasks({ project })` had been silently ignored and gave a confidently wrong count. `myTasks` now takes `project`;
+  - names typed in one script find records stored in the other ("النور للأغذية" → Al Noor Foods, "أحمد البلوشي" → Ahmed Al Balushi), by comparing consonant outlines, and only when exactly one record matches.
+- **Settings redesign (asked for on the way):**
+  - sections grouped on the side, one section at a time, each with its own `?section=` address, a "Find a setting" filter, and chips on phones;
+  - developer tools only on development builds or for super admins.
+  - Root fix: `position: sticky` had never worked inside the app's main area. It is now `overflow-x: clip`, with `hidden` on Safari < 16.
+
+Verified:
+- 1292/1292 backend tests pass, and the frontend typechecks and lints clean.
+- Eval: 95% after the first build of this wave, then 97.5% after the cross-script fix (median 4.6 s).
+- Review: 5 findings, 4 fixed. The one skipped: a stranger who knew a request's id could claim its stream first; ids are random and never shown, so that only degrades the request to polling.
+
+Still open:
+- "Ask about this" on invoices: the invoice view lives outside the app layout (`/invoice/[id]`).
+- Wave 4 (snap it, say it, forward it):
+  - reading photos and PDFs into vendor bills, expenses and contacts;
+  - voice;
+  - WhatsApp;
+  - phone push for proposals that are waiting.
+
+  Its models (vision, speech) need the GPU host.
