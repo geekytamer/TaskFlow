@@ -1,10 +1,16 @@
 import type { Recipe } from './types';
 import { createTasks, logTime, myTasks, updateTask } from './tasks';
+import { invoices, receivables, recordPayment, salesSummary } from './sales';
+import { createContact, findContact, onLeave, pendingApprovals, stock } from './business';
 
 export type { Recipe, RecipeContext } from './types';
 
 /** The ready-made helpers a script calls as tf.<name>(args), most used first. */
-export const RECIPES: Recipe[] = [myTasks, createTasks, updateTask, logTime];
+export const RECIPES: Recipe[] = [
+  myTasks, createTasks, updateTask, logTime,
+  invoices, receivables, salesSummary, recordPayment,
+  stock, onLeave, findContact, createContact, pendingApprovals,
+];
 
 export const recipeByName = (name: string): Recipe | undefined => RECIPES.find((r) => r.name === name);
 

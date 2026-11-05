@@ -103,3 +103,72 @@ test('updateTask and logTime find the task by title; assignTo finds the person b
   const bad = await run("return await tf.updateTask({ task: 'nope', status: 'Done' });");
   assert.match(bad.error, /no task matches "nope"/);
 });
+
+test('invoices and receivables: unpaid, overdue and owed, base currency, largest debtor first', async () => {
+  const { run } = setup();
+  const overdue = await run("return await tf.invoices({ status: 'overdue' });");
+  assert.equal(overdue.result.length, 3, JSON.stringify(overdue.result));
+  assert.ok(overdue.result.every((i) => i.overdue && i.outstanding > 0));
+  const rec = await run('return await tf.receivables();');
+  assert.equal(rec.result.owed, 4450);
+  assert.equal(rec.result.overdue, 3650);
+  assert.equal(rec.result.byClient[0].client, 'Desert Rose Hotel');
+  const text = await run("return (await tf.invoices('overdue')).length;");
+  assert.equal(text.result, 3, 'a bare status word is the status, not a client');
+});
+
+test('recordPayment: by client name and amount; refuses more than is owed', async () => {
+  const { run, fx } = setup();
+  const pay = await run("return await tf.recordPayment({ invoice: 'Al Noor', amount: 450 });");
+  assert.equal(pay.proposals.length, 1, JSON.stringify(pay));
+  assert.equal(pay.proposals[0].path, `/invoices/${fx.invoices.alNoorOverdue.id}/payments`);
+  assert.equal(pay.proposals[0].body.amount, 450);
+  const two = await run("return await tf.recordPayment({ invoice: 'Desert Rose' });");
+  assert.match(two.error, /2 unpaid invoices of "Desert Rose"/);
+  const over = await run(`return await tf.recordPayment({ invoice: '${fx.invoices.alNoorOverdue.invoiceNumber}', amount: 9999 });`);
+  assert.match(over.error, /only 450/);
+});
+
+test('salesSummary: this month by default, drafts left out', async () => {
+  const { run } = setup();
+  const s = await run("return await tf.salesSummary({ from: '2000-01-01' });");
+  assert.equal(s.result.invoices, 5);
+  assert.equal(s.result.invoiced, 4750);
+  assert.equal(s.result.outstanding, 4450);
+});
+
+test('stock, onLeave, findContact: the fixture\'s truth', async () => {
+  const { run } = setup();
+  const low = await run('return (await tf.stock({ low: true })).map((i) => i.name).sort();');
+  assert.deepEqual(low.result, ['Campaign Flyers', 'Demo USB Kits']);
+  const shirts = await run("return await tf.stock('promo t-shirts');");
+  assert.equal(shirts.result[0].onHand, 42);
+  const leave = await run('return (await tf.onLeave()).map((l) => l.employee);');
+  assert.deepEqual(leave.result, ['Fatma Al Lawati']);
+  const ahmed = await run("return await tf.findContact('ahmed balushi');");
+  assert.equal(ahmed.result.length, 0, 'words out of order do not match a name');
+  const ahmed2 = await run("return await tf.findContact('Ahmed Al Balushi');");
+  assert.equal(ahmed2.result[0].phone, '+968 9123 4567');
+  const byPhone = await run("return await tf.findContact('91234567');");
+  assert.equal(byPhone.result[0].name, 'Ahmed Al Balushi');
+  const sara = await run("return await tf.findContact('ساره');");
+  assert.equal(sara.result[0].name, 'سارة الهنائية');
+});
+
+test('createContact proposes with roles checked; pendingApprovals reads the person\'s box', async () => {
+  const { run } = setup();
+  const c = await run("return await tf.createContact({ name: 'Omar Al Said', phone: '99112233', roles: ['Lead'] });");
+  assert.equal(c.proposals[0].path, '/companies/1/contacts');
+  assert.deepEqual(c.proposals[0].body, { name: 'Omar Al Said', phone: '99112233', roles: ['Lead'] });
+  const bad = await run("return await tf.createContact({ name: 'X', roles: ['Friend'] });");
+  assert.match(bad.error, /roles must be/);
+  const approvals = await run('return await tf.pendingApprovals();');
+  assert.deepEqual(approvals.result, []);
+});
+
+test('recipes keep the person\'s permissions: an employee cannot read invoices through them', async () => {
+  const { run, fx } = setup();
+  const out = await run('return await tf.receivables();', fx.charlie.id);
+  assert.equal(out.error !== undefined || out.result === undefined, true, JSON.stringify(out));
+  assert.match(String(out.error), /403/);
+});
