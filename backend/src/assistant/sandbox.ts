@@ -92,7 +92,9 @@ export async function runInSandbox(code: string, host: SandboxHost, limits: Sand
       };
       calls += 1;
       if (calls > limits.maxCalls) {
-        settle(JSON.stringify({ __error: `too many api calls in one script (limit ${limits.maxCalls}); return what you have and continue in another run` }));
+        // Answered on a later tick, like every other call: settle() runs pending jobs,
+        // which must not happen re-entrantly while the VM is inside this very call.
+        setImmediate(() => settle(JSON.stringify({ __error: `too many api calls in one script (limit ${limits.maxCalls}); return what you have and continue in another run` })));
       } else {
         let body: unknown;
         try { body = bodyText ? JSON.parse(bodyText) : undefined; } catch { body = undefined; }

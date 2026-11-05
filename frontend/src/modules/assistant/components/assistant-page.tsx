@@ -17,7 +17,7 @@ import { isApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
 import {
-  askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
+  AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
   listAssistantThreads, uploadAssistantFile,
   type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
@@ -114,7 +114,7 @@ export function AssistantPage() {
   }, [userId, thread]);
 
   const failMessage = (err: unknown) => {
-    if (isApiError(err) && err.status === 503) return tr('The assistant is offline right now (its model cannot be reached). Try again in a while.', 'المساعد غير متاح الآن (لا يمكن الوصول إلى النموذج). حاول بعد قليل.');
+    if ((isApiError(err) || err instanceof AssistantTurnError) && err.status === 503) return tr('The assistant is offline right now (its model cannot be reached). Try again in a while.', 'المساعد غير متاح الآن (لا يمكن الوصول إلى النموذج). حاول بعد قليل.');
     if (isApiError(err) && err.status === 409) return tr('Still working on the last request.', 'ما زال يعمل على الطلب السابق.');
     return err instanceof Error ? err.message : String(err);
   };
@@ -130,7 +130,9 @@ export function AssistantPage() {
     setPendingQuestion(message);
     setWorking('asking');
     try {
-      setThread(await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), ...(thread ? { threadId: thread.id } : {}) }));
+      // While it works, the thread (with this message in it) is shown as it stands.
+      const done = await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), ...(thread ? { threadId: thread.id } : {}) }, (t) => { setPendingQuestion(null); setThread(t); });
+      setThread(done);
     } catch (err) {
       setError(failMessage(err));
       setDraft(message);
@@ -148,7 +150,7 @@ export function AssistantPage() {
     setError(null);
     setWorking('deciding');
     try {
-      setThread(await decideAssistantActions(thread.id, { confirm, decline, requestId: newRequestId() }));
+      setThread(await decideAssistantActions(thread.id, { confirm, decline, requestId: newRequestId() }, setThread));
     } catch (err) {
       setError(failMessage(err));
       setThread(await getAssistantThread(thread.id).catch(() => thread));

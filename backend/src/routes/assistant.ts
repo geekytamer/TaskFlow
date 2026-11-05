@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { Express } from 'express';
+import type { Express, Response as ExpressResponse } from 'express';
 import { HttpError } from '../http';
 import { asRecord, requiredString } from '../validation';
 import type { RouteContext } from './context';
@@ -72,6 +72,12 @@ export function soundPath(path: string): string {
 const MAX_WRITES_PER_RUN = 25;
 const MAX_CARDS = 30;
 const ACTION_TTL_MS = 60 * 60 * 1000;
+const READ_TIMEOUT_MS = 60_000;
+/** A confirmed change gets longer: giving up early would report a change that went through as failed. */
+const CHANGE_TIMEOUT_MS = 5 * 60_000;
+
+/** The API did not answer in time; for a change, whether it happened is unknown. */
+class NoAnswerError extends Error {}
 
 export function registerAssistantRoutes(app: Express, ctx: RouteContext, options: AssistantOptions = {}): void {
   const { store, authMiddleware, requireCompanyAccess, allowsKey, accessibleCompanyIds } = ctx;
@@ -140,14 +146,21 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
 
   const tokenOf = (req: AuthedRequest) => String(req.headers.authorization ?? '').replace('Bearer ', '').trim();
 
-  async function callApi(token: string, method: string, path: string, body: unknown): Promise<unknown> {
+  async function callApi(token: string, method: string, path: string, body: unknown, timeoutMs = READ_TIMEOUT_MS): Promise<unknown> {
     const p = await port();
-    const response = await fetch(`http://127.0.0.1:${p}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-taskflow-assistant': '1' },
-      ...(body !== undefined && method !== 'GET' ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(60_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`http://127.0.0.1:${p}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'x-taskflow-assistant': '1' },
+        ...(body !== undefined && method !== 'GET' ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      // Giving up waiting does not stop the handler: a change may still be made.
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) throw new NoAnswerError(`no answer within ${Math.round(timeoutMs / 1000)}s`);
+      throw err;
+    }
     const type = response.headers.get('content-type') ?? '';
     const data: unknown = type.includes('application/json') ? await response.json().catch(() => null)
       : type.startsWith('text/') ? (await response.text()).slice(0, 20_000)
@@ -200,6 +213,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     return {
       id: thread.id, title: thread.title, companyId: thread.companyId, items,
       pending: actions.filter((a) => a.status === 'pending').length,
+      working: busy.has(thread.id),
+      error: failures.get(thread.id) ?? null,
     };
   }
 
@@ -260,6 +275,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         step({ kind: 'run' });
         const before = proposed.length;
         const cardsBefore = cards.length;
+        // Closed once the script has ended (or timed out): a host call still in flight
+        // (makeDocument's template read) must not leave a proposal no message shows.
+        let open = true;
         const host: SandboxHost = {
         call: async (method, path, body, summary) => {
           if (method === 'DOC') {
@@ -334,6 +352,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           for (const id of fileIdsIn(body)) ownFile(id, user.id, companyId);
           if (op.method === 'POST' && op.path === '/companies/:companyId/documents') checkDocument(body, companyId);
           step({ kind: 'prepare', detail: (summary ?? '').slice(0, 80) });
+          if (!open) throw new Error('the script has already ended');
           if (proposed.length >= MAX_WRITES_PER_RUN) throw new Error(`at most ${MAX_WRITES_PER_RUN} changes at once`);
           const action = store.createAssistantAction({
             threadId: thread.id, userId: user.id, companyId, method, path, body,
@@ -343,7 +362,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
         },
         };
-        const outcome = await runInSandbox(code, host);
+        const outcome = await runInSandbox(code, host).finally(() => { open = false; });
         // Records the script returned but did not show() still reach the person as cards.
         if (outcome.ok && cards.length === cardsBefore) {
           for (const r of recordsIn(outcome.value).slice(0, MAX_CARDS)) {
@@ -378,6 +397,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       const thinking: ChatFn = (m, t) => { step({ kind: 'thinking' }); return chat(m, t); };
       outcome = await runAgent(thinking, system, history, tools, 8, mode);
     } catch (err) {
+      // The turn is lost, so are the messages that would show its proposals: none may linger as pending.
+      for (const id of proposed) store.decideAssistantAction(id, 'expired', null);
+      progress.delete(requestId ?? '');
       if (err instanceof ModelUnavailableError) throw new HttpError(503, err.message, { code: 'ASSISTANT_OFFLINE' });
       throw err;
     }
@@ -389,10 +411,31 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     store.saveAssistantMessages(thread.id, [...thread.messages, ...added]);
   }
 
-  async function exclusive<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
+  /** Why the last background turn on a thread failed, until the next one starts. */
+  const failures = new Map<string, { status: number; message: string }>();
+
+  /**
+   * One turn at a time per thread. With `background` the request answers 202 at
+   * once (the thread, working: true) and the chat screen polls the thread until
+   * it is done, so a slow model never meets a proxy's read timeout.
+   */
+  async function turn(res: ExpressResponse, threadId: string, background: boolean, fn: () => Promise<void>): Promise<void> {
     if (busy.has(threadId)) throw new HttpError(409, 'The assistant is still working on this conversation.');
     busy.add(threadId);
-    try { return await fn(); } finally { busy.delete(threadId); }
+    failures.delete(threadId);
+    const work = (async () => {
+      try { await fn(); } catch (err) {
+        if (!background) throw err;
+        failures.set(threadId, { status: err instanceof HttpError ? err.status : 500, message: err instanceof Error ? err.message : String(err) });
+      } finally { busy.delete(threadId); }
+    })();
+    if (!background) {
+      await work;
+      res.json(viewOf(store.getAssistantThread(threadId)!));
+      return;
+    }
+    void work;
+    res.status(202).json(viewOf(store.getAssistantThread(threadId)!));
   }
 
   app.get('/assistant/status', authMiddleware, handler((_req, res) => {
@@ -467,14 +510,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const content = files.length
       ? `${message}\n\n[Attached files: ${files.map((f) => `"${f.name}" (${f.mimeType}, ${Math.ceil(f.sizeBytes / 1024)} KB) fileId: ${f.id}`).join('; ')}]`
       : message;
-    await exclusive(thread.id, async () => {
+    await turn(res, thread.id, body.background === true, async () => {
       // Anything still waiting is set aside: the person moved on.
       for (const a of store.listAssistantActions(thread.id)) if (a.status === 'pending') store.decideAssistantAction(a.id, 'expired', null);
       thread.messages = [...thread.messages, { role: 'user', content, ...(files.length ? { ui: { files } } : {}) } as StoredMessage];
       store.saveAssistantMessages(thread.id, thread.messages);
       await advance(req, thread, requestIdOf(body));
     });
-    res.json(viewOf(store.getAssistantThread(thread.id)!));
   }));
 
   /**
@@ -492,7 +534,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const token = tokenOf(req);
     const step = stepper(req, requestIdOf(body));
     const ops = assistantOps();
-    await exclusive(thread.id, async () => {
+    await turn(res, thread.id, body.background === true, async () => {
       const report: string[] = [];
       const made: AssistantCard[] = [];
       const lookups = {
@@ -512,7 +554,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         if (!store.claimAssistantAction(id)) continue;
         try {
           step({ kind: 'confirm', detail: a.summary.slice(0, 80) });
-          const result = await callApi(token, a.method, a.path, withFiles(a.body, req.user!.id, thread.companyId));
+          const result = await callApi(token, a.method, a.path, withFiles(a.body, req.user!.id, thread.companyId), CHANGE_TIMEOUT_MS);
           store.decideAssistantAction(id, 'done', result);
           // What was just made is shown as a card with its link (a task, a document, a contact...).
           const op = a.method === 'POST' ? matchOp(ops, a.method, a.path) : undefined;
@@ -522,6 +564,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           }
           report.push(`Done: ${a.summary} → ${toolText(result).slice(0, 1500)}`);
         } catch (err) {
+          if (err instanceof NoAnswerError) {
+            // It may well have been done: say so, so neither the person nor the model simply does it again.
+            const error = `${err.message}; it may still have been done — check before trying again`;
+            store.decideAssistantAction(id, 'failed', { error, unknown: true });
+            report.push(`Unknown: ${a.summary} → ${error}. Read the record (or list) to see whether it exists before proposing it again.`);
+            continue;
+          }
           const error = err instanceof Error ? err.message : String(err);
           store.decideAssistantAction(id, 'failed', { error });
           report.push(`Failed: ${a.summary} → ${error}`);
@@ -541,7 +590,6 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         });
       }
     });
-    res.json(viewOf(store.getAssistantThread(thread.id)!));
   }));
 }
 

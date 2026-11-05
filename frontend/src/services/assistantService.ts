@@ -26,7 +26,7 @@ export interface AssistantFile { id: string; name: string; mimeType: string; siz
 export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[]; cards?: AssistantCard[]; suggestions?: string[]; files?: AssistantFile[] }
 export type AssistantStepKind = 'thinking' | 'search' | 'read' | 'prepare' | 'show' | 'run' | 'confirm';
 export interface AssistantStep { kind: AssistantStepKind; detail?: string }
-export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number }
+export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number; working?: boolean; error?: { status: number; message: string } | null }
 export interface AssistantThreadSummary { id: string; title: string; companyId: string; updatedAt: string }
 export interface AssistantStatus { enabled: boolean; model: string | null }
 
@@ -34,10 +34,34 @@ export const getAssistantStatus = () => apiFetch<AssistantStatus>('/assistant/st
 export const listAssistantThreads = () => apiFetch<AssistantThreadSummary[]>('/assistant/threads');
 export const getAssistantThread = (id: string) => apiFetch<AssistantThread>(`/assistant/threads/${id}`);
 export const deleteAssistantThread = (id: string) => apiFetch<void>(`/assistant/threads/${id}`, { method: 'DELETE' });
-export const askAssistant = (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string }) =>
-  apiFetch<AssistantThread>('/assistant/chat', { method: 'POST', body: JSON.stringify(input) });
-export const decideAssistantActions = (threadId: string, decision: { confirm?: string[]; decline?: string[]; requestId?: string }) =>
-  apiFetch<AssistantThread>(`/assistant/threads/${threadId}/decide`, { method: 'POST', body: JSON.stringify(decision) });
+/** A turn that failed while running in the background, with the status the server gave. */
+export class AssistantTurnError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+/**
+ * The server answers at once and works in the background (a slow model would
+ * outlast a proxy's timeout); this waits for the turn by reading the thread.
+ * `onThread` sees each state, so the person's message shows while it works.
+ */
+async function untilDone(first: AssistantThread, onThread?: (t: AssistantThread) => void): Promise<AssistantThread> {
+  let t = first;
+  while (t.working) {
+    onThread?.(t);
+    await new Promise((r) => setTimeout(r, 1500));
+    t = await apiFetch<AssistantThread>(`/assistant/threads/${t.id}`);
+  }
+  if (t.error) {
+    onThread?.(t);
+    throw new AssistantTurnError(t.error.status, t.error.message);
+  }
+  return t;
+}
+
+export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
+  untilDone(await apiFetch<AssistantThread>('/assistant/chat', { method: 'POST', body: JSON.stringify({ ...input, background: true }) }), onThread);
+export const decideAssistantActions = async (threadId: string, decision: { confirm?: string[]; decline?: string[]; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
+  untilDone(await apiFetch<AssistantThread>(`/assistant/threads/${threadId}/decide`, { method: 'POST', body: JSON.stringify({ ...decision, background: true }) }), onThread);
 
 let statusCache: Promise<AssistantStatus> | null = null;
 /** Asked once per page load: whether this server has a model set up. */

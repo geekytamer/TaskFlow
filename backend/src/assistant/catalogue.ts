@@ -65,8 +65,20 @@ export function matchOp(ops: AssistantOp[], method: string, url: string): Assist
     if (op.method !== method) return false;
     const pattern = op.path.split('/');
     if (pattern.length !== parts.length) return false;
-    return pattern.every((seg, i) => (seg.startsWith(':') ? parts[i].length > 0 && !parts[i].includes('..') : seg === parts[i]));
+    return pattern.every((seg, i) => (seg.startsWith(':') ? safeSegment(parts[i]) : seg === parts[i]));
   });
+}
+
+/**
+ * A path parameter that stays one segment on the wire. fetch's URL parser turns
+ * `%2e%2e` into `..` and `\` into `/` and then normalizes, so an id like that
+ * would reach a different route than the one matched here.
+ */
+function safeSegment(raw: string): boolean {
+  if (!raw || raw.includes('\\')) return false;
+  let decoded: string;
+  try { decoded = decodeURIComponent(raw); } catch { return false; }
+  return decoded !== '.' && decoded !== '..' && !/[/\\]/.test(decoded) && !raw.includes('..');
 }
 
 /** One line per op, as the model reads them. */

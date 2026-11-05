@@ -87,6 +87,11 @@ test('catalogue: the staff API without sign-in, portal, admin or the assistant i
   assert.equal(matchOp(ops, 'GET', '/companies/1/invoices?status=Overdue')?.path, '/companies/:companyId/invoices');
   assert.equal(matchOp(ops, 'POST', '/assistant/threads/x/decide'), undefined);
   assert.equal(matchOp(ops, 'GET', '/companies/../invoices'), undefined);
+  // fetch turns %2e%2e into .. and \ into /, then normalizes: such an id would reach another route.
+  for (const bad of ['%2e%2e', '%2E%2e', '%2e', 'a%2fb', 'a\\b', '%E0%A4%A']) {
+    assert.equal(matchOp(ops, 'GET', `/companies/${bad}/invoices`), undefined, bad);
+  }
+  assert.equal(matchOp(ops, 'GET', '/companies/abc-123/invoices')?.path, '/companies/:companyId/invoices');
   assert.ok(searchOps(ops, 'overdue invoices').some((o) => o.path === '/companies/:companyId/invoices'));
 });
 
@@ -422,4 +427,58 @@ test('makeDocument finds the template by name (Arabic too) and maps blanks by ke
   assert.equal(action.body.templateId, tpl.body.id);
   assert.deepEqual(action.body.fieldValues, { employee: 'أحمد', salary: '900' });
   assert.equal(action.summary, 'شهادة راتب لأحمد');
+});
+
+test('sandbox: past the call limit the script still gets an error it can catch, and the rest runs', async () => {
+  const r = await runInSandbox(`
+    let n = 0, err = null;
+    try { for (let i = 0; i < 10; i++) { await api.get('/x'); n++; } } catch (e) { err = e.message; }
+    return { n, err };`, quietHost, { timeoutMs: 5000, maxCalls: 3, memoryBytes: 32e6 });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.value.n, 3);
+  assert.match(r.value.err, /too many api calls/);
+});
+
+test('background: the request answers at once, the thread says it is working, then has the answer', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const s = setup([], { chat: async () => { await gate; return { content: 'All done.' }; } });
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'hello', background: true });
+  assert.equal(asked.status, 202, JSON.stringify(asked.body));
+  assert.equal(asked.body.working, true);
+  assert.equal(asked.body.items.at(-1).text, 'hello', 'the message is in the thread while it works');
+  const busy = await s.as(s.admin.id).post('/assistant/chat', { threadId: asked.body.id, message: 'again', background: true });
+  assert.equal(busy.status, 409);
+  release();
+  let view;
+  for (let i = 0; i < 50; i++) {
+    view = (await s.as(s.admin.id).get(`/assistant/threads/${asked.body.id}`)).body;
+    if (!view.working) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(view.working, false);
+  assert.equal(view.error, null);
+  assert.equal(view.items.at(-1).text, 'All done.');
+});
+
+test('background: a model that fails is reported on the thread; changes it had proposed do not linger', async () => {
+  let n = 0;
+  const s = setup([], {
+    chat: async () => {
+      n += 1;
+      if (n === 1) return { content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'run_script', arguments: JSON.stringify({ code: "return await api.post('/tasks', { title: 'Lost', companyId: '1', priority: 'High' }, 'Create Lost');" }) } }] };
+      throw new ModelUnavailableError('down');
+    },
+  });
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'make a task', background: true });
+  assert.equal(asked.status, 202);
+  let view;
+  for (let i = 0; i < 50; i++) {
+    view = (await s.as(s.admin.id).get(`/assistant/threads/${asked.body.id}`)).body;
+    if (!view.working) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.deepEqual(view.error, { status: 503, message: 'down' });
+  assert.equal(view.pending, 0, 'the proposal no message shows is expired');
+  assert.ok(s.store.listAssistantActions(asked.body.id).every((a) => a.status === 'expired'));
 });
