@@ -117,10 +117,16 @@ export function inverseOf(ops: AssistantOp[], action: { method: string; path: st
   return null;
 }
 
-/** The area a call belongs to (its permission's module; for per-record routes, the first path word). */
+/** Sub-areas folded into the module people know them by (Settings → Assistant lists modules, not routes). */
+const AREA_OF: Record<string, string> = {
+  'time-entries': 'tasks', 'approval-holds': 'approvals', 'conversation-threads': 'inbox', 'conversation-messages': 'inbox',
+  'group-people': 'people', users: 'people', 'holding-groups': 'group', me: 'personal', notifications: 'personal',
+};
+
+/** The area a call belongs to: its permission's module (per-record routes: the first path word), folded as above. */
 export function areaOf(op: { permission: string; path: string }): string {
-  if (op.permission.includes('.')) return op.permission.split('.')[0];
-  return op.path.split('/').find((s) => s && !s.startsWith(':') && s !== 'companies') ?? 'other';
+  const raw = op.permission.includes('.') ? op.permission.split('.')[0] : op.path.split('/').find((s) => s && !s.startsWith(':') && s !== 'companies') ?? 'other';
+  return AREA_OF[raw] ?? raw;
 }
 
 const DOC_TYPES: Record<string, ApprovalDocType> = {

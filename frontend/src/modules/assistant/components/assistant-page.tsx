@@ -6,19 +6,19 @@
  * you, through the same permissions and approvals as your own clicks.
  */
 import * as React from 'react';
-import { Bot, Check, ChevronDown, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Bot, Check, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { isApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
+import { ActionReview, type ActionEdits } from './action-review';
 import {
   AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
-  listAssistantThreads, sendAssistantFeedback, uploadAssistantFile,
+  listAssistantThreads, sendAssistantFeedback, undoAssistantAction, uploadAssistantFile,
   type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
 
@@ -145,12 +145,33 @@ export function AssistantPage() {
     }
   };
 
+  // The person's edits to proposed changes, by action id; sent with the confirmation.
+  const [edits, setEdits] = React.useState<Record<string, ActionEdits>>({});
+  const editAction = (actionId: string, key: string, value: unknown) =>
+    setEdits((all) => ({ ...all, [actionId]: { ...(all[actionId] ?? {}), [key]: value } }));
+
   const decide = async (confirm: string[], decline: string[]) => {
     if (!thread || working) return;
     setError(null);
     setWorking('deciding');
+    const sent = Object.fromEntries(confirm.filter((id) => edits[id]).map((id) => [id, edits[id]]));
     try {
-      setThread(await decideAssistantActions(thread.id, { confirm, decline, requestId: newRequestId() }, setThread));
+      setThread(await decideAssistantActions(thread.id, { confirm, decline, ...(Object.keys(sent).length ? { edits: sent } : {}), requestId: newRequestId() }, setThread));
+      setEdits((all) => Object.fromEntries(Object.entries(all).filter(([id]) => !confirm.includes(id) && !decline.includes(id))));
+    } catch (err) {
+      setError(failMessage(err));
+      setThread(await getAssistantThread(thread.id).catch(() => thread));
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  const undo = async (actionId: string) => {
+    if (!thread || working) return;
+    setError(null);
+    setWorking('deciding');
+    try {
+      setThread(await undoAssistantAction(thread.id, actionId));
     } catch (err) {
       setError(failMessage(err));
       setThread(await getAssistantThread(thread.id).catch(() => thread));
@@ -227,7 +248,7 @@ export function AssistantPage() {
           <div key={i} className="flex flex-col gap-2">
             {item.text ? <ReplyText text={item.text} /> : null}
             {item.cards?.length ? <RecordCards cards={item.cards} tr={tr} language={language} /> : null}
-            {item.actions.length ? <ActionGroup actions={item.actions} tr={tr} busy={Boolean(working)} onDecide={decide} /> : null}
+            {item.actions.length ? <ActionGroup actions={item.actions} tr={tr} language={language} busy={Boolean(working)} edits={edits} onEdit={editAction} onDecide={decide} onUndo={undo} /> : null}
             {item.text && typeof item.ref === 'number' && thread ? (
               <div className="-mt-1 flex gap-0.5 text-muted-foreground">
                 {([true, false] as const).map((helpful) => {
@@ -408,10 +429,16 @@ function stepText(step: AssistantStep | null, tr: Tr): string | null {
   }
 }
 
-const kindOf = (a: AssistantAction, tr: Tr) =>
-  a.method === 'DELETE' ? tr('Delete', 'حذف') : a.method === 'POST' ? tr('Create', 'إنشاء') : tr('Change', 'تعديل');
-
-function ActionGroup({ actions, tr, busy, onDecide }: { actions: AssistantAction[]; tr: Tr; busy: boolean; onDecide: (confirm: string[], decline: string[]) => void }) {
+function ActionGroup({ actions, tr, language, busy, edits, onEdit, onDecide, onUndo }: {
+  actions: AssistantAction[];
+  tr: Tr;
+  language: string;
+  busy: boolean;
+  edits: Record<string, ActionEdits>;
+  onEdit: (actionId: string, key: string, value: unknown) => void;
+  onDecide: (confirm: string[], decline: string[]) => void;
+  onUndo: (actionId: string) => void;
+}) {
   const open = actions.filter((a) => a.status === 'pending').map((a) => a.id);
   return (
     <div className="flex flex-col gap-2 rounded-lg border bg-card p-3">
@@ -419,7 +446,10 @@ function ActionGroup({ actions, tr, busy, onDecide }: { actions: AssistantAction
         {open.length ? tr('Waiting for your confirmation', 'بانتظار تأكيدك') : tr('Proposed changes', 'التغييرات المقترحة')}
       </p>
       <ul className="flex flex-col divide-y">
-        {actions.map((a) => <ActionRow key={a.id} action={a} tr={tr} busy={busy} onDecide={onDecide} />)}
+        {actions.map((a) => (
+          <ActionReview key={a.id} action={a} tr={tr} language={language} busy={busy} edits={edits[a.id]}
+            onEdit={(key, value) => onEdit(a.id, key, value)} onDecide={onDecide} onUndo={onUndo} />
+        ))}
       </ul>
       {open.length > 1 ? (
         <div className="flex flex-wrap justify-end gap-2 pt-1">
@@ -428,41 +458,5 @@ function ActionGroup({ actions, tr, busy, onDecide }: { actions: AssistantAction
         </div>
       ) : null}
     </div>
-  );
-}
-
-function ActionRow({ action: a, tr, busy, onDecide }: { action: AssistantAction; tr: Tr; busy: boolean; onDecide: (confirm: string[], decline: string[]) => void }) {
-  const [details, setDetails] = React.useState(false);
-  const statusText: Record<string, [string, string]> = {
-    done: [tr('Done', 'تم'), 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'],
-    failed: [tr('Failed', 'فشل'), 'bg-destructive/10 text-destructive'],
-    declined: [tr('Declined', 'مرفوض'), 'bg-muted text-muted-foreground'],
-    expired: [tr('Expired', 'انتهت'), 'bg-muted text-muted-foreground'],
-    running: [tr('Running', 'قيد التنفيذ'), 'bg-muted text-muted-foreground'],
-  };
-  const chip = statusText[a.status];
-  return (
-    <li className="flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0">
-      <div className="flex flex-wrap items-start gap-2">
-        <Badge variant={a.method === 'DELETE' ? 'destructive' : 'secondary'} className="shrink-0">{kindOf(a, tr)}</Badge>
-        <span className="min-w-0 flex-1 text-sm">{a.summary}</span>
-        {chip ? <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', chip[1])}>{chip[0]}</span> : null}
-      </div>
-      {a.error ? <p className="text-xs text-destructive">{a.error}</p> : null}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => setDetails((d) => !d)} aria-expanded={details}>
-          <ChevronDown className={cn('h-3 w-3 transition-transform', details && 'rotate-180')} />{tr('Details', 'التفاصيل')}
-        </button>
-        {a.status === 'pending' ? (
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onDecide([], [a.id])}><X className="h-4 w-4" />{tr('Decline', 'رفض')}</Button>
-            <Button size="sm" variant={a.method === 'DELETE' ? 'destructive' : 'default'} disabled={busy} onClick={() => onDecide([a.id], [])}><Check className="h-4 w-4" />{tr('Confirm', 'تأكيد')}</Button>
-          </div>
-        ) : null}
-      </div>
-      {details ? (
-        <pre dir="ltr" className="max-h-56 overflow-auto rounded bg-muted p-2 text-xs">{`${a.method} ${a.path}${a.body ? `\n${JSON.stringify(a.body, null, 2)}` : ''}`}</pre>
-      ) : null}
-    </li>
   );
 }

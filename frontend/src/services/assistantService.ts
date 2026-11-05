@@ -1,7 +1,17 @@
 import { API_BASE_URL, apiFetch, getStoredToken } from '@/lib/api-client';
 
 /** The in-app assistant (backend routes/assistant.ts). */
-export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired';
+export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired' | 'undone';
+/** One field of a proposed change, as a small form (backend assistant/review.ts). */
+export interface ReviewField {
+  key: string;
+  label: string;
+  kind: 'text' | 'longtext' | 'number' | 'date' | 'select' | 'boolean' | 'readonly';
+  value?: string | number | boolean | null;
+  display?: string;
+  options?: string[];
+}
+export interface ReviewChange { key: string; label: string; from: string; to: string }
 export interface AssistantAction {
   id: string;
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | string;
@@ -10,6 +20,19 @@ export interface AssistantAction {
   status: AssistantActionStatus;
   body: unknown;
   error: string | null;
+  /** Pending creates and edits: the fields, editable before confirming. */
+  fields?: ReviewField[];
+  /** Edits: what changes, before → after. */
+  changes?: ReviewChange[];
+  /** Deletes: what goes. */
+  target?: AssistantCard;
+  /** Before it runs: whether it could be taken back; after: whether Undo is offered. */
+  undoable: boolean;
+  /** Done and still undoable until this time. */
+  undoUntil?: string;
+  approval?: { status: 'may' } | { status: 'pending'; waitingOn: string[] };
+  /** What the person changed before confirming. */
+  edited?: ReviewChange[];
 }
 export interface AssistantCard {
   kind: string;
@@ -60,7 +83,7 @@ async function untilDone(first: AssistantThread, onThread?: (t: AssistantThread)
 
 export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>('/assistant/chat', { method: 'POST', body: JSON.stringify({ ...input, background: true }) }), onThread);
-export const decideAssistantActions = async (threadId: string, decision: { confirm?: string[]; decline?: string[]; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
+export const decideAssistantActions = async (threadId: string, decision: { confirm?: string[]; decline?: string[]; edits?: Record<string, Record<string, unknown>>; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>(`/assistant/threads/${threadId}/decide`, { method: 'POST', body: JSON.stringify({ ...decision, background: true }) }), onThread);
 
 let statusCache: Promise<AssistantStatus> | null = null;
@@ -102,3 +125,27 @@ export async function assistantFileUrl(id: string): Promise<string | null> {
     return res.ok ? URL.createObjectURL(await res.blob()) : null;
   } catch { return null; }
 }
+
+/** Takes back a change made in the last 10 minutes. */
+export const undoAssistantAction = (threadId: string, actionId: string) =>
+  apiFetch<AssistantThread>(`/assistant/threads/${threadId}/undo`, { method: 'POST', body: JSON.stringify({ actionId }) });
+
+/** How far the assistant may go in a company (Settings → Assistant). */
+export interface AssistantSettings { enabled: boolean; roles: string[]; changeAreas: string[] | null; maxChanges: number; learn: boolean }
+export interface AssistantSettingsView { settings: AssistantSettings; areas: string[]; roles: string[] }
+export const getAssistantSettings = (companyId: string) => apiFetch<AssistantSettingsView>(`/companies/${companyId}/assistant/settings`);
+export const saveAssistantSettings = (companyId: string, settings: Partial<AssistantSettings>) =>
+  apiFetch<AssistantSettingsView>(`/companies/${companyId}/assistant/settings`, { method: 'PUT', body: JSON.stringify(settings) });
+
+export interface AssistantLogRow {
+  id: string; userId: string; userName: string; method: string; path: string; summary: string;
+  status: AssistantActionStatus; area: string | null; createdAt: string; decidedAt: string | null; edited?: ReviewChange[];
+}
+export const listAssistantLog = (companyId: string, filter: { status?: string; area?: string; limit?: number } = {}) => {
+  const q = new URLSearchParams(Object.entries(filter).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)]));
+  return apiFetch<AssistantLogRow[]>(`/companies/${companyId}/assistant/actions${q.size ? `?${q}` : ''}`);
+};
+
+export interface AssistantExample { id: string; userId: string; request: string; code: string; kind: 'read' | 'change'; uses: number; createdAt: string; lastUsedAt: string | null }
+export const listAssistantExamples = (companyId: string) => apiFetch<AssistantExample[]>(`/companies/${companyId}/assistant/examples`);
+export const deleteAssistantExample = (id: string) => apiFetch<void>(`/assistant/examples/${id}`, { method: 'DELETE' });

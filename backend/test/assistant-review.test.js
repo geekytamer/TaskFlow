@@ -66,6 +66,8 @@ test('review: the inverse of a creation is the matching delete; of an edit, the 
 test('review: areas and approval document types', () => {
   assert.equal(areaOf({ permission: 'invoices.pay', path: '/invoices/:id/payments' }), 'invoices');
   assert.equal(areaOf({ permission: 'per_record', path: '/tasks/:taskId/time-entries' }), 'tasks');
+  assert.equal(areaOf({ permission: 'per_record', path: '/time-entries/:id' }), 'tasks', 'sub-areas fold into their module');
+  assert.equal(areaOf({ permission: 'self', path: '/me/approval-delegation' }), 'personal');
   assert.equal(docTypeOf('purchase-order'), 'purchase_order');
   assert.equal(docTypeOf('task'), undefined);
 });
