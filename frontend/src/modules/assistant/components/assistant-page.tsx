@@ -338,7 +338,8 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
             <span className="h-3.5 w-1.5 animate-pulse rounded-sm bg-primary/60" aria-hidden />
           </div>
         ) : null}
-        {working ? (
+        {/* While the answer is being written the caret says so; "Thinking…" would be wrong. */}
+        {working && !(liveReply && (!step || step.kind === 'thinking')) ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             {stepText(step, tr) ?? (working === 'asking' ? tr('Working on it…', 'يعمل على ذلك…') : tr('Running your confirmed changes…', 'ينفّذ التغييرات المؤكدة…'))}
