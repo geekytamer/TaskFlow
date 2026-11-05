@@ -40,6 +40,10 @@ export interface AgentContext {
   files?: Array<{ id: string; name: string; mimeType: string }>;
   /** Similar requests that worked before in this company (learned examples). */
   examples?: Array<{ request: string; code: string }>;
+  /** Helpers this person cannot use here (their routes refuse them): the model says so instead of trying. */
+  unavailable?: string[];
+  /** A whole-group conversation: the group and the companies under it this person can open. */
+  group?: { name: string; companies: Array<{ id: string; name: string; currency: string }> };
   /** What was on the person's screen when they asked (checked and flattened by the route). */
   onScreen?: { path?: string; subject?: { kind: string; id: string; title: string } };
 }
@@ -100,6 +104,8 @@ export function staticPrompt(mode: AgentMode = 'text'): string {
 function contextPrompt(c: AgentContext): string {
   return [
     `You act for ${c.userName} (ME = ${c.userId}). Today is ${c.today} (TODAY). The current company is "${c.company.name}" (COMPANY_ID = ${c.company.id}, currency ${c.company.currency}). Their other companies: ${c.companies.filter((x) => x.id !== c.company.id).map((x) => `${x.name} (${x.id})`).join(', ') || 'none'}.`,
+    ...(c.unavailable?.length ? [`Not available to this person here (no permission): ${c.unavailable.map((n) => `tf.${n}`).join(', ')}. If they ask for what these do, tell them they do not have access to it; do not try other ways around it.`] : []),
+    ...(c.group ? [`This conversation covers the WHOLE GROUP "${c.group.name}": ${c.group.companies.map((x) => `${x.name} (id ${x.id}, ${x.currency})`).join('; ')} (also in the constant COMPANIES). Reading helpers cover all of them and add "company" to each row; summaries come per company with totalsByCurrency: never add up different currencies. Pass { company: 'name' } to read one company only. Every change needs { company: 'name' }: if the person did not say which company, ask them. With raw endpoints, loop over COMPANIES and use each id in the path.`] : []),
     ...(c.areas?.length ? [`Areas they can use here: ${c.areas.join(', ')}. For anything else, say they do not have access.`] : []),
     ...(c.files?.length ? [`Files they attached (use the fileId; the server adds the file itself): ${c.files.map((f) => `"${f.name}" ${f.mimeType} fileId ${f.id}`).join('; ')}. To file one on a record: const [t] = await lookup('record name'); then api.post('/companies/' + COMPANY_ID + '/records/' + t.kind.replace('-', '_') + '/' + t.id + '/attachments', { fileId, note }, summary) (kind singular: task, contact, invoice...). An endpoint field that takes an image (logo, letterhead, photo) takes "file:<fileId>".`] : []),
     ...(c.onScreen?.subject
@@ -149,6 +155,25 @@ const outcomeText = (outcome: SandboxResult) => toolText(outcome.ok
 type Stored = ChatMessage & { ui?: { hidden?: true } };
 const hidden = <T extends ChatMessage>(m: T): T => ({ ...m, ui: { hidden: true } }) as T;
 
+/**
+ * A script with no return that ends in an awaited call ("await tf.contacts();"):
+ * return that call's value, as a console would. Small models write this often,
+ * and "returned nothing" sent them round in circles. show() is left alone (it answers).
+ */
+export function withImplicitReturn(code: string): string {
+  if (/\breturn\b/.test(code)) return code;
+  const lines = code.replace(/\s+$/, '').split('\n');
+  const last = lines[lines.length - 1];
+  const start = Math.max(last.lastIndexOf(';', last.trimEnd().endsWith(';') ? last.trimEnd().length - 2 : last.length) + 1, 0);
+  const statement = last.slice(start).trim();
+  if (!/^await\s+(tf\.|api\.get|lookup|findApi|search)/.test(statement)) return code;
+  lines[lines.length - 1] = `${last.slice(0, start)}${start ? ' ' : ''}return ${statement}`.replace(/^ return/, 'return');
+  return lines.join('\n');
+}
+
+/** Phrases of the server's notes to the model; an answer that repeats one is not an answer. */
+const INTERNAL_NOTE = /Write top-level code|Result of your code|returned nothing|NOT DONE YET|do not list them again|You already ran exactly this code/i;
+
 /** What of a (partial) model answer a person may see: before any code fence, no thinking, no "» " suggestion lines. */
 export function visibleAnswer(text: string): string {
   return cleanReply(text.split('```')[0]).split('\n').filter((line) => !/^\s*[»›]/.test(line)).join('\n').trim();
@@ -194,6 +219,7 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
   const ran = new Set<string>();
   let lastFailed = false;
   let fixNudged = false;
+  let leakNudged = false;
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const sent = [{ role: 'system' as const, content: system }, ...history, ...added.map(({ ui: _ui, ...m }) => m as ChatMessage)];
     const answer = await chat(sent, mode === 'native' ? TOOLS : [], mode === 'text' ? answerGate(hooks.onReply) : undefined);
@@ -219,6 +245,13 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
         fixNudged = true;
         added.push(hidden({ role: 'assistant', content: answer.content ?? '' }));
         added.push(hidden({ role: 'user', content: 'Do it now: reply with the corrected ```js code block.' }));
+        continue;
+      }
+      // Small models sometimes repeat a note meant for them ("The script returned nothing…") as the answer.
+      if (text && !leakNudged && INTERNAL_NOTE.test(text)) {
+        leakNudged = true;
+        added.push(hidden({ role: 'assistant', content: answer.content ?? '' }));
+        added.push(hidden({ role: 'user', content: 'That line was a note for you, not for the person. Answer the person in one or two plain sentences about what you found or did (records already shown as cards need only a count).' }));
         continue;
       }
       if (text || nudged) {

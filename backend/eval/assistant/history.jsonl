@@ -5,3 +5,6 @@
 {"at":"2026-11-05T08:29:37.090Z","model":"qwen3:8b","mode":"text","passed":39,"total":40,"score":97.5,"medianMs":4195,"failed":["stock-of/ar"],"filtered":false}
 {"at":"2026-11-05T09:00:49.957Z","model":"qwen3:8b","mode":"text","passed":38,"total":40,"score":95,"medianMs":4856,"failed":["stock-of/ar","record-payment/ar"],"filtered":false}
 {"at":"2026-11-05T09:07:31.012Z","model":"qwen3:8b","mode":"text","passed":39,"total":40,"score":97.5,"medianMs":4626,"failed":["stock-of/ar"],"filtered":false}
+{"at":"2026-11-05T11:55:55.892Z","model":"qwen3:8b","mode":"text","passed":49,"total":60,"score":81.7,"medianMs":5267,"failed":["biggest-debtor/ar","stock-of/ar","contact-phone/en","contact-phone/ar","group-receivables/en","group-receivables/ar","group-change-named/en","group-change-named/ar","payables-owed/ar","quote-create/ar","money-picture/ar"],"filtered":false}
+{"at":"2026-11-05T12:03:05.198Z","model":"qwen3:8b","mode":"text","passed":56,"total":60,"score":93.3,"medianMs":5076,"failed":["stock-of/en","stock-of/ar","contact-phone/ar","quote-create/ar"],"filtered":false}
+{"at":"2026-11-05T12:11:16.633Z","model":"qwen3:8b","mode":"text","passed":58,"total":60,"score":96.7,"medianMs":5473,"failed":["stock-of/ar","quote-create/ar"],"filtered":false}

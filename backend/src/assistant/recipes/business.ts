@@ -10,9 +10,10 @@ const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
 export const stock: Recipe = {
   name: 'stock',
+  needs: [['GET', '/companies/:companyId/inventory-items']],
   params: ['item', 'low', 'text'],
   signature: 'stock({ item?: name|sku, low?: true })',
-  returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
+  returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }] — a list even for one item; "how many X do we have" is its inStock, not the number of rows; low: true keeps those at or under their reorder point',
   example: "const [item] = await tf.stock({ item: 'printer paper' }); return item ? { name: item.name, inStock: item.inStock, unit: item.unit } : 'not found';",
   words: ['stock', 'inventory', 'item', 'items', 'quantity', 'low', 'reorder', 'warehouse', 'available', 'product'],
   async run(ctx, args) {
@@ -31,6 +32,7 @@ export const stock: Recipe = {
 
 export const onLeave: Recipe = {
   name: 'onLeave',
+  needs: [['GET', '/companies/:companyId/employees'], ['GET', '/companies/:companyId/leave-requests']],
   params: ['date', 'text'],
   signature: "onLeave({ date?: 'YYYY-MM-DD'|'today'|'tomorrow' })",
   returns: 'approved leave covering that day [{ id, employee, from, to, days }]; today by default',
@@ -50,8 +52,33 @@ export const onLeave: Recipe = {
   },
 };
 
+const contactRow = (c: ContactRow) => ({ id: c.id, name: c.name, kind: c.kind, ...(c.phone ? { phone: c.phone } : {}), ...(c.email ? { email: c.email } : {}), roles: c.roles ?? [] });
+
+export const contacts: Recipe = {
+  name: 'contacts',
+  needs: [['GET', '/companies/:companyId/contacts']],
+  params: ['role', 'search', 'limit'],
+  signature: "contacts({ role?: 'Lead'|'Client'|'Vendor'|'Influencer'|'Partner', search?: words, limit?: number })",
+  returns: 'contacts [{ id, name, kind, phone, email, roles }], newest first (30 by default): all of them, or those of a role',
+  example: "const leads = await tf.contacts({ role: 'Lead' }); await show(leads); return { leads: leads.length };",
+  words: ['contacts', 'contact', 'list', 'all', 'clients', 'customers', 'leads', 'suppliers', 'vendors', 'people', 'directory'],
+  async run(ctx, args) {
+    const a = argsOf(args);
+    const role = oneOf(a.role, ROLES, 'role');
+    const want = norm(a.search ?? a.text);
+    const limit = Math.min(Math.max(Number(a.limit) || 30, 1), 200);
+    return (await ctx.get<Array<ContactRow & { createdAt?: string }>>(co(ctx, '/contacts')))
+      .filter((c) => !role || (c.roles ?? []).includes(role))
+      .filter((c) => !want || [c.name, c.legalName, c.contactPerson, c.email].some((f) => f && norm(f).includes(want)) || sameName(String(a.search ?? a.text), c.name))
+      .sort((x, y) => String(y.createdAt ?? '').localeCompare(String(x.createdAt ?? '')))
+      .slice(0, limit)
+      .map(contactRow);
+  },
+};
+
 export const findContact: Recipe = {
   name: 'findContact',
+  needs: [['GET', '/companies/:companyId/contacts']],
   params: ['text', 'name', 'query'],
   signature: 'findContact(text: name, phone or email)',
   returns: 'up to 10 contacts [{ id, name, kind, phone, email, roles }]',
@@ -60,7 +87,8 @@ export const findContact: Recipe = {
   async run(ctx, args) {
     const a = argsOf(args);
     const want = norm(a.text ?? a.name ?? a.query);
-    if (!want) throw new Error('say what to look for: a name, phone or email');
+    // No words: the list (people ask "show me my contacts" this way too).
+    if (!want) return contacts.run(ctx, {});
     const wantDigits = digits(want);
     return (await ctx.get<ContactRow[]>(co(ctx, '/contacts')))
       .filter((c) => [c.name, c.legalName, c.contactPerson, c.email].some((f) => f && norm(f).includes(want))
@@ -73,9 +101,10 @@ export const findContact: Recipe = {
 
 export const createContact: Recipe = {
   name: 'createContact',
+  needs: [['POST', '/companies/:companyId/contacts']],
   params: ['name', 'text', 'phone', 'email', 'kind', 'roles', 'notes'],
   signature: "createContact({ name, phone?, email?, kind?: 'Person'|'Organization', roles?: ['Lead'|'Client'|'Vendor'|'Influencer'|'Partner'], notes? })",
-  returns: 'one proposal adding the contact',
+  returns: 'one proposal adding the contact. Roles: Lead = a prospect, not buying yet (عميل محتمل); Client = already buys (عميل); Vendor = a supplier (مورد); Influencer (مؤثر); Partner (شريك)',
   example: "return await tf.createContact({ name: 'Maryam Al Zadjali', phone: '+968 9000 0000', roles: ['Lead'] });",
   words: ['contact', 'add', 'new', 'lead', 'customer', 'person', 'save', 'number'],
   changes: true,
@@ -96,6 +125,7 @@ export const createContact: Recipe = {
 
 export const pendingApprovals: Recipe = {
   name: 'pendingApprovals',
+  needs: [['GET', '/companies/:companyId/approvals']],
   params: [],
   signature: 'pendingApprovals()',
   returns: 'what waits for the person to approve [{ id, docType, number, amount, party, date, requester }]',

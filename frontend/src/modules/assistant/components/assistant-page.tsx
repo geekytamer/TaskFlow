@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
 import { ActionReview, type ActionEdits } from './action-review';
 import { useAssistantPanel } from '../assistant-context';
+import { AssistantContextSwitcher, defaultScope, scopeKey, type AssistantScope } from './assistant-context-switcher';
 import {
   AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
   listAssistantThreads, sendAssistantFeedback, streamAssistant, undoAssistantAction, untilDone, uploadAssistantFile,
@@ -50,8 +51,15 @@ function writeLast(userId: string, companyId: string, id: string | null) {
  */
 export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel' }) {
   const panel = variant === 'panel';
-  const { selectedCompany, currentUser } = useCompany();
+  const { selectedCompany, currentUser, companies } = useCompany();
   const pathname = usePathname();
+  // What the assistant works on: chosen in the assistant (a company, or a whole group);
+  // until then the app's company (a group means its whole group). The app's choice stays as it is.
+  const [chosenScope, setChosenScope] = React.useState<AssistantScope | null>(null);
+  React.useEffect(() => { setChosenScope(null); }, [selectedCompany?.id]);
+  const active: AssistantScope | null = chosenScope ?? (selectedCompany ? defaultScope(companies, selectedCompany.id) : null);
+  const activeKey = active ? scopeKey(active) : null;
+  const activeName = active ? companies.find((c) => c.id === active.companyId)?.name ?? selectedCompany?.name ?? '' : '';
   const { subject, dismiss, focusRequest, takeAbout } = useAssistantPanel();
   // Opened by "Ask about this": a fresh conversation, so the remembered one must not come back.
   const fresh = React.useRef(false);
@@ -126,18 +134,18 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
 
   React.useEffect(() => { void assistantStatusOnce().then(setStatus); }, []);
   React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [thread, pendingQuestion, working]);
-  // A conversation belongs to one company: on arrival or a company switch, reopen that company's last one (if recent).
+  // A conversation belongs to one context (a company, or a whole group): on arrival or a switch, reopen its last one (if recent).
   const userId = currentUser?.id;
-  const companyId = selectedCompany?.id;
+  const sameScope = (t: { companyId: string; scope?: string }) => Boolean(active && t.companyId === active.companyId && (t.scope ?? 'company') === active.scope);
   React.useEffect(() => {
-    if (!userId || !companyId) return;
-    setThread((t) => (t && t.companyId !== companyId ? null : t));
-    const id = readLast(userId, companyId);
+    if (!userId || !activeKey) return;
+    setThread((t) => (t && !sameScope(t) ? null : t));
+    const id = readLast(userId, activeKey);
     if (!id) return;
     let live = true;
     getAssistantThread(id)
       .then((t) => {
-        if (!live || fresh.current || t.companyId !== companyId) return;
+        if (!live || fresh.current || !sameScope(t)) return;
         setThread((cur) => cur ?? t);
         // Still working (the panel was closed mid-answer, or the page reloaded): wait for it again.
         if (t.working) {
@@ -145,12 +153,14 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
           untilDone(t, setThread).then(setThread).catch((err) => setError(err instanceof Error ? err.message : String(err))).finally(() => setWorking(null));
         }
       })
-      .catch(() => writeLast(userId, companyId, null));
+      .catch(() => writeLast(userId, activeKey, null));
     return () => { live = false; };
-  }, [userId, companyId]);
+    // sameScope reads `active`, whose identity is activeKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, activeKey]);
   // Every change to the open conversation refreshes the "remembered" time.
   React.useEffect(() => {
-    if (userId && thread) writeLast(userId, thread.companyId, thread.id);
+    if (userId && thread) writeLast(userId, scopeKey({ companyId: thread.companyId, scope: thread.scope ?? 'company' }), thread.id);
   }, [userId, thread]);
 
   const failMessage = (err: unknown) => {
@@ -162,7 +172,7 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
   const send = async (text: string) => {
     const fileIds = attached.flatMap((a) => (a.file ? [a.file.id] : []));
     const message = text.trim() || (fileIds.length ? tr('Here are the files.', 'هذه الملفات.') : '');
-    if (!message || !selectedCompany || working || uploading) return;
+    if (!message || !active || working || uploading) return;
     const sentFiles = attached;
     setError(null);
     setDraft('');
@@ -172,7 +182,7 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
     try {
       // While it works, the thread (with this message in it) is shown as it stands.
       const context = { ...(pathname ? { path: pathname } : {}), ...(subject ? { subject } : {}) };
-      const done = await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), context, ...(thread ? { threadId: thread.id } : {}) }, (t) => { setPendingQuestion(null); setThread(t); });
+      const done = await askAssistant({ message, companyId: active.companyId, scope: active.scope, fileIds, requestId: newRequestId(), context, ...(thread ? { threadId: thread.id } : {}) }, (t) => { setPendingQuestion(null); setThread(t); });
       setThread(done);
     } catch (err) {
       setError(failMessage(err));
@@ -260,7 +270,11 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
             ? <h2 className="truncate text-sm font-semibold">{thread?.title ?? tr('Assistant', 'المساعد')}</h2>
             : <h1 className="truncate font-headline text-lg font-semibold">{thread?.title ?? tr('Assistant', 'المساعد')}</h1>}
         </div>
-        <div className="flex shrink-0 gap-1">
+        <div className="flex min-w-0 shrink-0 items-center gap-1">
+          {active && companies.length > 1 ? (
+            <AssistantContextSwitcher companies={companies} value={active} tr={tr} compact={panel} disabled={Boolean(working)}
+              onChange={(next) => { setChosenScope(next); setError(null); }} />
+          ) : null}
           {panel ? (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <Link href="/assistant" aria-label={tr('Open full screen', 'فتح بملء الشاشة')} title={tr('Open full screen', 'فتح بملء الشاشة')}><Maximize2 className="h-4 w-4" /></Link>
@@ -270,7 +284,7 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
               <History className="h-4 w-4" /><span className="hidden sm:inline">{tr('History', 'السابقة')}</span>
             </Button>
           )}
-          <Button variant="ghost" size="sm" disabled={!thread || Boolean(working)} onClick={() => { setThread(null); setError(null); if (userId && companyId) writeLast(userId, companyId, null); inputRef.current?.focus(); }}>
+          <Button variant="ghost" size="sm" disabled={!thread || Boolean(working)} onClick={() => { setThread(null); setError(null); if (userId && activeKey) writeLast(userId, activeKey, null); inputRef.current?.focus(); }}>
             <MessageSquarePlus className="h-4 w-4" /><span className={panel ? 'sr-only' : 'hidden sm:inline'}>{tr('New', 'جديدة')}</span>
           </Button>
         </div>
@@ -284,7 +298,9 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
                 ? tr(`Ask about “${subject.title}”, or ask for something to be done.`, `اسأل عن «${subject.title}»، أو اطلب تنفيذ شيء.`)
                 : tr('Ask about your business, or ask for something to be done.', 'اسأل عن عملك، أو اطلب تنفيذ شيء.')}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {tr(`It works in ${selectedCompany?.name ?? 'this company'} with your permissions. Changes wait for your confirmation.`, `يعمل في ${selectedCompany?.name ?? 'هذه الشركة'} بصلاحياتك. التغييرات تنتظر تأكيدك.`)}
+                {active?.scope === 'group'
+                  ? tr(`It works across the companies of ${activeName} you can open, with your permissions in each. Changes name their company and wait for your confirmation.`, `يعمل عبر شركات ${activeName} التي تستطيع فتحها، بصلاحياتك في كل منها. كل تغيير يحدد شركته وينتظر تأكيدك.`)
+                  : tr(`It works in ${activeName || 'this company'} with your permissions. Changes wait for your confirmation.`, `يعمل في ${activeName || 'هذه الشركة'} بصلاحياتك. التغييرات تنتظر تأكيدك.`)}
               </p>
             </div>
             <div className={cn('grid gap-2', !panel && 'sm:grid-cols-2')}>
@@ -427,7 +443,7 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
             {threads.map((t) => (
               <div key={t.id} className="group flex items-center gap-1 rounded-md hover:bg-muted">
                 <button type="button" className="min-w-0 flex-1 px-2 py-2 text-start"
-                  onClick={async () => { setHistoryOpen(false); setError(null); setThread(await getAssistantThread(t.id)); }}>
+                  onClick={async () => { setHistoryOpen(false); setError(null); setChosenScope({ companyId: t.companyId, scope: t.scope ?? 'company' }); setThread(await getAssistantThread(t.id)); }}>
                   <span className="block truncate text-sm">{t.title}</span>
                   <span className="block text-xs text-muted-foreground">{new Date(t.updatedAt).toLocaleString(language === 'ar' ? 'ar' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>
                 </button>

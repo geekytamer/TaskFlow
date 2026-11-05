@@ -67,7 +67,21 @@ function seedFixture(store, today) {
     manualFields: [{ key: 'employee', label: 'Employee name' }, { key: 'salary', label: 'Monthly salary' }],
   });
 
-  return { companyId, today, tomorrow: addDays(today, 1), admin, samantha, charlie, project, clients: { muscatBay, alNoor, desertRose }, invoices, contacts, employees, tasks, template };
+  // Money going out and work in hand, for the wider recipes (supplier bills, quotations, expenses, follow-ups).
+  const bills = {
+    printOverdue: store.createVendorBill({ companyId, vendorName: 'Gulf Print House', amount: 600, issueDate: addDays(today, -40), dueDate: addDays(today, -10), status: 'Approved' }),
+    rentDue: store.createVendorBill({ companyId, vendorName: 'Al Khuwair Properties', amount: 1500, issueDate: addDays(today, -5), dueDate: addDays(today, 20), status: 'Approved' }),
+  };
+  const quotation = store.createQuotation({ companyId, clientId: desertRose.id, issueDate: addDays(today, -3), validUntil: addDays(today, 27), items: [{ description: 'Launch campaign', quantity: 1, unitPrice: 3000 }] });
+  const expense = store.createExpense({ companyId, category: 'Travel', amount: 85, expenseDate: today, vendor: 'Oman Air' });
+  const followup = store.createFollowup({ companyId, entityType: 'contact', entityId: contacts.ahmed.id, title: 'Call Ahmed about the renewal', ownerUserId: admin.id, ownerName: admin.name, dueAt: new Date(`${addDays(today, -1)}T09:00:00Z`) });
+
+  // A group over this company and Synergy Solutions, for whole-group questions.
+  const group = store.createGroupCompany('Test Holding', admin.id).company;
+  store.setCompanyParent('1', group.id, admin.id);
+  store.setCompanyParent('2', group.id, admin.id);
+
+  return { companyId, today, group, bills, quotation, expense, followup, tomorrow: addDays(today, 1), admin, samantha, charlie, project, clients: { muscatBay, alNoor, desertRose }, invoices, contacts, employees, tasks, template };
 }
 
 module.exports = { seedFixture, addDays };

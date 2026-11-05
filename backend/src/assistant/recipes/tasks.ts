@@ -4,9 +4,11 @@ import { addDays, argsOf, dateArg, dayOf, memberId, oneOf, pickOne, say } from '
 const STATUSES = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'] as const;
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const;
 
-interface TaskRow { id: string; title: string; status: string; priority: string; dueDate?: string | null; assignedUserIds?: string[]; projectId?: string }
+interface TaskRow { id: string; title: string; status: string; priority: string; dueDate?: string | null; assignedUserIds?: string[]; projectId?: string; companyId?: string }
 
-const listTasks = (ctx: RecipeContext) => ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`);
+/** This company's tasks. GET /tasks answers with every company's tasks the person can see (its companyId filter is ignored). */
+export const listTasks = async (ctx: RecipeContext) =>
+  (await ctx.get<TaskRow[]>(`/tasks?companyId=${encodeURIComponent(ctx.companyId)}`)).filter((t) => !t.companyId || t.companyId === ctx.companyId);
 const findTask = async (ctx: RecipeContext, ref: unknown) => pickOne(await listTasks(ctx), ref, (t) => t.title, 'task');
 
 const view = (ctx: RecipeContext, t: TaskRow) => ({
@@ -21,6 +23,7 @@ const view = (ctx: RecipeContext, t: TaskRow) => ({
 
 export const myTasks: Recipe = {
   name: 'myTasks',
+  needs: [['GET', '/tasks'], ['GET', '/projects']],
   params: ['status', 'due', 'everyone', 'project'],
   signature: "myTasks({ status?: 'open'|'done'|'all', due?: 'overdue'|'today'|'week', everyone?: true, project?: name|id })",
   returns: "tasks [{ id, title, status, priority, dueDate, project, assignees }]: the person's own (everyone: true for all they can see; with project, everyone's in that project), open by default, soonest first",
@@ -34,7 +37,7 @@ export const myTasks: Recipe = {
     if (due !== undefined && !['overdue', 'today', 'week'].includes(due)) throw new Error("due must be 'overdue', 'today' or 'week'");
     const weekEnd = addDays(ctx.today, 7);
     // A project's tasks are everyone's in it, unless the person asked for only their own.
-    const project = a.project === undefined ? undefined : pickOne(await ctx.get<Array<{ id: string; name: string }>>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`), a.project, (p) => p.name, 'project');
+    const project = a.project === undefined ? undefined : pickOne((await ctx.get<Array<{ id: string; name: string; companyId?: string }>>(`/projects?companyId=${encodeURIComponent(ctx.companyId)}`)).filter((p) => !p.companyId || p.companyId === ctx.companyId), a.project, (p) => p.name, 'project');
     const everyone = a.everyone === true || (project !== undefined && a.everyone !== false);
     return (await listTasks(ctx))
       .filter((t) => !project || t.projectId === project.id)
@@ -55,6 +58,7 @@ export const myTasks: Recipe = {
 
 export const createTasks: Recipe = {
   name: 'createTasks',
+  needs: [['POST', '/tasks']],
   params: ['tasks', 'list', 'title', 'text', 'dueDate', 'due', 'priority', 'status', 'assignTo', 'description', 'projectId'],
   signature: "createTasks([{ title, dueDate?: 'YYYY-MM-DD'|'today'|'tomorrow', priority?: 'Low'|'Medium'|'High'|'Urgent', status?: 'To Do'|'In Progress'|'Done', assignTo?: name|'me', description? }])",
   returns: 'one proposal per task, confirmed together; assigned to the person unless assignTo; status Done without a date means today',
@@ -90,6 +94,7 @@ export const createTasks: Recipe = {
 
 export const updateTask: Recipe = {
   name: 'updateTask',
+  needs: [['PUT', '/tasks/:id']],
   params: ['task', 'title', 'text', 'status', 'priority', 'dueDate', 'due', 'assignTo', 'newTitle'],
   signature: "updateTask({ task: title|id, status?, priority?, dueDate?, assignTo?: name|'me', newTitle? })",
   returns: 'one proposal with only the fields that change',
@@ -118,6 +123,7 @@ export const updateTask: Recipe = {
 
 export const logTime: Recipe = {
   name: 'logTime',
+  needs: [['POST', '/tasks/:taskId/time-entries']],
   params: ['task', 'title', 'text', 'hours', 'date', 'note'],
   signature: "logTime({ task: title|id, hours, date?: 'YYYY-MM-DD'|'today', note? })",
   returns: 'one proposal logging the time on that task',
