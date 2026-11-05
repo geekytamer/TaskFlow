@@ -246,3 +246,49 @@ test('every recipe names the routes it needs; the prompt tells the model which o
   }
   void matchOp;
 });
+
+test('wider recipes read the fixture truth: payables, quotations, expenses, employees, follow-ups, projects, the money picture', async () => {
+  const { run, fx } = setup();
+  const pay = await run('return await tf.payables();');
+  assert.equal(pay.result.owed, 2100);
+  assert.equal(pay.result.overdue, 600);
+  assert.deepEqual(pay.result.bills.map((b) => b.supplier), ['Gulf Print House', 'Al Khuwair Properties']);
+  const quotes = await run('return await tf.quotations();');
+  assert.equal(quotes.result[0].client, 'Desert Rose Hotel');
+  assert.ok(quotes.result[0].total >= 3000);
+  const spent = await run('return await tf.expenses();');
+  assert.ok(spent.result.byCategory.some((c) => c.category === 'Travel' && c.total === 85), JSON.stringify(spent.result));
+  const team = await run("return (await tf.employees({ search: 'fatma' })).map((e) => e.name);");
+  assert.deepEqual(team.result, ['Fatma Al Lawati']);
+  const late = await run("return (await tf.followups({ due: 'overdue' })).map((f) => f.title);");
+  assert.deepEqual(late.result, ['Call Ahmed about the renewal']);
+  const proj = await run('return await tf.projects();');
+  assert.ok(proj.result.find((p) => p.id === fx.project.id).openTasks >= 3, JSON.stringify(proj.result));
+  const money = await run('return await tf.financeSummary();');
+  assert.equal(money.result.clientsOwe, 4450);
+  assert.equal(money.result.weOweSuppliers, 2100);
+  assert.equal(money.result.overdueToSuppliers, 600);
+});
+
+test('wider changes propose the right calls: a quote, an expense, a comment, a follow-up done, an invoice emailed (marked outward)', async () => {
+  const { run, fx } = setup();
+  const quote = await run("return await tf.createQuote({ client: 'Desert Rose', lines: [{ description: 'Photo shoot', quantity: 2, price: 250 }] });");
+  assert.equal(quote.proposals[0].path, '/companies/1/quotations', JSON.stringify(quote.error));
+  assert.equal(quote.proposals[0].body.clientId, fx.clients.desertRose.id);
+  assert.deepEqual(quote.proposals[0].body.items, [{ description: 'Photo shoot', quantity: 2, unitPrice: 250 }]);
+  const exp = await run("return await tf.createExpense({ amount: 12.5, category: 'Fuel', vendor: 'Shell' });");
+  assert.deepEqual(exp.proposals[0].body, { amount: 12.5, category: 'Fuel', expenseDate: fx.today, vendor: 'Shell' });
+  const note = await run("return await tf.addComment({ task: 'Prepare Q4 report', comment: 'Numbers are in.' });");
+  assert.equal(note.proposals[0].path, `/tasks/${fx.tasks.q4Report.id}/comments`);
+  const done = await run("return await tf.completeFollowup({ followup: 'Call Ahmed', outcome: 'connected' });");
+  assert.equal(done.proposals[0].path, `/followups/${fx.followup.id}/complete`);
+  assert.equal(done.proposals[0].body.outcome, 'connected');
+  const mail = await run(`return await tf.emailInvoice({ invoice: '${fx.invoices.alNoorOverdue.invoiceNumber}' });`);
+  assert.equal(mail.proposals[0].path, `/invoices/${fx.invoices.alNoorOverdue.id}/email`);
+  assert.match(mail.proposals[0].summary, /Email INV-\d+ to Al Noor Foods/);
+  assert.equal(mail.view.items.at(-1).actions[0].outward, 'email');
+  const draft = await run(`return await tf.emailInvoice({ invoice: '${fx.invoices.draft.invoiceNumber}' });`);
+  assert.match(draft.error, /is a draft/);
+  const none = await run("return await tf.decideApproval({ item: 'PO-9', decision: 'approve' });");
+  assert.match(none.error, /no approval waiting for this person matches/);
+});

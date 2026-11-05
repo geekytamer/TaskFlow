@@ -394,6 +394,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       undoable: a.status === 'done' || a.status === 'undone' ? Boolean(a.inverse) : couldUndo(a, hint?.text),
       ...(undoUntil && Date.parse(undoUntil) > Date.now() ? { undoUntil } : {}),
       ...(approval ? { approval } : {}),
+      // Sends something out of TaskFlow (an email to a client): the card says so in plain words.
+      ...(/\/email$/.test(a.path.split('?')[0]) ? { outward: 'email' as const } : {}),
       ...(Array.isArray(a.edited) && a.edited.length ? { edited: a.edited as ReviewChange[] } : {}),
     };
   };
