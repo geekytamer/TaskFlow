@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Globe, Lock, Trash2, UserPlus, UserMinus, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { AskAboutThis } from '@/modules/assistant/components/ask-about-this';
 import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { getClients, getInvoices } from '@/services/financeService';
 import { getTasks } from '@/services/projectService';
@@ -245,7 +246,10 @@ export default function ProjectDetailsPage() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 basis-[320px]">
-          <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
+            <AskAboutThis subject={{ kind: 'project', id: project.id, title: project.name }} />
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 [&>*]:whitespace-nowrap">
             <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>{projectStatusName(project.status, language)}</Badge>
             {projectIsLate(project) && <Badge variant="destructive">{tr('Late', 'متأخر')}</Badge>}

@@ -58,7 +58,7 @@ export function CompanySwitcher() {
           role="combobox"
           aria-expanded={open}
           aria-label={selectedCompany.name}
-          className="h-9 w-9 justify-center px-0 md:w-[250px] md:justify-between md:px-4"
+          className="h-9 w-9 min-w-0 shrink justify-center px-0 md:w-[176px] md:justify-between md:px-3 lg:w-[220px] xl:w-[250px] xl:px-4"
           data-tutorial="company-switcher"
         >
           {/* Phones show just the company's mark; the name needs a wider screen. */}

@@ -1,5 +1,6 @@
 'use client';
 
+import { AskAboutThis } from '@/modules/assistant/components/ask-about-this';
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -128,6 +129,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               <InfluencerAvatar contactId={c.id} name={c.name} photoAt={photos?.[c.id] ?? null} size="lg" />
             )}
             <h1 className="text-3xl font-bold tracking-tight">{c.name}</h1>
+            <AskAboutThis subject={{ kind: 'contact', id: c.id, title: c.name }} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(c.roles || []).map((r) => (

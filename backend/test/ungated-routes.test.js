@@ -83,6 +83,14 @@ const KNOWN_UNGATED = new Set([
     'GET /push/devices',
     'POST /push/devices/:id/test',
     'DELETE /push/devices/:id',
+    // The assistant: each person's own conversations. What it does runs through the gated routes as them.
+    'GET /assistant/status',
+    'GET /assistant/threads',
+    'GET /assistant/threads/:id',
+    'DELETE /assistant/threads/:id',
+    'GET /assistant/files/:id',
+    'GET /assistant/progress/:requestId',
+    'GET /assistant/stream/:requestId', // only the person who made the request can open its stream
 ]);
 
 test('no route is ungated by accident', () => {

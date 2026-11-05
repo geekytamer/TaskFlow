@@ -167,6 +167,7 @@ import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerIntercompanyRoutes } from './routes/intercompany';
+import { registerAssistantRoutes, type AssistantOptions } from './routes/assistant';
 import { registerShipmentRoutes } from './routes/shipments';
 import { registerColdChainRoutes } from './routes/cold-chain';
 import { registerQualityRoutes } from './routes/quality';
@@ -240,6 +241,8 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
 type DecidedRequest = AuthedRequest & { authzDecided?: boolean };
 
 export interface CreateServerOptions extends DataStoreOptions {
+  /** The in-app assistant's model; tests pass a scripted one. */
+  assistant?: AssistantOptions;
   allowSeedReset?: boolean;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
   /**
@@ -902,7 +905,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // scans, small PDFs) go through while other endpoints keep the stricter limit.
   const attachmentJson = express.json({ limit: '28mb' });
   app.use((req, res, next) => (
-    /^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) && req.method === 'POST'
+    ((/^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) || req.path === '/assistant/files') && req.method === 'POST')
       ? attachmentJson(req, res, next)
       : next()
   ));
@@ -7095,6 +7098,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerSearchRoutes(app, routeContext);
   registerApprovalRoutes(app, routeContext, { docSummary, decideDocument });
   registerIntercompanyRoutes(app, routeContext);
+  registerAssistantRoutes(app, routeContext, options.assistant);
   registerShipmentRoutes(app, routeContext);
   registerColdChainRoutes(app, routeContext);
   registerQualityRoutes(app, routeContext);

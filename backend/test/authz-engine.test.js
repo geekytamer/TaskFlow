@@ -354,6 +354,7 @@ const seedRecordPerResource = (store, company, userId) => {
     'discover-profiles': discoverProfile.id, 'custom-fields': customField.id, 'sub:members': userId,
     approvals: 'purchase_order', 'sub:approvals': 'po-1',
     'project-templates': projectTemplate.id,
+    examples: store.createAssistantExample({ companyId: company, userId, request: 'Seed request', code: 'return 1;', kind: 'read' }).id,
   };
 };
 

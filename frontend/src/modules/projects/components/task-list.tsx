@@ -402,6 +402,17 @@ export function TaskList({ projectId }: { projectId?: string }) {
   const [filter, setFilter] = React.useState<StatFilter>('all');
   const [scope, setScope] = React.useState<Scope>('mine');
   const [selectedTask, setSelectedTask] = React.useState<Task | null>(null);
+  // /tasks?task=<id> (from the assistant's cards, or a shared link) opens that task once it is loaded.
+  // Read after loading, not at mount: on in-app navigation the address changes after the page first renders.
+  const handledTaskLink = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (loading) return;
+    const id = new URLSearchParams(window.location.search).get('task');
+    if (!id || handledTaskLink.current === id) return;
+    handledTaskLink.current = id;
+    const found = tasks.find((t) => t.id === id);
+    if (found) setSelectedTask(found);
+  }, [tasks, loading]);
 
   // Default to "My tasks" but remember the last choice per user + view.
   const scopeStorageKey = currentUserId
