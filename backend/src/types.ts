@@ -1887,6 +1887,8 @@ export interface RecordAttachment {
   mimeType?: string;
   sizeBytes?: number;
   note?: string;
+  /** Documents → Library folder label; none when unset. */
+  folder?: string;
   uploadedByUserId?: string;
   uploadedByName?: string;
   /** True when the file bytes are stored in the system and can be viewed/downloaded. */

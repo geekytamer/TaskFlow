@@ -98,7 +98,7 @@ const MODULE_ALIASES: Record<string, string> = {
   'payroll-runs': 'payroll',
 
   'document-templates': 'documents', 'record-attachments': 'documents',
-  records: 'documents',
+  records: 'documents', library: 'documents',
 
   companies: 'settings', users: 'settings', 'custom-fields': 'settings',
   'activity-events': 'settings', 'numbering-settings': 'settings',
