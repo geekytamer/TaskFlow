@@ -75,6 +75,18 @@ module.exports = [
     check: (ctx) => all(noChanges(ctx), seen(ctx, /fatma|فاطمة/i) || 'Fatma not named', !says(ctx.reply, /khalid|خالد/i) || 'named Khalid, whose leave is pending and next week'),
   },
   {
+    id: 'all-contacts',
+    en: 'Show me all my contacts',
+    ar: 'اعرض لي كل جهات الاتصال',
+    check: (ctx) => {
+      const names = ctx.store.db.prepare("SELECT name FROM contacts WHERE companyId = '1'").all().map((r) => r.name);
+      const shown = new Set(ctx.cards.map((c) => c.title));
+      return all(noChanges(ctx),
+        names.every((n) => shown.has(n)) || `cards missing: ${names.filter((n) => !shown.has(n)).join(', ')}`,
+        !/returned nothing|Write top-level code|Result of your code/i.test(ctx.reply) || 'an internal note reached the person');
+    },
+  },
+  {
     id: 'contact-phone',
     en: "What is Ahmed Al Balushi's phone number?",
     ar: 'ما رقم هاتف أحمد البلوشي؟',

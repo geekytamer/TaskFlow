@@ -222,3 +222,17 @@ test('names typed in Arabic find records stored in English (and the other way ro
   const owed = await run("return (await tf.invoices({ client: 'صحراء' })).length;");
   assert.equal(owed.result, 0, 'a word that only translates (desert) is not a match');
 });
+
+test('contacts: all of them (newest first), or by role or words; findContact with no words lists them too', async () => {
+  const { run, store } = setup();
+  const truth = store.db.prepare("SELECT name FROM contacts WHERE companyId = '1'").all().map((r) => r.name).sort();
+  const all = await run('return (await tf.contacts()).map((c) => c.name).sort();');
+  assert.deepEqual(all.result, truth);
+  assert.ok(truth.includes('Ahmed Al Balushi') && truth.includes('Al Noor Foods'));
+  const leads = await run("return (await tf.contacts({ role: 'Lead' })).map((c) => c.name);");
+  assert.deepEqual(leads.result, ['سارة الهنائية']);
+  const bare = await run('return (await tf.findContact()).length;');
+  assert.equal(bare.result, truth.length, 'no words: the list, not an error');
+  const badRole = await run("return await tf.contacts({ role: 'Friend' });");
+  assert.match(badRole.error, /role must be one of/);
+});

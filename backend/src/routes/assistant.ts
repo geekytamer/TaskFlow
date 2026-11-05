@@ -7,7 +7,7 @@ import type { RouteContext } from './context';
 import { handler, type AuthedRequest } from './shared';
 import { assistantOps, describeOp, matchOp, searchOps, type AssistantOp } from '../assistant/catalogue';
 import { runInSandbox, type SandboxHost } from '../assistant/sandbox';
-import { runAgent, systemPrompt, toolText, cleanReply, type AgentMode } from '../assistant/agent';
+import { runAgent, systemPrompt, toolText, cleanReply, withImplicitReturn, type AgentMode } from '../assistant/agent';
 import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, type ChatMessage } from '../assistant/model';
 import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
@@ -547,7 +547,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
         },
         };
-        const outcome = await runInSandbox(code, host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
+        const outcome = await runInSandbox(withImplicitReturn(code), host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
         if (outcome.ok) {
           lastOkCode = code;
           if (proposed.length > before) proposingCode = code;
@@ -566,7 +566,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         }
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
-        if (outcome.ok && (outcome.value === null || outcome.value === undefined)) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
+        // Records shown as cards are an answer in themselves: only a script that showed nothing and returned nothing is pointed out.
+        if (outcome.ok && (outcome.value === null || outcome.value === undefined) && cards.length === cardsBefore) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
         if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);
         const fresh = proposed.slice(before).map((id) => store.getAssistantAction(id)?.summary).filter(Boolean);
         if (fresh.length) notes.push(`NOT DONE YET — proposed for the person to confirm: ${fresh.join('; ')}. Tell them to confirm below; do not say it is done.`);

@@ -149,6 +149,25 @@ const outcomeText = (outcome: SandboxResult) => toolText(outcome.ok
 type Stored = ChatMessage & { ui?: { hidden?: true } };
 const hidden = <T extends ChatMessage>(m: T): T => ({ ...m, ui: { hidden: true } }) as T;
 
+/**
+ * A script with no return that ends in an awaited call ("await tf.contacts();"):
+ * return that call's value, as a console would. Small models write this often,
+ * and "returned nothing" sent them round in circles. show() is left alone (it answers).
+ */
+export function withImplicitReturn(code: string): string {
+  if (/\breturn\b/.test(code)) return code;
+  const lines = code.replace(/\s+$/, '').split('\n');
+  const last = lines[lines.length - 1];
+  const start = Math.max(last.lastIndexOf(';', last.trimEnd().endsWith(';') ? last.trimEnd().length - 2 : last.length) + 1, 0);
+  const statement = last.slice(start).trim();
+  if (!/^await\s+(tf\.|api\.get|lookup|findApi|search)/.test(statement)) return code;
+  lines[lines.length - 1] = `${last.slice(0, start)}${start ? ' ' : ''}return ${statement}`.replace(/^ return/, 'return');
+  return lines.join('\n');
+}
+
+/** Phrases of the server's notes to the model; an answer that repeats one is not an answer. */
+const INTERNAL_NOTE = /Write top-level code|Result of your code|returned nothing|NOT DONE YET|do not list them again|You already ran exactly this code/i;
+
 /** What of a (partial) model answer a person may see: before any code fence, no thinking, no "» " suggestion lines. */
 export function visibleAnswer(text: string): string {
   return cleanReply(text.split('```')[0]).split('\n').filter((line) => !/^\s*[»›]/.test(line)).join('\n').trim();
@@ -194,6 +213,7 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
   const ran = new Set<string>();
   let lastFailed = false;
   let fixNudged = false;
+  let leakNudged = false;
   for (let turn = 0; turn < maxTurns; turn += 1) {
     const sent = [{ role: 'system' as const, content: system }, ...history, ...added.map(({ ui: _ui, ...m }) => m as ChatMessage)];
     const answer = await chat(sent, mode === 'native' ? TOOLS : [], mode === 'text' ? answerGate(hooks.onReply) : undefined);
@@ -219,6 +239,13 @@ export async function runAgent(chat: ChatFn, system: string, history: ChatMessag
         fixNudged = true;
         added.push(hidden({ role: 'assistant', content: answer.content ?? '' }));
         added.push(hidden({ role: 'user', content: 'Do it now: reply with the corrected ```js code block.' }));
+        continue;
+      }
+      // Small models sometimes repeat a note meant for them ("The script returned nothing…") as the answer.
+      if (text && !leakNudged && INTERNAL_NOTE.test(text)) {
+        leakNudged = true;
+        added.push(hidden({ role: 'assistant', content: answer.content ?? '' }));
+        added.push(hidden({ role: 'user', content: 'That line was a note for you, not for the person. Answer the person in one or two plain sentences about what you found or did (records already shown as cards need only a count).' }));
         continue;
       }
       if (text || nudged) {

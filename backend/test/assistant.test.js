@@ -608,3 +608,29 @@ test('examples: a declined change is not saved on 👍; a follow-up turn keeps n
   assert.equal(busy.status, 409);
   release();
 });
+
+test('a script that only shows cards is not told it "returned nothing"; an internal note repeated to the person is caught once', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(
+    say("```js\nawait show(await tf.myTasks({ everyone: true }));\n```"),
+    say('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.'),
+    say('Here are the open tasks.'),
+  );
+  const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'show me the tasks' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const afterRun = s.model.seen[1].at(-1).content;
+  assert.doesNotMatch(afterRun, /returned nothing/, 'cards were shown: that is an answer');
+  assert.match(afterRun, /shown to the person as cards/);
+  assert.equal(res.body.items.at(-1).text, 'Here are the open tasks.', 'the leaked note never reaches the person');
+  assert.match(s.model.seen[2].at(-1).content, /note for you, not for the person/);
+});
+
+test('a script with no return that ends in an awaited call returns that value (like a console)', () => {
+  const { withImplicitReturn } = require('../dist/assistant/agent');
+  assert.equal(withImplicitReturn('await tf.contacts();'), 'return await tf.contacts();');
+  assert.equal(withImplicitReturn('const x = 1;\nawait tf.myTasks({ due: "week" })'), 'const x = 1;\nreturn await tf.myTasks({ due: "week" })');
+  assert.equal(withImplicitReturn('const r = await tf.receivables(); return r.totalOwed;'), 'const r = await tf.receivables(); return r.totalOwed;', 'a script with a return is left alone');
+  assert.equal(withImplicitReturn('for (const t of ts) await api.post(1);'), 'for (const t of ts) await api.post(1);', 'only a whole last statement');
+  assert.equal(withImplicitReturn('await show(rows);'), 'await show(rows);', 'show() already answers');
+});
