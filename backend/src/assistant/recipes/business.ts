@@ -99,7 +99,7 @@ export const createContact: Recipe = {
   name: 'createContact',
   params: ['name', 'text', 'phone', 'email', 'kind', 'roles', 'notes'],
   signature: "createContact({ name, phone?, email?, kind?: 'Person'|'Organization', roles?: ['Lead'|'Client'|'Vendor'|'Influencer'|'Partner'], notes? })",
-  returns: 'one proposal adding the contact',
+  returns: 'one proposal adding the contact. Roles: Lead = a prospect, not buying yet (عميل محتمل); Client = already buys (عميل); Vendor = a supplier (مورد); Influencer (مؤثر); Partner (شريك)',
   example: "return await tf.createContact({ name: 'Maryam Al Zadjali', phone: '+968 9000 0000', roles: ['Lead'] });",
   words: ['contact', 'add', 'new', 'lead', 'customer', 'person', 'save', 'number'],
   changes: true,
