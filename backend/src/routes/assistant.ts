@@ -12,6 +12,8 @@ import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, typ
 import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
+import { RECIPES, recipeByName } from '../assistant/recipes';
+import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
 /**
@@ -256,6 +258,18 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       projectName: (id: string) => store.getProjectById(id)?.name,
       currency: store.getCompanyFinanceSettings(companyId).currencyCode,
     };
+    const today = new Date().toISOString().slice(0, 10);
+    const lastAsked = [...(thread.messages as StoredMessage[])].reverse().find((m) => m.role === 'user' && !m.ui?.hidden);
+    const request = String(lastAsked?.content ?? '').replace(/\n\n\[Attached files:[\s\S]*$/, '');
+    const lang = /[\u0600-\u06FF]/.test(request) ? 'ar' as const : 'en' as const;
+    // Reads a recipe makes are its own business: the model gets the recipe's return, not "GET … → shape" notes.
+    let recipeDepth = 0;
+    const recipeContext = (host: SandboxHost): RecipeContext => ({
+      companyId, userId: user.id, today, currency: lookups.currency, lang,
+      get: <T>(path: string) => host.call('GET', path, undefined, undefined) as Promise<T>,
+      propose: (method, path, body, summary) => host.call(method, path, body, summary),
+      names: { user: lookups.userName, client: lookups.clientName, project: lookups.projectName },
+    });
     const remember = (kind: string, value: unknown) => {
       const add = (r: unknown) => {
         if (r && typeof r === 'object' && !Array.isArray(r) && 'id' in r) seen.set(String((r as { id: unknown }).id), { kind, record: r as Record<string, unknown> });
@@ -300,6 +314,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             }
             return host.call('POST', `/companies/${encodeURIComponent(companyId)}/documents`, { templateId: pick.id, fieldValues }, typeof summary === 'string' && summary ? summary : `Make the document: ${pick.name}`);
           }
+          if (method === 'RECIPE') {
+            const recipe = recipeByName(path);
+            if (!recipe) throw new Error(`tf.${path} does not exist; there are: ${RECIPES.map((r) => r.name).join(', ')}`);
+            step({ kind: recipe.changes ? 'prepare' : 'read', detail: recipe.name });
+            recipeDepth += 1;
+            try { return await recipe.run(recipeContext(host), body); } finally { recipeDepth -= 1; }
+          }
           if (method === 'SEARCH') return tools.search(path).split('\n');
           if (method === 'LOOKUP') {
             // Any record by name or number, through global search (which applies the person's permissions).
@@ -340,10 +361,12 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             step({ kind: 'read', detail: kindOfPath(op.path) });
             const value = await callApi(token, method, path, undefined);
             remember(kindOfPath(op.path), value);
-            if (reads.length < 6) reads.push(`GET ${path} → ${shapeOf(value)}`);
-            const ignored = ignoredFilters(path, value);
-            if (ignored.length) reads.push(`WARNING: GET ${path} ignored the filter ${ignored.join(', ')}: the rows include other values, so this list is NOT filtered. Drop the filter and filter in code (e.g. rows.filter(r => ...)).`);
-            if (Array.isArray(value) && value.length === 0 && path.includes('?')) reads.push(`GET ${path} is empty: a query filter may not exist or may not match. Try without filters and filter in code before concluding there is nothing.`);
+            if (recipeDepth === 0) {
+              if (reads.length < 6) reads.push(`GET ${path} → ${shapeOf(value)}`);
+              const ignored = ignoredFilters(path, value);
+              if (ignored.length) reads.push(`WARNING: GET ${path} ignored the filter ${ignored.join(', ')}: the rows include other values, so this list is NOT filtered. Drop the filter and filter in code (e.g. rows.filter(r => ...)).`);
+              if (Array.isArray(value) && value.length === 0 && path.includes('?')) reads.push(`GET ${path} is empty: a query filter may not exist or may not match. Try without filters and filter in code before concluding there is nothing.`);
+            }
             return value;
           }
           body = idsAsStrings(body);
@@ -362,7 +385,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
         },
         };
-        const outcome = await runInSandbox(code, host).finally(() => { open = false; });
+        const outcome = await runInSandbox(code, host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
         // Records the script returned but did not show() still reach the person as cards.
         if (outcome.ok && cards.length === cardsBefore) {
           for (const r of recordsIn(outcome.value).slice(0, MAX_CARDS)) {
@@ -386,7 +409,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const system = systemPrompt({
       userName: user.name,
       userId: user.id,
-      today: new Date().toISOString().slice(0, 10),
+      today,
       company: { id: companyId, name: company?.name ?? companyId, currency: store.getCompanyFinanceSettings(companyId).currencyCode },
       companies: accessibleCompanyIds(user).map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id })),
       areas: [...new Set(ops.filter((op) => op.method === 'GET' && op.permission.includes('.') && allowedOp(req, companyId, op)).map((op) => op.permission.split('.')[0]))].sort(),

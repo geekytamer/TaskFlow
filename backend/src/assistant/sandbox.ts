@@ -32,11 +32,31 @@ export const DEFAULT_LIMITS: SandboxLimits = { timeoutMs: 30_000, maxCalls: 40, 
 let modulePromise: Promise<QuickJSWASMModule> | undefined;
 const quickjs = () => (modulePromise ??= newQuickJSWASMModuleFromVariant(variant));
 
+/** What a run adds to the script's globals: constants (COMPANY_ID, ME, TODAY) and tf.<recipe>. */
+export interface SandboxExtras {
+  globals?: Record<string, string>;
+  recipes?: string[];
+}
+
+function extrasPrelude(extras: SandboxExtras): string {
+  const lines = Object.entries(extras.globals ?? {})
+    .filter(([k]) => /^[A-Z][A-Z_]*$/.test(k))
+    .map(([k, v]) => `const ${k} = ${JSON.stringify(String(v))};`);
+  const names = (extras.recipes ?? []).filter((n) => /^[a-zA-Z]+$/.test(n));
+  lines.push(`const tf = Object.freeze({ ${names.map((n) => `${n}: (a) => __recipe(${JSON.stringify(n)}, a)`).join(', ')} });`);
+  return lines.join('\n');
+}
+
 const PRELUDE = `
 const __j = (s) => (s === undefined || s === '' ? null : JSON.parse(s));
 const __call = async (m, p, b, s) => {
   if (typeof p !== 'string' || !p.startsWith('/')) throw new Error('api path must start with /');
   const r = __j(await __host(m, p, b === undefined ? '' : JSON.stringify(b), s === undefined ? '' : String(s)));
+  if (r && r.__error) { const e = new Error(r.__error); e.status = r.status; throw e; }
+  return r;
+};
+const __recipe = async (n, a) => {
+  const r = __j(await __host('RECIPE', n, a === undefined ? '' : JSON.stringify(a), ''));
   if (r && r.__error) { const e = new Error(r.__error); e.status = r.status; throw e; }
   return r;
 };
@@ -55,7 +75,7 @@ const lookup = async (q) => __j(await __host('LOOKUP', String(q), '', ''));
 const console = Object.freeze({ log: (...a) => __log(a.map((x) => typeof x === 'string' ? x : JSON.stringify(x)).join(' ')) });
 `;
 
-export async function runInSandbox(code: string, host: SandboxHost, limits: SandboxLimits = DEFAULT_LIMITS): Promise<SandboxResult> {
+export async function runInSandbox(code: string, host: SandboxHost, limits: SandboxLimits = DEFAULT_LIMITS, extras: SandboxExtras = {}): Promise<SandboxResult> {
   const mod = await quickjs();
   const runtime = mod.newRuntime();
   runtime.setMemoryLimit(limits.memoryBytes);
@@ -108,7 +128,7 @@ export async function runInSandbox(code: string, host: SandboxHost, limits: Sand
     ctx.setProp(ctx.global, '__host', hostFn);
     hostFn.dispose();
 
-    const prelude = ctx.evalCode(PRELUDE, 'prelude.js');
+    const prelude = ctx.evalCode(`${PRELUDE}\n${extrasPrelude(extras)}`, 'prelude.js');
     ctx.unwrapResult(prelude).dispose();
 
     const evaluated = ctx.evalCode(`(async () => {\n${code}\n})()`, 'script.js');
