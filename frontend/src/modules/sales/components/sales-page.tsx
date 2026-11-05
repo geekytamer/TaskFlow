@@ -61,9 +61,11 @@ import {
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInventoryItems } from '@/services/operationsService';
+import { getServices } from '@/services/servicesService';
 import { FileText, Pencil, PlusCircle, Truck, Trash2 } from 'lucide-react';
 import { DeliveryManagementDialog } from './delivery-management-dialog';
 import { QuotationsPanel } from './quotations-panel';
+import { ServicesPanel } from './services-panel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReturnsPanel } from './returns-panel';
 import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
@@ -134,13 +136,13 @@ export function SalesPage() {
   const [search, setSearch] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<'all' | SalesOrderStatus>('all');
   const locale = language === 'ar' ? 'ar' : 'en-US';
-  type SalesTab = 'orders' | 'quotations' | 'returns';
+  type SalesTab = 'orders' | 'quotations' | 'returns' | 'services';
   const [tab, setTab] = React.useState<SalesTab>('orders');
   // Opening a quotation link (?tab=quotations) lands on that tab; switching keeps the URL shareable.
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     const requested = new URLSearchParams(window.location.search).get('tab');
-    if (requested === 'quotations' || requested === 'returns') setTab(requested);
+    if (requested === 'quotations' || requested === 'returns' || requested === 'services') setTab(requested);
   }, []);
   const selectTab = (value: SalesTab) => {
     setTab(value);
@@ -181,7 +183,8 @@ export function SalesPage() {
       const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
         fanOut(ids, (id) => getSalesOrders(id)),
         fanOut(ids, (id) => getContacts(id, 'Client')),
-        fanOut(ids, (id) => getInventoryItems(id), { skip: skipOff('inventory') }),
+        // With inventory off a company still sells its services (non-stock items behind sales).
+        fanOut(ids, (id) => (skipOff('inventory')(id) ? getServices(id) : getInventoryItems(id))),
         fanOut(ids, (id) => getInvoices(id)),
         fanOut(ids, (id) => getInvoiceTemplates(id, 'invoice')),
       ]);
@@ -379,7 +382,11 @@ export function SalesPage() {
           <TabsTrigger value="orders">{t('sales.ordersTab')}</TabsTrigger>
           <TabsTrigger value="quotations">{t('quotes.tab')}</TabsTrigger>
           <TabsTrigger value="returns">{language === 'ar' ? 'المرتجعات' : 'Returns'}</TabsTrigger>
+          <TabsTrigger value="services">{language === 'ar' ? 'الخدمات والأسعار' : 'Services & prices'}</TabsTrigger>
         </TabsList>
+        <TabsContent value="services" className="mt-4">
+          <PerCompany><ServicesPanel /></PerCompany>
+        </TabsContent>
         <TabsContent value="quotations" className="mt-4">
           <PerCompany><QuotationsPanel /></PerCompany>
         </TabsContent>

@@ -137,3 +137,24 @@ unique, direction set, only `field./client./company./document./today` tokens,
 has a signature and a notes area), names are distinct, and the composer's field
 boxes come out of it. Renderer: `direction` overrides the locale. Browser:
 install a starter from an empty company, fill, save, PDF.
+
+## Stage 3 — Services & prices (2026-11-06)
+
+Peak (agency preset) has inventory and purchasing off, so it had no price list
+and its quotations offered only typed lines.
+
+- A service is an `inventory_items` row with `tracksInventory = 0` (as today), but
+  reached through sales routes: `GET/POST /companies/:id/services`,
+  `PUT/DELETE /services/:id` (`sales.view/create/edit/delete`, legacy
+  Admin/Manager/Accountant). They never read or change a stocked item (404).
+  Removing a service that a quotation/order/invoice uses archives it (documents
+  keep it); otherwise it is deleted — the existing item removal rule.
+- Sales → **Services & prices** tab: list, search, add/edit (name, price, unit,
+  VAT), remove.
+- Quotation and sales-order lines: with inventory on, the item list is inventory
+  (which already includes services); with inventory off, it is the services.
+- A typed line offers **+ Save as a service** (prefilled name and price); the line
+  then links to it.
+- **+ New client** beside the client picker (name, optional phone/email;
+  `contacts.create`), selected on save.
+- The line column reads "Item / service".

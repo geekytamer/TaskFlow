@@ -166,6 +166,7 @@ import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
 import { registerLibraryRoutes } from './routes/library';
+import { registerServiceRoutes } from './routes/services';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerIntercompanyRoutes } from './routes/intercompany';
 import { registerAssistantRoutes, type AssistantOptions } from './routes/assistant';
@@ -7124,6 +7125,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerClientEmailRoutes(app, routeContext);
   registerSearchRoutes(app, routeContext);
   registerLibraryRoutes(app, routeContext);
+  registerServiceRoutes(app, routeContext);
   registerApprovalRoutes(app, routeContext, { docSummary, decideDocument });
   registerIntercompanyRoutes(app, routeContext);
   registerAssistantRoutes(app, routeContext, options.assistant);

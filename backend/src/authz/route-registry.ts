@@ -59,6 +59,10 @@ export const ROUTES: readonly RouteDecl[] = [
   // ─── sales ─────────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/sales-orders', permission: 'sales.view', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/sales-orders', permission: 'sales.create', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/services', permission: 'sales.view', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/services', permission: 'sales.create', legacyRoles: MGMT },
+  { method: 'PUT', path: '/services/:id', permission: 'sales.edit', legacyRoles: MGMT },
+  { method: 'DELETE', path: '/services/:id', permission: 'sales.delete', legacyRoles: MGMT },
   { method: 'PUT', path: '/sales-orders/:id', permission: 'sales.edit', legacyRoles: MGMT },
   { method: 'PATCH', path: '/sales-orders/:id/status', permission: 'sales.edit', legacyRoles: MGMT, note: 'setting the status to Cancelled also needs sales.cancel (checked on the body)' },
   { method: 'POST', path: '/sales-orders/:id/invoice', permission: 'sales.create', legacyRoles: MGMT },
