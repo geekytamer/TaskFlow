@@ -68,3 +68,42 @@ The bar stays at ≥ 95%.
 3. The new recipes.
 4. The switcher and `/assistant` out of per-company framing.
 5. Eval cases, browser checks, review, push. No deploy.
+
+## Wave 4 results (2026-11-05)
+
+**Shipped on `feature/permissions-v2`. Pushed, not deployed.**
+
+| Area | What landed |
+| --- | --- |
+| Switcher | In the assistant page and panel header: groups first ("Whole group" plus their companies), then standalone companies after a divider. The app's own company is untouched. `/assistant` is no longer drawn once per company. |
+| Group mode | Migration `165_assistant_scope`. Coverage is the group plus the companies under it that this person can open **and** whose own assistant settings allow them. Reads fan out per company; summaries come back per company with `totalsByCurrency`. Changes need `company`. |
+| Raw API boundary | Every raw call is held to the conversation's companies: a named company, the `?companyId=` query and `body.companyId` are all checked. Lists from endpoints that ignore their company filter (GET /tasks) drop other companies' rows. A single record of another company is refused. |
+| Abilities | 14 more recipes (projects, quotations, payables, purchase orders, expenses, people, follow-ups, approvals, comments, emailing invoices, the money picture). Each declares the routes it needs. The prompt lists the helpers this person cannot use. |
+| Model ergonomics | In group mode `company` may be one argument, or set on each item of a list (each company gets its own items). A read for one named company answers as that company. `lookup()` brings a contact's phone and email, and finds a name typed in the other script. When a script returns nothing or hollow fields, the model is shown the helper's real shape. Payables uses the same names as receivables (`totalOwed`, `overdueAmount`). |
+
+### Code review
+
+Three findings, all fixed with tests:
+1. Group mode read companies whose assistant was switched off.
+2. Unfiltered raw lists crossed the company boundary.
+3. Reads by record id were not held to the conversation.
+
+### Eval
+
+qwen3:8b on the Mac, 30 scenarios × en/ar:
+
+| Run | Score | What changed |
+| --- | --- | --- |
+| First run | 81.7% | Exposed the group-argument and payables-naming bugs. |
+| After the fixes | 93.3% | — |
+| After the lookup, hollow-result and stock fixes | **96.7%** | — |
+
+The two remaining failures are the small model's Arabic, not our code:
+- the dual "جلستا" (two sessions) is read as quantity 1;
+- "كم عدد" (how many) is answered with a row count.
+
+A bigger model should clear both.
+
+### Tests
+
+The backend suite passes in full: 1311/1311. Frontend `tsc` and eslint are clean.
