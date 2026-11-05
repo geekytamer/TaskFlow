@@ -56,7 +56,7 @@ export function AssistantContextSwitcher({ companies, value, onChange, tr, compa
           aria-label={tr(`Assistant works on: ${label}${isWhole ? ' (whole group)' : ''}`, `يعمل المساعد على: ${label}${isWhole ? ' (المجموعة كاملة)' : ''}`)}>
           <Icon className={cn('h-3.5 w-3.5 shrink-0', isWhole && 'text-primary')} />
           <span className="min-w-0 truncate">{label}</span>
-          {isWhole ? <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{tr('whole group', 'المجموعة')}</span> : null}
+          {isWhole && !compact ? <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{tr('whole group', 'المجموعة')}</span> : null}
           <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
         </Button>
       </DropdownMenuTrigger>

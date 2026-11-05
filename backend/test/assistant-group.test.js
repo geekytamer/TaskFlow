@@ -112,3 +112,16 @@ test('a script that returns nothing after a helper is told the helper\'s real fi
   const r = await run('const r = await tf.receivables(); return r.byClient[0].name;', { companyId: '1', scope: 'company' });
   assert.match(r.logs.join('\n'), /a field you used may not exist[\s\S]*tf\.receivables → [\s\S]*byClient/);
 });
+
+test('whole group: a read for one named company answers as that company; a company named on each item of a change is taken from there', async () => {
+  const { run } = setup();
+  const one = await run("const r = await tf.receivables({ company: 'Innovate Corp' }); return { owed: r.totalOwed, company: r.company };");
+  assert.deepEqual(one.result, { owed: 4450, company: 'Innovate Corp' }, JSON.stringify(one));
+  const items = await run("return await tf.createTasks([{ title: 'Call the bank', company: 'Innovate Corp' }, { title: 'Pay rent', company: 'Synergy' }]);");
+  assert.equal(items.proposals.length, 2, JSON.stringify(items.error));
+  assert.deepEqual(items.proposals.map((p) => p.companyId).sort(), ['1', '2']);
+  assert.ok(items.proposals.every((p) => !('company' in p.body)), 'the company name is not sent to the endpoint');
+  const mixed = await run("return await tf.createTasks([{ title: 'A', company: 'Innovate Corp' }, { title: 'B' }]);");
+  assert.match(mixed.error, /say which company/);
+  assert.equal(mixed.proposals.length, 0);
+});

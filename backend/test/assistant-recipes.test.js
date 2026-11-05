@@ -250,8 +250,8 @@ test('every recipe names the routes it needs; the prompt tells the model which o
 test('wider recipes read the fixture truth: payables, quotations, expenses, employees, follow-ups, projects, the money picture', async () => {
   const { run, fx } = setup();
   const pay = await run('return await tf.payables();');
-  assert.equal(pay.result.owed, 2100);
-  assert.equal(pay.result.overdue, 600);
+  assert.equal(pay.result.totalOwed, 2100);
+  assert.equal(pay.result.overdueAmount, 600);
   assert.deepEqual(pay.result.bills.map((b) => b.supplier), ['Gulf Print House', 'Al Khuwair Properties']);
   const quotes = await run('return await tf.quotations();');
   assert.equal(quotes.result[0].client, 'Desert Rose Hotel');

@@ -475,15 +475,42 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const runAcrossGroup = async (recipe: (typeof RECIPES)[number], body: unknown, host: SandboxHost): Promise<unknown> => {
       const args = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : undefined;
       const { company: named, ...rest } = args ?? {};
+      const run1 = async (c: Covered, input: unknown, prefix?: string) => {
+        recipeDepth += 1;
+        try { return await recipe.run(recipeContext(host, c.id, prefix), input); } finally { recipeDepth -= 1; }
+      };
+      const missing = (v: unknown) => v === undefined || v === null || v === '';
+      // A list of changes may name the company on each item ([{ title, company }]): each company gets its own items.
+      if (recipe.changes && Array.isArray(body) && body.some((it) => it && typeof it === 'object' && !missing((it as { company?: unknown }).company))) {
+        const byCompany = new Map<Covered, unknown[]>();
+        for (const it of body as Array<Record<string, unknown>>) {
+          if (!it || typeof it !== 'object' || missing(it.company)) throw new Error(`This conversation covers the whole group: say which company each item is for. Companies: ${covered.map((c) => c.name).join(', ')}.`);
+          const { company, ...item } = it;
+          const c = pickOne(covered, company, (x) => x.name, 'company');
+          byCompany.set(c, [...(byCompany.get(c) ?? []), item]);
+        }
+        const out: unknown[] = [];
+        for (const [c, list] of byCompany) {
+          const value = await run1(c, list, c.name);
+          out.push(...(Array.isArray(value) ? value : [value]));
+        }
+        return out;
+      }
       if (recipe.changes) {
-        if (named === undefined || named === null || named === '') {
+        if (missing(named)) {
           throw new Error(`This conversation covers the whole group: say which company the change is for, e.g. tf.${recipe.name}({ company: '${(covered[1] ?? covered[0]).name}', ... }). Companies: ${covered.map((c) => c.name).join(', ')}. If the person did not say, ask them.`);
         }
         const target = pickOne(covered, named, (c) => c.name, 'company');
-        recipeDepth += 1;
-        try { return await recipe.run(recipeContext(host, target.id, target.name), rest); } finally { recipeDepth -= 1; }
+        return run1(target, rest, target.name);
       }
-      const scope = named !== undefined ? [pickOne(covered, named, (c) => c.name, 'company')] : covered;
+      // One company named: its own answer, as in a company conversation (plus which company it is).
+      if (!missing(named)) {
+        const c = pickOne(covered, named, (x) => x.name, 'company');
+        const value = await run1(c, rest);
+        if (Array.isArray(value)) return value.map((row) => (row && typeof row === 'object' ? { ...(row as object), company: c.name } : row));
+        return value && typeof value === 'object' ? { company: c.name, currency: c.currency, ...(value as object) } : value;
+      }
+      const scope = covered;
       recipeDepth += 1;
       let results: Array<{ c: Covered; value?: unknown; error?: string }>;
       try {

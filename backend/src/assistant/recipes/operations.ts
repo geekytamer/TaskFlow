@@ -121,8 +121,8 @@ export const payables: Recipe = {
   params: ['status', 'supplier', 'text'],
   needs: [['GET', '/companies/:companyId/finance/vendor-bills']],
   signature: "payables({ status?: 'unpaid'|'overdue'|'all', supplier?: name })",
-  returns: '{ currency, owed, overdue, bills: [{ id, billNumber, supplier, amount, outstanding, dueDate, overdue }] } — what the company owes its suppliers; unpaid by default, oldest due first',
-  example: "const p = await tf.payables({ status: 'overdue' }); await show(p.bills); return { overdue: p.overdue, currency: p.currency };",
+  returns: '{ currency, totalOwed, overdueAmount, bills: [{ id, billNumber, supplier, amount, outstanding, dueDate, overdue }] } — what the company owes its suppliers (totalOwed is all of it; overdueAmount only the late part); unpaid by default, oldest due first',
+  example: "const p = await tf.payables({ status: 'overdue' }); await show(p.bills); return { totalOwed: p.totalOwed, overdueAmount: p.overdueAmount, currency: p.currency };",
   words: ['payable', 'payables', 'bill', 'bills', 'supplier', 'suppliers', 'vendor', 'owe', 'pay', 'due'],
   async run(ctx, args) {
     const a = argsOf(args);
@@ -141,8 +141,8 @@ export const payables: Recipe = {
       .sort((x, y) => (x.dueDate ?? '').localeCompare(y.dueDate ?? ''));
     return {
       currency: ctx.currency,
-      owed: round(bills.reduce((s, b) => s + b.outstanding, 0)),
-      overdue: round(bills.filter((b) => b.overdue).reduce((s, b) => s + b.outstanding, 0)),
+      totalOwed: round(bills.reduce((s, b) => s + b.outstanding, 0)),
+      overdueAmount: round(bills.filter((b) => b.overdue).reduce((s, b) => s + b.outstanding, 0)),
       bills,
     };
   },
