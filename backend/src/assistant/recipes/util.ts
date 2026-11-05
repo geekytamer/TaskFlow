@@ -66,10 +66,17 @@ export function pickOne<T extends { id: string }>(rows: T[], ref: unknown, label
 export const co = (ctx: Pick<RecipeContext, 'companyId'>, rest: string): string => `/companies/${encodeURIComponent(ctx.companyId)}${rest}`;
 
 /** A colleague's user id from their name, an id, or "me". */
+/** The member list, read once per recipe call (a batch of 25 tasks reads it once). */
+const membersOf = new WeakMap<RecipeContext, Promise<Array<{ id: string; name: string }>>>();
+
 export async function memberId(ctx: RecipeContext, ref: unknown): Promise<string> {
   if (['me', 'myself', 'انا', 'لي', 'نفسي'].includes(norm(ref))) return ctx.userId;
-  const members = await ctx.get<Array<{ id: string; name: string }>>(co(ctx, '/members'));
-  return pickOne(members, ref, (m) => m.name, 'person').id;
+  let members = membersOf.get(ctx);
+  if (!members) {
+    members = ctx.get<Array<{ id: string; name: string }>>(co(ctx, '/members'));
+    membersOf.set(ctx, members);
+  }
+  return pickOne(await members, ref, (m) => m.name, 'person').id;
 }
 
 /** One of the allowed values, matched without case; undefined when not given. */

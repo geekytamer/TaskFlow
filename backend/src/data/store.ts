@@ -6760,8 +6760,11 @@ export class DataStore {
     return row;
   }
 
-  listAssistantExamples(companyId: string, limit = 300): AssistantExampleRow[] {
-    return this.db.prepare('SELECT * FROM assistant_examples WHERE companyId = ? ORDER BY createdAt DESC LIMIT ?').all(companyId, limit) as AssistantExampleRow[];
+  /** A company's examples, newest first; with userId, only that person's (what their own prompts may use). */
+  listAssistantExamples(companyId: string, limit = 300, userId?: string): AssistantExampleRow[] {
+    return (userId
+      ? this.db.prepare('SELECT * FROM assistant_examples WHERE companyId = ? AND userId = ? ORDER BY createdAt DESC LIMIT ?').all(companyId, userId, limit)
+      : this.db.prepare('SELECT * FROM assistant_examples WHERE companyId = ? ORDER BY createdAt DESC LIMIT ?').all(companyId, limit)) as AssistantExampleRow[];
   }
 
   getAssistantExample(id: string): AssistantExampleRow | undefined {

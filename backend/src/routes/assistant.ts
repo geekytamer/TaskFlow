@@ -14,6 +14,7 @@ import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assis
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import { RECIPES, describeRecipe, recipeByName, searchRecipes } from '../assistant/recipes';
 import { similarExamples } from '../assistant/examples';
+import { norm } from '../assistant/recipes/util';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
@@ -189,6 +190,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const thread = store.getAssistantThread(id);
     if (!thread || thread.userId !== req.user!.id) throw new HttpError(404, 'Conversation not found');
     return thread;
+  }
+
+  /** Saves an example; the person's older one for the same request is replaced, so repeats do not crowd out the rest. */
+  function saveExample(companyId: string, userId: string, request: string, code: string, kind: 'read' | 'change') {
+    const key = norm(request);
+    for (const old of store.listAssistantExamples(companyId, 1000, userId)) if (norm(old.request) === key) store.deleteAssistantExample(old.id);
+    return store.createAssistantExample({ companyId, userId, request, code, kind });
   }
 
   function viewOf(thread: AssistantThreadRow) {
@@ -420,7 +428,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     };
 
     const history = (thread.messages as StoredMessage[]).map(({ ui: _ui, ...m }) => m as ChatMessage);
-    const examples = similarExamples(request, store.listAssistantExamples(companyId));
+    // The person's own examples only: another person's code may hold figures they may not see, and their words are not this person's instructions.
+    const examples = similarExamples(request, store.listAssistantExamples(companyId, 300, user.id));
     if (examples.length) store.touchAssistantExamples(examples.map((e) => e.id));
     const system = systemPrompt({
       userName: user.name,
@@ -450,7 +459,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     if (cards.length) last.ui = { ...(last.ui ?? {}), cards };
     // What worked this turn, kept on the answer: saved as an example once confirmed (or marked helpful).
     const exampleCode = proposingCode ?? lastOkCode;
-    if (exampleCode && request && outcome.reply && !/^I stopped after too many steps/.test(outcome.reply)) {
+    // After a decision the turn only reports back: its code is not what the person asked for.
+    const followUp = (thread.messages.at(-1) as StoredMessage | undefined)?.ui?.hidden === true;
+    if (exampleCode && request && !followUp && outcome.reply && !/^I stopped after too many steps/.test(outcome.reply)) {
       last.ui = { ...(last.ui ?? {}), example: { request: request.slice(0, 500), code: exampleCode, kind: proposingCode ? 'change' : 'read' } };
     }
     store.saveAssistantMessages(thread.id, [...thread.messages, ...added]);
@@ -624,15 +635,12 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       const fresh = store.getAssistantThread(thread.id)!;
       // A change that was confirmed and went through: the request and its code become an example.
       const doneIds = new Set(store.listAssistantActions(thread.id).filter((a) => a.status === 'done').map((a) => a.id));
-      let examplesChanged = false;
       fresh.messages = (fresh.messages as StoredMessage[]).map((m) => {
         const ex = m.ui?.example;
         if (!ex || ex.kind !== 'change' || ex.savedId || !m.ui?.actionIds?.some((id) => doneIds.has(id))) return m;
-        examplesChanged = true;
-        const saved = store.createAssistantExample({ companyId: thread.companyId, userId: req.user!.id, request: ex.request, code: ex.code, kind: 'change' });
+        const saved = saveExample(thread.companyId, req.user!.id, ex.request, ex.code, 'change');
         return { ...m, ui: { ...m.ui, example: { ...ex, savedId: saved.id } } } as StoredMessage;
       });
-      if (examplesChanged && !report.length) store.saveAssistantMessages(fresh.id, fresh.messages);
       const waiting = store.listAssistantActions(thread.id).some((a) => a.status === 'pending');
       if (report.length) {
         fresh.messages = [...fresh.messages, { role: 'user', content: `[The person decided on the proposed changes]\n${report.join('\n')}${made.length ? '\n(The new records are shown to the person as cards.)' : ''}`, ui: { hidden: true, ...(made.length ? { cards: made } : {}) } }];
@@ -652,6 +660,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   app.post('/assistant/threads/:id/feedback', authMiddleware, handler((req, res) => {
     const thread = threadFor(req, req.params.id);
     requireCompanyAccess(req, thread.companyId);
+    // A running turn saves its own copy of the messages when it ends; feedback now would be lost.
+    if (busy.has(thread.id)) throw new HttpError(409, 'The assistant is still working on this conversation.');
     const body = asRecord(req.body, 'body');
     const ref = Number(body.ref);
     const messages = thread.messages as StoredMessage[];
@@ -659,8 +669,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     if (!m || m.role !== 'assistant' || m.ui?.hidden) throw new HttpError(404, 'Answer not found');
     const helpful = body.helpful === true;
     const ui = { ...(m.ui ?? {}), feedback: helpful ? 'up' as const : 'down' as const };
-    if (helpful && ui.example && !ui.example.savedId) {
-      const saved = store.createAssistantExample({ companyId: thread.companyId, userId: req.user!.id, request: ui.example.request, code: ui.example.code, kind: ui.example.kind });
+    // A change teaches only once it was confirmed and went through, whatever the 👍 says about the words.
+    const doneHere = new Set(store.listAssistantActions(thread.id).filter((a) => a.status === 'done').map((a) => a.id));
+    const worked = ui.example?.kind === 'read' || Boolean(ui.actionIds?.length && ui.actionIds.every((id) => doneHere.has(id)));
+    if (helpful && ui.example && !ui.example.savedId && worked) {
+      const saved = saveExample(thread.companyId, req.user!.id, ui.example.request, ui.example.code, ui.example.kind);
       ui.example = { ...ui.example, savedId: saved.id };
     }
     if (!helpful && ui.example?.savedId) {

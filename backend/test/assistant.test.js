@@ -565,3 +565,46 @@ test('examples: 👍 on a read answer saves it; admins list and delete; others c
   assert.equal(del.status, 204);
   assert.equal(s.store.listAssistantExamples('1').length, 0);
 });
+
+test('examples: only the person\'s own are reused; a repeat replaces the older one', async () => {
+  const steps = [];
+  const s = setup(steps);
+  const samantha = s.store.listUsers().find((u) => u.email === 'samantha.b@innovatecorp.com');
+  s.store.createAssistantExample({ companyId: '1', userId: samantha.id, request: 'salary certificate for Ahmed', code: "makeDocument('Salary certificate', { salary: 'SECRET-4321' })", kind: 'change' });
+  steps.push(say('ok'));
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'salary certificate for Ahmed please' });
+  assert.doesNotMatch(s.model.seen.at(-1)[0].content, /SECRET-4321/, 'another person\'s example never reaches this prompt');
+
+  for (let i = 0; i < 2; i += 1) {
+    steps.push(say("```js\nreturn (await tf.myTasks()).length;\n```"), say('You have tasks.'));
+    const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'How many open tasks do I have?' });
+    await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/feedback`, { ref: asked.body.items.at(-1).ref, helpful: true });
+  }
+  assert.equal(s.store.listAssistantExamples('1').filter((e) => e.userId === s.admin.id).length, 1, 'the same request is kept once');
+});
+
+test('examples: a declined change is not saved on 👍; a follow-up turn keeps no example; feedback waits for a running turn', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(say("```js\nreturn await tf.createTasks([{ title: 'Wrong one' }]);\n```"), say('Prepared.'));
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'add a task' });
+  const answer = asked.body.items.at(-1);
+  await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { decline: [answer.actions[0].id] });
+  await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/feedback`, { ref: answer.ref, helpful: true });
+  assert.equal(s.store.listAssistantExamples('1').length, 0, 'a change counts only once it was confirmed and done');
+
+  steps.push(say("```js\nreturn await tf.createTasks([{ title: 'Right one' }]);\n```"), say('Prepared.'), say("```js\nreturn (await tf.myTasks()).length;\n```"), say('Done, you now have tasks.'));
+  const again = await s.as(s.admin.id).post('/assistant/chat', { threadId: asked.body.id, message: 'add the right task' });
+  const decided = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { confirm: [again.body.items.at(-1).actions[0].id] });
+  const followUp = decided.body.items.at(-1);
+  const stored = s.store.getAssistantThread(asked.body.id).messages[followUp.ref];
+  assert.equal(stored.ui?.example, undefined, 'the follow-up after a decision keeps no example of its own');
+
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = setup([], { chat: async () => { await gate; return { content: 'later' }; } });
+  const first = await slow.as(slow.admin.id).post('/assistant/chat', { companyId: '1', message: 'hello', background: true });
+  const busy = await slow.as(slow.admin.id).post(`/assistant/threads/${first.body.id}/feedback`, { ref: 0, helpful: true });
+  assert.equal(busy.status, 409);
+  release();
+});
