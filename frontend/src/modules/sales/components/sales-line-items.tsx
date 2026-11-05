@@ -81,14 +81,17 @@ export function SalesLineItemsEditor({
   onChange,
   inventory,
   currencyCode,
+  onSaveAsService,
 }: {
   rows: SalesItemForm[];
   onChange: (rows: SalesItemForm[]) => void;
   inventory: InventoryItem[];
+  /** Offered on a typed line: keep it in the price list for next time. */
+  onSaveAsService?: (index: number) => void;
   /** The currency of the company the document is in; default the selected company's. */
   currencyCode?: string;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { money: companyMoney } = useCompanyCurrency();
   const money = (value: number) => (currencyCode ? formatCurrency(value, currencyCode) : companyMoney(value));
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
@@ -146,6 +149,15 @@ export function SalesLineItemsEditor({
                 </TableCell>
                 <TableCell>
                   <Input dir="auto" className="min-w-[10rem]" value={item.description} onChange={(event) => update(index, { description: event.target.value })} placeholder={t('sales.description')} />
+                  {onSaveAsService && !item.inventoryItemId && item.description.trim() && (
+                    <button
+                      type="button"
+                      className="mt-1 text-xs text-primary hover:underline"
+                      onClick={() => onSaveAsService(index)}
+                    >
+                      {language === 'ar' ? '+ احفظها كخدمة' : '+ Save as a service'}
+                    </button>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Input className="min-w-[4.5rem] text-end" type="number" min="0" value={item.quantity} onChange={(event) => update(index, { quantity: event.target.value })} />

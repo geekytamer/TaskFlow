@@ -31,6 +31,9 @@ import type { InventoryItem } from '@/modules/operations/types';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInvoiceTemplates } from '@/services/financeService';
 import { getInventoryItems } from '@/services/operationsService';
+import { getServices } from '@/services/servicesService';
+import { createContact } from '@/services/contactService';
+import { ServiceDialog } from './services-panel';
 import {
   convertQuotationToInvoice, convertQuotationToSalesOrder, createQuotation, deleteQuotation, getQuotations,
   setQuotationStatus, updateQuotation,
@@ -82,6 +85,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const { can } = usePermissions();
   const canCreate = can('sales.create');
   const canManage = can('sales.edit');
+  const canAddClient = can('contacts.create');
   const locale = language === 'ar' ? 'ar-u-nu-latn' : 'en-GB';
   const companyId = selectedCompany?.id || '';
   // Inventory can be switched off for the company (agencies): its route is refused then, so don't ask.
@@ -91,6 +95,10 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const approvalStatus = useApprovalStatuses('quotation', quotes);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [inventory, setInventory] = React.useState<InventoryItem[]>([]);
+  // A typed line being saved to the price list, and the quick new-client form.
+  const [serviceLine, setServiceLine] = React.useState<number | null>(null);
+  const [newClient, setNewClient] = React.useState<{ name: string; phone: string; email: string } | null>(null);
+  const [savingClient, setSavingClient] = React.useState(false);
   const [quoteTemplates, setQuoteTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [invoiceTemplates, setInvoiceTemplates] = React.useState<InvoiceTemplate[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -109,7 +117,8 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       const [quoteData, clientData, itemData, quoteTemplateData, invoiceTemplateData] = await Promise.all([
         getQuotations(companyId, { opportunityId }),
         opportunityId ? Promise.resolve([] as Contact[]) : getContacts(companyId, 'Client'),
-        inventoryOn ? getInventoryItems(companyId) : Promise.resolve([] as InventoryItem[]),
+        // With inventory off the price list is the company's services (behind sales).
+        inventoryOn ? getInventoryItems(companyId) : getServices(companyId),
         getInvoiceTemplates(companyId, 'quote'),
         getInvoiceTemplates(companyId, 'invoice'),
       ]);
@@ -375,13 +384,22 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             {!opportunityId && (
               <div className="space-y-1 sm:col-span-2">
                 <Label>{t('quotes.client')}</Label>
-                <Combobox
-                  options={clients.map((c) => ({ value: c.id, label: c.name }))}
-                  value={form.contactId}
-                  onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
-                  placeholder={t('sales.selectClient')}
-                  searchPlaceholder={t('sales.selectClient')}
-                />
+                <div className="flex gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Combobox
+                      options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                      value={form.contactId}
+                      onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
+                      placeholder={t('sales.selectClient')}
+                      searchPlaceholder={t('sales.selectClient')}
+                    />
+                  </div>
+                  {canAddClient && (
+                    <Button type="button" variant="outline" onClick={() => setNewClient({ name: '', phone: '', email: '' })}>
+                      {language === 'ar' ? '+ عميل جديد' : '+ New client'}
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
             <div className="space-y-1">
@@ -409,7 +427,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           </div>
           {/* The line table is wider than the dialog: it scrolls on its own instead of stretching the form. */}
           <div className="min-w-0 overflow-x-auto">
-            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} />
+            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} />
           </div>
           <dl className="ms-auto grid w-full max-w-xs grid-cols-2 gap-y-1 text-sm">
             <dt className="text-muted-foreground">{t('quotes.subtotal')}</dt><dd className="text-end tabular-nums">{money(subtotal)}</dd>
@@ -423,6 +441,82 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
             <Button onClick={save} disabled={saving}>{saving ? t('common.loading') : t('quotes.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ServiceDialog
+        companyId={companyId}
+        service={serviceLine === null ? null : 'new'}
+        initial={serviceLine === null ? undefined : {
+          name: form.items[serviceLine]?.description.trim(),
+          salePrice: Number(form.items[serviceLine]?.unitPrice || 0),
+        }}
+        onClose={() => setServiceLine(null)}
+        onSaved={(service) => {
+          const index = serviceLine;
+          setServiceLine(null);
+          setInventory((prev) => [...prev, service]);
+          if (index === null) return;
+          setForm((prev) => ({
+            ...prev,
+            items: prev.items.map((row, i) => (i === index ? { ...row, inventoryItemId: service.id, sku: service.sku } : row)),
+          }));
+        }}
+      />
+
+      <Dialog open={newClient !== null} onOpenChange={(open) => { if (!open) setNewClient(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{language === 'ar' ? 'عميل جديد' : 'New client'}</DialogTitle>
+            <DialogDescription>{language === 'ar' ? 'الاسم يكفي؛ تقدر تكمل بياناته لاحقاً من جهات الاتصال.' : 'A name is enough; complete the details later in Contacts.'}</DialogDescription>
+          </DialogHeader>
+          {newClient && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="new-client-name">{language === 'ar' ? 'الاسم' : 'Name'}</Label>
+                <Input id="new-client-name" dir="auto" value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="new-client-phone">{language === 'ar' ? 'الهاتف (اختياري)' : 'Phone (optional)'}</Label>
+                  <Input id="new-client-phone" dir="ltr" value={newClient.phone} onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="new-client-email">{language === 'ar' ? 'البريد (اختياري)' : 'Email (optional)'}</Label>
+                  <Input id="new-client-email" type="email" dir="ltr" value={newClient.email} onChange={(e) => setNewClient({ ...newClient, email: e.target.value })} />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewClient(null)}>{t('common.cancel')}</Button>
+            <Button
+              disabled={!newClient?.name.trim() || savingClient}
+              onClick={async () => {
+                if (!newClient || !companyId) return;
+                setSavingClient(true);
+                try {
+                  const created = await createContact({
+                    companyId,
+                    kind: 'Organization',
+                    name: newClient.name.trim(),
+                    phone: newClient.phone.trim() || undefined,
+                    email: newClient.email.trim() || undefined,
+                    roles: ['Client'],
+                  });
+                  setClients((prev) => [...prev, created]);
+                  setForm((prev) => ({ ...prev, contactId: created.id }));
+                  setNewClient(null);
+                } catch (error: any) {
+                  toast({ variant: 'destructive', title: language === 'ar' ? 'تعذّر إضافة العميل' : 'Could not add the client', description: error?.message });
+                } finally {
+                  setSavingClient(false);
+                }
+              }}
+            >
+              {language === 'ar' ? 'إضافة' : 'Add'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

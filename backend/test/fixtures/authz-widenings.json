@@ -256,16 +256,20 @@
     "POST /purchase-orders/:id/intercompany-order"
   ],
   "sales:create": [
+    "POST /companies/:companyId/services",
     "POST /companies/:companyId/shipments"
   ],
   "sales:delete": [
-    "DELETE /sales-orders/:id"
+    "DELETE /sales-orders/:id",
+    "DELETE /services/:id"
   ],
   "sales:read": [
+    "GET /companies/:companyId/services",
     "GET /companies/:companyId/shipments"
   ],
   "sales:write": [
     "POST /shipments/:id/status",
+    "PUT /services/:id",
     "PUT /shipments/:id"
   ],
   "settings:companies.read": [

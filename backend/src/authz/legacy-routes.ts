@@ -17,6 +17,10 @@ export interface RoutePermission {
 export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /deliveries/:id/pdf': { module: 'sales', action: 'deliveries.pdf.read' },
   'GET /companies/:companyId/sales-orders': { module: 'sales', action: 'read' },
+  'GET /companies/:companyId/services': { module: 'sales', action: 'read' },
+  'POST /companies/:companyId/services': { module: 'sales', action: 'create' },
+  'PUT /services/:id': { module: 'sales', action: 'write' },
+  'DELETE /services/:id': { module: 'sales', action: 'delete' },
   'GET /companies/:companyId/customer-returns': { module: 'sales', action: 'read' },
   'GET /companies/:companyId/quotations': { module: 'sales', action: 'read' },
   'GET /quotations/:id': { module: 'sales', action: 'read' },

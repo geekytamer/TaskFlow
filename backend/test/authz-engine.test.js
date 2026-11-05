@@ -287,6 +287,7 @@ const seedRecordPerResource = (store, company, userId) => {
   const followup = store.createFollowup({ companyId: company, entityType: 'contact', entityId: contact.id, title: 'Seed follow-up', ownerUserId: userId, ownerName: user.name, dueAt: new Date() });
   store.addFollowupAssignee(followup.id, userId);
 
+  const service = store.createInventoryItem({ companyId: company, name: 'Seed service', category: 'Services', unit: 'service', unitCost: 0, salePrice: 10, tracksInventory: false });
   const lines = [{ description: 'Seed line', quantity: 1, unitPrice: 10, inventoryItemId: item.id }];
   const order = store.createSalesOrder({ companyId: company, clientId: client.id, orderDate: new Date(), status: 'Confirmed', items: lines });
   const quotation = store.createQuotation({ companyId: company, clientId: client.id, issueDate: at(2026, 10, 1), validUntil: at(2026, 12, 1), items: lines });
@@ -338,7 +339,7 @@ const seedRecordPerResource = (store, company, userId) => {
   const projectTemplate = store.projectPlan.saveTemplate(company, 'Seed template', { description: '', color: '#888888', visibility: 'Public', memberIds: [], budget: null, lengthDays: null, milestones: [], tasks: [] }, userId);
 
   return {
-    'sales-orders': order.id, quotations: quotation.id, invoices: invoice.id, 'sub:payments': payment.id,
+    'sales-orders': order.id, services: service.id, quotations: quotation.id, invoices: invoice.id, 'sub:payments': payment.id,
     'credit-notes': creditNote.id, 'vendor-bills': bill.id, deliveries: delivery.id, 'customer-returns': customerReturn.id,
     shipments: shipment.id, rfqs: rfq.id, 'sub:quotes': rfq.quotes[0].id, 'purchase-requisitions': requisition.id,
     'stock-counts': stockCount.id, recipes: recipe.id, 'work-orders': workOrder.id, 'inventory-lots': lot.id,
