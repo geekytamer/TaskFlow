@@ -669,6 +669,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           step({ kind: 'confirm', detail: a.summary.slice(0, 80) });
           const result = await callApi(token, a.method, a.path, withFiles(a.body, req.user!.id, thread.companyId), CHANGE_TIMEOUT_MS);
           store.decideAssistantAction(id, 'done', result);
+          // How to take it back, for 10 minutes (none for a delete, or where the API has no matching call).
+          const inverse = inverseOf(ops, { method: a.method, path: a.path, body: a.body }, a.before ?? null, result);
+          if (inverse) store.setAssistantActionInverse(id, inverse);
           // What was just made is shown as a card with its link (a task, a document, a contact...).
           const op = a.method === 'POST' ? matchOp(ops, a.method, a.path) : undefined;
           if (op && result && typeof result === 'object' && !Array.isArray(result) && 'id' in result) {
@@ -711,6 +714,31 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           throw err;
         });
       }
+    });
+  }));
+
+  /** Takes back a change made in the last 10 minutes: its inverse runs through the API as the person. */
+  app.post('/assistant/threads/:id/undo', authMiddleware, handler(async (req, res) => {
+    const thread = threadFor(req, req.params.id);
+    requireCompanyAccess(req, thread.companyId);
+    const actionId = requiredString(asRecord(req.body, 'body').actionId, 'actionId');
+    await turn(res, thread.id, false, async () => {
+      const a = store.getAssistantAction(actionId);
+      if (!a || a.threadId !== thread.id || a.userId !== req.user!.id) throw new HttpError(404, 'Change not found');
+      const inverse = a.inverse as Inverse | null | undefined;
+      const late = !a.decidedAt || Date.now() - Date.parse(a.decidedAt) > UNDO_MS;
+      if (a.status !== 'done' || !inverse) throw new HttpError(409, 'This change cannot be undone.');
+      if (late) throw new HttpError(409, 'Undo is only possible for 10 minutes after a change.');
+      if (!store.markAssistantActionUndone(a.id)) throw new HttpError(409, 'This change cannot be undone.');
+      try {
+        await callApi(tokenOf(req), inverse.method, inverse.path, inverse.body, CHANGE_TIMEOUT_MS);
+      } catch (err) {
+        store.reopenAssistantActionAfterFailedUndo(a.id);
+        throw new HttpError(409, `Could not undo: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      // The model hears it, so it does not build on what is gone.
+      const fresh = store.getAssistantThread(thread.id)!;
+      store.saveAssistantMessages(fresh.id, [...fresh.messages, { role: 'user', content: `[The person undid: ${a.summary}]`, ui: { hidden: true } }]);
     });
   }));
 

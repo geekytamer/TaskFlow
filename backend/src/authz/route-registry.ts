@@ -733,6 +733,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/assistant/files/:id', permission: 'self', note: 'your own attached file' },
   { method: 'GET', path: '/assistant/progress/:requestId', permission: 'self', note: 'your own request\'s progress' },
   { method: 'POST', path: '/assistant/threads/:id/decide', permission: 'self', note: 'your own proposed changes; each runs through its own route as you' },
+  { method: 'POST', path: '/assistant/threads/:id/undo', permission: 'self', note: 'your own changes, within 10 minutes; the inverse runs through its own route as you' },
   { method: 'POST', path: '/assistant/threads/:id/feedback', permission: 'self', note: 'your own conversation\'s answers' },
   { method: 'GET', path: '/companies/:companyId/assistant/examples', permission: 'settings.edit', legacyRoles: AM, note: 'learned examples of a company' },
   { method: 'DELETE', path: '/assistant/examples/:id', permission: 'settings.edit', legacyRoles: AM, note: 'learned examples of a company' },

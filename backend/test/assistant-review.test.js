@@ -132,3 +132,30 @@ test('confirm card: a delete shows what goes and says it cannot be undone', asyn
   assert.equal(a.undoable, false);
   assert.ok(fx.tasks.supplierNote.id);
 });
+
+test('undo: a created task is deleted within 10 minutes; an edit gets its old values back; never twice, never late', async () => {
+  const { store, fx, as, ask } = setupFx();
+  const made = await ask("return await tf.createTasks([{ title: 'Undo me' }]);");
+  const a = made.items.at(-1).actions[0];
+  const done = await as(fx.admin.id).post(`/assistant/threads/${made.id}/decide`, { confirm: [a.id] });
+  const after = done.body.items.flatMap((i) => i.actions).find((x) => x.id === a.id);
+  assert.ok(after.undoUntil, 'Undo is offered');
+  const created = store.listTasks().find((t) => t.title === 'Undo me');
+  assert.ok(created);
+  const undone = await as(fx.admin.id).post(`/assistant/threads/${made.id}/undo`, { actionId: a.id });
+  assert.equal(undone.status, 200, JSON.stringify(undone.body));
+  assert.equal(store.getTaskById(created.id), undefined, 'the task is gone');
+  assert.equal(undone.body.items.flatMap((i) => i.actions).find((x) => x.id === a.id).status, 'undone');
+  assert.equal((await as(fx.admin.id).post(`/assistant/threads/${made.id}/undo`, { actionId: a.id })).status, 409, 'not twice');
+  assert.match(store.getAssistantThread(made.id).messages.at(-1).content, /The person undid: Create the task: Undo me/);
+
+  const edit = await ask("return await tf.updateTask({ task: 'Call the supplier', status: 'Done' });");
+  const e = edit.items.at(-1).actions[0];
+  await as(fx.admin.id).post(`/assistant/threads/${edit.id}/decide`, { confirm: [e.id] });
+  assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'Done');
+  store.db.prepare('UPDATE assistant_actions SET decidedAt = ? WHERE id = ?').run(new Date(Date.now() - 11 * 60 * 1000).toISOString(), e.id);
+  assert.equal((await as(fx.admin.id).post(`/assistant/threads/${edit.id}/undo`, { actionId: e.id })).status, 409, 'too late');
+  store.db.prepare('UPDATE assistant_actions SET decidedAt = ? WHERE id = ?').run(new Date().toISOString(), e.id);
+  assert.equal((await as(fx.admin.id).post(`/assistant/threads/${edit.id}/undo`, { actionId: e.id })).status, 200);
+  assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'In Progress', 'old value back');
+});
