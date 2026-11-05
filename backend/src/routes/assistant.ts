@@ -151,11 +151,14 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
    * company and every company under it that this person can open. A company they
    * cannot open is never read, named or written to.
    */
-  const coverageOf = (user: NonNullable<AuthedRequest['user']>, thread: Pick<AssistantThreadRow, 'companyId' | 'scope'>): Covered[] => {
+  const coverageOf = (req: AuthedRequest, thread: Pick<AssistantThreadRow, 'companyId' | 'scope'>): Covered[] => {
+    const user = req.user!;
     let ids = [thread.companyId];
     if (thread.scope === 'group') {
       const reach = new Set(accessibleCompanyIds(user));
-      ids = subtreeIds(store.companyTreeNodes(), thread.companyId).filter((id) => id === thread.companyId || reach.has(id));
+      // Each member company's own assistant settings still apply: switched off (or not for this role) there, it is left out.
+      ids = subtreeIds(store.companyTreeNodes(), thread.companyId).filter((id) => id === thread.companyId
+        || (reach.has(id) && mayUseAssistant(settingsOf(id), roleIn(req, id), Boolean(user.isSuperAdmin))));
     }
     return ids.map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id, currency: store.getCompanyFinanceSettings(id).currencyCode }));
   };
@@ -422,7 +425,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const companyId = thread.companyId;
     const company = store.getCompanyById(companyId);
     const group = thread.scope === 'group';
-    const covered = coverageOf(user, thread);
+    const covered = coverageOf(req, thread);
     const coveredIds = new Set(covered.map((c) => c.id));
     /** A call that names a company outside this conversation is refused (never naming it). */
     const inConversation = (target: string | undefined) => {
@@ -436,6 +439,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     let lastOkCode: string | undefined;
     let proposingCode: string | undefined;
     let reads: string[] = [];
+    let helperShapes: string[] = [];
     // Every record read this turn, by id, with its kind: show() needs only ids.
     const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
     const cards: AssistantCard[] = [];
@@ -518,6 +522,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       },
       run: async (code: string) => {
         reads = [];
+        helperShapes = [];
         step({ kind: 'run' });
         const before = proposed.length;
         const cardsBefore = cards.length;
@@ -556,9 +561,16 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
               if (unknown.length) throw new Error(`tf.${recipe.name} does not take ${unknown.map((k) => `"${k}"`).join(', ')}; it takes: ${recipe.params.join(', ') || 'nothing'}`);
             }
             step({ kind: recipe.changes ? 'prepare' : 'read', detail: recipe.name });
-            if (group) return runAcrossGroup(recipe, body, host);
-            recipeDepth += 1;
-            try { return await recipe.run(recipeContext(host), body); } finally { recipeDepth -= 1; }
+            const outer = recipeDepth === 0;
+            let value: unknown;
+            if (group) value = await runAcrossGroup(recipe, body, host);
+            else {
+              recipeDepth += 1;
+              try { value = await recipe.run(recipeContext(host), body); } finally { recipeDepth -= 1; }
+            }
+            // Kept for a script that ends up returning nothing: usually a field name that is not there (r.byClient[0].name for .client).
+            if (outer && helperShapes.length < 4) helperShapes.push(`tf.${recipe.name} → ${shapeOf(value)}`);
+            return value;
           }
           if (method === 'SEARCH') return tools.search(path).split('\n');
           if (method === 'LOOKUP') {
@@ -569,9 +581,21 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
               c,
               groups: await callApi(token, 'GET', `/companies/${encodeURIComponent(c.id)}/search?q=${encodeURIComponent(path.slice(0, 100))}`, undefined).catch(() => []) as Array<{ type: string; items: Array<{ id: string; title: string; subtitle?: string }> }>,
             })));
-            const found = searched.flatMap(({ c, groups }) => (groups ?? []).flatMap((g) => g.items.map((i) => ({
+            const found: Array<Record<string, unknown> & { kind: string; id: string; title: string; subtitle?: string }> = searched.flatMap(({ c, groups }) => (groups ?? []).flatMap((g) => g.items.map((i) => ({
               kind: LOOKUP_KIND[g.type] ?? kindOfPath(`/${g.type}`), id: i.id, title: i.title, ...(i.subtitle ? { subtitle: i.subtitle } : {}), ...(group ? { company: c.name } : {}),
             }))));
+            // A person found by name comes with how to reach them ("what is Ahmed's phone?"), from the contacts list the person may read.
+            for (const c of covered) {
+              const hits = found.filter((f) => f.kind === 'contact' && (!group || f.company === c.name));
+              if (!hits.length) continue;
+              const list = await callApi(token, 'GET', `/companies/${encodeURIComponent(c.id)}/contacts`, undefined).catch(() => []) as Array<{ id: string; phone?: string; email?: string }>;
+              const byId = new Map((Array.isArray(list) ? list : []).map((r) => [r.id, r]));
+              for (const f of hits) {
+                const r = byId.get(f.id);
+                if (r?.phone) f.phone = r.phone;
+                if (r?.email) f.email = r.email;
+              }
+            }
             // Document templates by name too, with their blanks: what a letter or certificate needs.
             const words = path.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
             const templates = await callApi(token, 'GET', `/companies/${encodeURIComponent(companyId)}/document-templates`, undefined).catch(() => []) as Array<{ id: string; name: string; type?: string; dataSource?: string; manualFields?: Array<{ key: string; label: string }> }>;
@@ -579,7 +603,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             for (const t of templates ?? []) {
               const name = t.name.toLowerCase();
               if (wanted || words.some((w) => name.includes(w))) {
-                found.push({ kind: 'document-template', id: t.id, title: t.name, subtitle: t.type ?? '', ...({ dataSource: t.dataSource ?? 'none', blanks: t.manualFields ?? [] } as object) } as typeof found[number]);
+                found.push({ kind: 'document-template', id: t.id, title: t.name, subtitle: t.type ?? '', dataSource: t.dataSource ?? 'none', blanks: t.manualFields ?? [] });
               }
             }
             for (const f of found) if (!seen.has(f.id)) seen.set(f.id, { kind: f.kind, record: { id: f.id, title: f.title, ...(f.subtitle ? { subtitle: f.subtitle } : {}) } });
@@ -605,7 +629,17 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           if (!op) throw new Error(`${method} ${path.split('?')[0]} is not a TaskFlow endpoint you can use; find one with findApi('words')`);
           if (method === 'GET') {
             step({ kind: 'read', detail: kindOfPath(op.path) });
-            const value = await callApi(token, method, path, undefined);
+            let value = await callApi(token, method, path, undefined);
+            // Some lists answer for every company the person can see (GET /tasks ignores companyId): keep this conversation's rows;
+            // a single record of another company is refused like a named one.
+            const companyOfRow = (r: unknown) => (r && typeof r === 'object' && typeof (r as { companyId?: unknown }).companyId === 'string' ? (r as { companyId: string }).companyId : undefined);
+            if (Array.isArray(value)) {
+              const kept = value.filter((r) => { const c = companyOfRow(r); return !c || coveredIds.has(c); });
+              if (kept.length !== value.length && recipeDepth === 0) reads.push(`GET ${path.split('?')[0]}: ${value.length - kept.length} row(s) of companies outside this conversation were left out.`);
+              value = kept;
+            } else {
+              inConversation(companyOfRow(value));
+            }
             remember(kindOfPath(op.path), value);
             if (recipeDepth === 0) {
               if (reads.length < 6) reads.push(`GET ${path} → ${shapeOf(value)}`);
@@ -670,7 +704,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
         // Records shown as cards are an answer in themselves: only a script that showed nothing and returned nothing is pointed out.
-        if (outcome.ok && (outcome.value === null || outcome.value === undefined) && cards.length === cardsBefore) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
+        if (outcome.ok && (outcome.value === null || outcome.value === undefined) && cards.length === cardsBefore) notes.push(helperShapes.length
+          ? `The script returned nothing: a field you used may not exist. The helpers returned: ${helperShapes.join('; ')}. Use those field names.`
+          : 'The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
         if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);
         const fresh = proposed.slice(before).map((id) => store.getAssistantAction(id)?.summary).filter(Boolean);
         if (fresh.length) notes.push(`NOT DONE YET — proposed for the person to confirm: ${fresh.join('; ')}. Tell them to confirm below; do not say it is done.`);

@@ -87,3 +87,28 @@ test('a company conversation stays in its company: another company\'s records ar
   const other = await run("return await api.get('/companies/2/contacts');", { companyId: '1', scope: 'company' });
   assert.match(other.error, /not part of this conversation[\s\S]*switch/);
 });
+
+test('review fixes: a member company that switched the assistant off is left out; raw reads stay inside the conversation', async () => {
+  const { store, run, fx } = setup();
+  const otherProject = store.listProjects().find((p) => p.companyId === '2');
+  const synergyTask = store.createTask({ title: 'Synergy only task', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: '2', projectId: otherProject.id, assignedUserIds: [fx.admin.id], ownerId: fx.admin.id });
+  store.saveAssistantSettings('2', { enabled: false }, fx.admin.id);
+  const covered = await run('return COMPANIES.map((c) => c.name);');
+  assert.ok(!covered.result.includes('Synergy Solutions'), 'its own setting wins over the group');
+  const list = await run("return (await api.get('/tasks?companyId=1')).map((t) => t.title);", { companyId: '1', scope: 'company' });
+  assert.ok(!list.result.includes('Synergy only task'), 'rows of another company are left out of a raw list');
+  const one = await run(`return await api.get('/tasks/${synergyTask.id}');`, { companyId: '1', scope: 'company' });
+  assert.match(one.error, /not part of this conversation/);
+});
+
+test('lookup() of a person comes with their phone and email (from the contacts the person may read)', async () => {
+  const { run } = setup();
+  const r = await run("return (await lookup('Ahmed Al Balushi')).filter((f) => f.kind === 'contact');", { companyId: '1', scope: 'company' });
+  assert.equal(r.result[0].phone, '+968 9123 4567', JSON.stringify(r));
+});
+
+test('a script that returns nothing after a helper is told the helper\'s real field names', async () => {
+  const { run } = setup();
+  const r = await run('const r = await tf.receivables(); return r.byClient[0].name;', { companyId: '1', scope: 'company' });
+  assert.match(r.logs.join('\n'), /a field you used may not exist[\s\S]*tf\.receivables → [\s\S]*byClient/);
+});
