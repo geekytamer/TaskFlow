@@ -12,7 +12,7 @@ import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, typ
 import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
-import { RECIPES, recipeByName } from '../assistant/recipes';
+import { RECIPES, describeRecipe, recipeByName, searchRecipes } from '../assistant/recipes';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
@@ -281,8 +281,10 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const tools = {
       search: (query: string) => {
         step({ kind: 'search', detail: query.slice(0, 60) });
-        const found = searchOps(ops.filter((op) => allowedOp(req, companyId, op)), query);
-        return found.length ? found.map(describeOp).join('\n') : 'nothing matched; try other words (English, singular, e.g. "invoice", "task", "client")';
+        const recipes = searchRecipes(query).map(describeRecipe);
+        const found = searchOps(ops.filter((op) => allowedOp(req, companyId, op)), query).map(describeOp);
+        const lines = [...recipes, ...found];
+        return lines.length ? lines.join('\n') : 'nothing matched; try other words (English, singular, e.g. "invoice", "task", "client")';
       },
       run: async (code: string) => {
         reads = [];

@@ -237,7 +237,7 @@ test('text mode: the model writes a js block, the server runs it, the result com
   ]);
   const res = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'make a task' });
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.match(s.model.seen[1].at(-1).content, /^Result of your code:\n.*POST \/tasks/s);
+  assert.match(s.model.seen[1].at(-1).content, /^Result of your code:\n.*tf\.createTasks/s, 'findApi lists the recipe first');
   assert.match(s.model.seen[2].at(-1).content, /NOT DONE YET/);
   const items = res.body.items;
   assert.deepEqual(items.map((i) => i.role), ['user', 'assistant'], 'code and results are not shown as chat');
@@ -481,4 +481,27 @@ test('background: a model that fails is reported on the thread; changes it had p
   assert.deepEqual(view.error, { status: 503, message: 'down' });
   assert.equal(view.pending, 0, 'the proposal no message shows is expired');
   assert.ok(s.store.listAssistantActions(asked.body.id).every((a) => a.status === 'expired'));
+});
+
+test('prompt: the static part comes first and is the same for every person, company and day; it teaches tf and the constants', () => {
+  const { systemPrompt, staticPrompt } = require('../dist/assistant/agent');
+  const base = { userName: 'A', userId: 'u1', today: '2026-11-05', company: { id: '1', name: 'One', currency: 'OMR' }, companies: [] };
+  const a = systemPrompt(base, 'text');
+  const b = systemPrompt({ ...base, userName: 'B', userId: 'u2', today: '2026-11-06', company: { id: '2', name: 'Two', currency: 'USD' } }, 'text');
+  const s = staticPrompt('text');
+  assert.ok(a.startsWith(s) && b.startsWith(s));
+  assert.ok(!s.includes('u1') && !s.includes('2026-11-05') && !s.includes('One'));
+  assert.match(s, /tf\.myTasks/);
+  assert.match(s, /COMPANY_ID/);
+  assert.match(a.slice(s.length), /2026-11-05/);
+});
+
+test('findApi lists matching recipes before endpoints', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(say("```js\nreturn await findApi('overdue invoices');\n```"), say('ok'));
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'which invoices are late' });
+  const result = s.model.seen[1].at(-1).content;
+  assert.match(result, /tf\.invoices/);
+  assert.ok(result.indexOf('tf.invoices') < result.indexOf('GET /companies/:companyId/invoices'));
 });
