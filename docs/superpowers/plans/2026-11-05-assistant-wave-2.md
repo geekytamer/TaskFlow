@@ -141,7 +141,8 @@ test('review: the inverse of a creation is the matching delete; of an edit, the 
   assert.deepEqual(inverseOf(ops, { method: 'POST', path: '/tasks', body: {} }, null, { id: 't9' }), { method: 'DELETE', path: '/tasks/t9' });
   assert.deepEqual(inverseOf(ops, { method: 'POST', path: '/companies/1/contacts', body: {} }, null, { id: 'c9' }), { method: 'DELETE', path: '/contacts/c9' });
   assert.deepEqual(inverseOf(ops, { method: 'POST', path: '/invoices/i1/payments', body: {} }, null, { id: 'p9' }), { method: 'DELETE', path: '/invoices/i1/payments/p9' });
-  assert.equal(inverseOf(ops, { method: 'POST', path: '/tasks/t1/time-entries', body: {} }, null, { id: 'e9' }), null, 'no delete route: no undo');
+  assert.deepEqual(inverseOf(ops, { method: 'POST', path: '/tasks/t1/time-entries', body: {} }, null, { id: 'e9' }), { method: 'DELETE', path: '/time-entries/e9' });
+  assert.equal(inverseOf(ops, { method: 'POST', path: '/tasks/t1/comments', body: {} }, null, { id: 'm9' }), null, 'no delete route: no undo');
   assert.equal(inverseOf(ops, { method: 'POST', path: '/projects/p1/members', body: {} }, null, { id: 'p1' }), null, 'an action on a record returns that record: nothing to delete');
   assert.deepEqual(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done', dueDate: '2026-11-09' } }, { status: 'To Do', title: 'x' }, {}), { method: 'PUT', path: '/tasks/t1', body: { status: 'To Do', dueDate: null } });
   assert.equal(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done' } }, null, {}), null, 'no before: no undo');
