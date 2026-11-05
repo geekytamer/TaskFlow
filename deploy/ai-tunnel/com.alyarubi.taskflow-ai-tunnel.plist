@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TaskFlow assistant: production reaches the AI model on the owner's Mac.
+  An outgoing SSH tunnel makes the Mac's Ollama (127.0.0.1:11434) appear on the
+  production server's loopback only (127.0.0.1:11434 there; sshd GatewayPorts no).
+  Nothing on the Mac listens on the network. launchd restarts it if it drops.
+  Install and remove: see README.md next to this file.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.alyarubi.taskflow-ai-tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/ssh</string>
+    <string>-N</string>
+    <string>-o</string><string>BatchMode=yes</string>
+    <string>-o</string><string>ServerAliveInterval=20</string>
+    <string>-o</string><string>ServerAliveCountMax=3</string>
+    <string>-o</string><string>ExitOnForwardFailure=yes</string>
+    <string>-R</string><string>127.0.0.1:11434:127.0.0.1:11434</string>
+    <string>hostinger</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardErrorPath</key><string>/tmp/taskflow-ai-tunnel.log</string>
+</dict>
+</plist>
