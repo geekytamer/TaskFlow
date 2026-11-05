@@ -39,7 +39,7 @@ The waves are ordered so that each one makes the next one safe to ship. Each wav
 ### Wave 1: never wrong (measure, then raise the floor)
 
 - **Eval suite** (`backend/test/assistant-eval/`).
-  - About 60 real requests in Arabic and English: reads, single changes, batches, documents, files, multi-step work and refusals. Each has a checker that looks at the result: rows returned, which proposal was made with which body, or the reply naming the right count.
+  - Real requests in Arabic and English: 20 scenarios in both languages (40 runs) at first, with a new case for every failure seen in use. They cover: reads, single changes, batches, documents, files, multi-step work and refusals. Each has a checker that looks at the result: rows returned, which proposal was made with which body, or the reply naming the right count.
   - It runs on a seeded database against any model given by `AI_BASE_URL`.
   - It reports the success rate, steps per request and time per request, and keeps a history file so regressions show.
   - It is not part of `npm test`, because it needs a model. Run it with `npm run eval:assistant`.
@@ -61,10 +61,11 @@ The waves are ordered so that each one makes the next one safe to ship. Each wav
 - **Learned examples** (`assistant_examples` table).
   - When a turn ends well, the request and the code that worked are saved, per company. A turn ends well when its proposals were confirmed and done, or when it was a read the person did not retry or correct.
   - The 3 most similar saved examples are added to the prompt. Similarity starts as keyword overlap with Arabic and English normalisation, and moves to embeddings from a small local model once the GPU host exists.
-  - Admins can see and delete these examples.
+  - Admins can see and delete these examples: the API comes in Wave 1, the screen in Wave 2's Settings → Assistant.
+  - Signals: proposals confirmed and done, or a 👍 on a read answer. A 👎 removes an example saved from that answer.
   - This is the future fine-tune dataset.
 - **A prompt the model server can cache.** The static rules come first and the per-turn facts (date, company, files) last. Ollama and llama.cpp can then reuse the computed prefix (KV cache), which cuts time to first token sharply on long prompts.
-- **Model routing.** `AI_MODEL_FAST` takes greetings, follow-ups and short replies; `AI_MODEL` takes everything else. With one model set, nothing changes.
+- **Model routing (deferred within Wave 1, decided 2026-11-05).** `AI_MODEL_FAST` would take greetings, follow-ups and short replies, and `AI_MODEL` everything else. Routing on a guess could lower quality, so it is tried only once the eval exists, and kept only if the score holds.
 
 ### Wave 2: trust (people confirm what they understand)
 
