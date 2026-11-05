@@ -36,7 +36,16 @@ export function AssistantContextSwitcher({ companies, value, onChange, tr, compa
   const current = companies.find((c) => c.id === value.companyId);
   const isWhole = value.scope === 'group';
   const label = current ? current.name : tr('Choose a company', 'اختر شركة');
-  const ordered = treeOrder(companies as Named[]);
+  // Groups (with their companies) first, then standalone companies; each block keeps the tree's order.
+  const blocks: Array<ReturnType<typeof treeOrder<Named>>> = [];
+  for (const row of treeOrder(companies as Named[])) {
+    if (row.depth === 0 || !blocks.length) blocks.push([]);
+    blocks[blocks.length - 1].push(row);
+  }
+  const ordered = [
+    ...blocks.filter((b) => isGroupCompany(companies, b[0].company.id)),
+    ...blocks.filter((b) => !isGroupCompany(companies, b[0].company.id)),
+  ].flat();
   const Icon = isWhole ? Layers : Building2;
 
   return (
@@ -58,8 +67,12 @@ export function AssistantContextSwitcher({ companies, value, onChange, tr, compa
         {ordered.map(({ company, depth }, i) => {
           const group = isGroupCompany(companies, company.id);
           const items: React.ReactNode[] = [];
+          // A line between blocks: before a group, and before the first standalone company after a group.
+          const prev = ordered[i - 1];
+          if (prev && depth === 0 && (group || prev.depth > 0 || isGroupCompany(companies, prev.company.id))) {
+            items.push(<DropdownMenuSeparator key={`sep-${company.id}`} />);
+          }
           if (group) {
-            if (i > 0) items.push(<DropdownMenuSeparator key={`sep-${company.id}`} />);
             const on = value.companyId === company.id && value.scope === 'group';
             items.push(
               <DropdownMenuItem key={`${company.id}:group`} onSelect={() => onChange({ companyId: company.id, scope: 'group' })} className="gap-2">
