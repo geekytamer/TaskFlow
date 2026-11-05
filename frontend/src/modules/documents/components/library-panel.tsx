@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
-  Download, Eye, File, FileImage, FileSpreadsheet, FileText, FolderInput, Library, Search, Trash2, Upload,
+  Download, Eye, File, FileImage, FilePlus2, FileSpreadsheet, FileText, FolderInput, Library, Search, Trash2, Upload,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,7 +66,7 @@ const FileIcon = ({ item }: { item: LibraryItem }) => {
   return <File className={className} aria-hidden />;
 };
 
-export function LibraryPanel() {
+export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } = {}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
@@ -195,6 +195,12 @@ export function LibraryPanel() {
             {folders.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
           </SelectContent>
         </Select>
+        {onNewDocument && (
+          <Button variant="outline" onClick={onNewDocument}>
+            <FilePlus2 className="me-2 h-4 w-4" aria-hidden />
+            {tr('New document', 'مستند جديد')}
+          </Button>
+        )}
         {canUpload && (
           <Button onClick={() => setUploadOpen(true)}>
             <Upload className="me-2 h-4 w-4" aria-hidden />

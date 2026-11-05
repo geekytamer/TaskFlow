@@ -147,6 +147,18 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const statusLabel = (status: QuotationStatus) => t(`quotes.status.${status}`);
 
   const openNew = () => { setForm({ ...blankForm(), templateId: chooseTemplateId(quoteTemplates) }); setEditing('new'); };
+  // Documents → New document → Quotation lands here with ?new=1: open the form once loaded, then drop the flag.
+  const askedNew = React.useRef(false);
+  React.useEffect(() => {
+    if (loading || askedNew.current || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('new') !== '1') return;
+    askedNew.current = true;
+    url.searchParams.delete('new');
+    window.history.replaceState(null, '', url.toString());
+    if (canCreate) openNew();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, canCreate]);
   const openEdit = (quote: Quotation) => {
     setForm({
       contactId: quote.contactId || quote.clientId,
