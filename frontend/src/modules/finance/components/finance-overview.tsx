@@ -27,6 +27,7 @@ import { Download } from 'lucide-react';
 import { downloadCsv } from '@/modules/finance/lib/csv';
 import Link from 'next/link';
 import { useI18n } from '@/context/i18n-context';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 
 const KpiCardLink: React.FC<
   React.PropsWithChildren<{ href?: string; tutorial?: string }>
@@ -94,7 +95,10 @@ export function FinanceOverviewPanel() {
         getFinanceAging(selectedCompany.id),
         getInvoices(selectedCompany.id),
         getVendorBills(selectedCompany.id),
-        getPurchaseOrderPayables(selectedCompany.id),
+        // Purchasing can be switched off for the company (agencies): its route is refused then, so don't ask.
+        isModuleOn(selectedCompany, 'purchasing')
+          ? getPurchaseOrderPayables(selectedCompany.id)
+          : Promise.resolve([] as PurchaseOrderPayableSummary[]),
         getSupplierPayables(selectedCompany.id),
       ]);
       setOverview(overviewData);
@@ -242,6 +246,7 @@ export function FinanceOverviewPanel() {
             <div className="text-2xl font-bold">{amount(overview?.expenseReceiptsThisMonth || 0)}</div>
           </CardContent>
         </KpiCardLink>
+        {isModuleOn(selectedCompany, 'purchasing') && (
         <KpiCardLink href="/purchases">
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">{t('financeOverview.unbilledPos')}</CardTitle>
@@ -253,6 +258,7 @@ export function FinanceOverviewPanel() {
             </div>
           </CardContent>
         </KpiCardLink>
+        )}
       </div>
 
       <Card>

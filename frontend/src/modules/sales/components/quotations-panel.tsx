@@ -26,6 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InvoiceTemplate, Quotation, QuotationStatus } from '@/modules/finance/types';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
+import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import type { InventoryItem } from '@/modules/operations/types';
 import { getContacts, type Contact } from '@/services/contactService';
 import { getInvoiceTemplates } from '@/services/financeService';
@@ -83,6 +84,8 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const canManage = can('sales.edit');
   const locale = language === 'ar' ? 'ar-u-nu-latn' : 'en-GB';
   const companyId = selectedCompany?.id || '';
+  // Inventory can be switched off for the company (agencies): its route is refused then, so don't ask.
+  const inventoryOn = isModuleOn(selectedCompany, 'inventory');
 
   const [quotes, setQuotes] = React.useState<Quotation[]>([]);
   const approvalStatus = useApprovalStatuses('quotation', quotes);
@@ -106,7 +109,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       const [quoteData, clientData, itemData, quoteTemplateData, invoiceTemplateData] = await Promise.all([
         getQuotations(companyId, { opportunityId }),
         opportunityId ? Promise.resolve([] as Contact[]) : getContacts(companyId, 'Client'),
-        getInventoryItems(companyId),
+        inventoryOn ? getInventoryItems(companyId) : Promise.resolve([] as InventoryItem[]),
         getInvoiceTemplates(companyId, 'quote'),
         getInvoiceTemplates(companyId, 'invoice'),
       ]);
@@ -120,7 +123,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     } finally {
       setLoading(false);
     }
-  }, [companyId, opportunityId, toast, t]);
+  }, [companyId, inventoryOn, opportunityId, toast, t]);
 
   React.useEffect(() => { load(); }, [load]);
 

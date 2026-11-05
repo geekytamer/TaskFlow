@@ -2,6 +2,7 @@
 
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
+import { useModuleSkip } from '@/modules/groups/hooks/use-module-skip';
 import { sumByCurrency } from '@/lib/money-by-currency';
 import { formatCurrency } from '@/lib/currency';
 import { CompanyLabel } from '@/modules/groups/components/company-cell';
@@ -114,6 +115,7 @@ export function SalesPage() {
   const createTarget = useCreateTarget('sales.create');
   const currencyOf = useCurrencyOf();
   const loadTicket = React.useRef(0);
+  const skipOff = useModuleSkip();
   const [orders, setOrders] = React.useState<SalesOrder[]>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [items, setItems] = React.useState<InventoryItem[]>([]);
@@ -179,7 +181,7 @@ export function SalesPage() {
       const [orderData, clientData, itemData, invoiceData, templateData] = await Promise.all([
         fanOut(ids, (id) => getSalesOrders(id)),
         fanOut(ids, (id) => getContacts(id, 'Client')),
-        fanOut(ids, (id) => getInventoryItems(id)),
+        fanOut(ids, (id) => getInventoryItems(id), { skip: skipOff('inventory') }),
         fanOut(ids, (id) => getInvoices(id)),
         fanOut(ids, (id) => getInvoiceTemplates(id, 'invoice')),
       ]);
@@ -200,7 +202,7 @@ export function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCompany, scopeKey, toast]);
+  }, [selectedCompany, scopeKey, skipOff, toast]);
 
   // Colleagues' changes show up without reloading.
   useLiveRefresh(['sales-orders', 'quotations', 'deliveries', 'customer-returns', 'invoices', 'inventory-items', 'contacts'], () => load({ quiet: true }));
