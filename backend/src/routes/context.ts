@@ -1,3 +1,4 @@
+import type { DocumentTextIndex } from '../documents/text-index';
 import type { NextFunction, Response } from 'express';
 import type { DataStore } from '../data/store';
 import type { PermissionsEngine } from '../authz/engine';
@@ -20,6 +21,8 @@ import type { AuthedRequest } from './shared';
 export interface FieldOpts { self?: boolean; moduleLock?: boolean }
 
 export interface RouteContext {
+  /** Text of files and generated documents (library search, the assistant). */
+  documentText: DocumentTextIndex;
   store: DataStore;
   permissionsEngine: PermissionsEngine;
   authMiddleware: (req: AuthedRequest, res: Response, next: NextFunction) => void | Promise<void>;

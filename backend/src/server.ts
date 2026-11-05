@@ -167,6 +167,7 @@ import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
 import { registerLibraryRoutes } from './routes/library';
 import { registerServiceRoutes } from './routes/services';
+import { DocumentTextIndex } from './documents/text-index';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerIntercompanyRoutes } from './routes/intercompany';
 import { registerAssistantRoutes, type AssistantOptions } from './routes/assistant';
@@ -199,6 +200,29 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
 
 /** Largest file (in raw bytes) accepted as a record attachment. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/** One page of a document's text: `offset` and `limit` (characters) let a reader go on where it stopped. */
+const textPage = (
+  id: string,
+  name: string,
+  stored: { status: string; text: string; note?: string } | undefined,
+  query: Record<string, unknown>,
+) => {
+  const text = stored?.text ?? '';
+  const offset = Math.max(0, Math.floor(Number(query.offset) || 0));
+  const limit = Math.min(50_000, Math.max(500, Math.floor(Number(query.limit) || 12_000)));
+  const page = text.slice(offset, offset + limit);
+  return {
+    id,
+    name,
+    status: stored?.status ?? 'unsupported',
+    ...(stored?.note ? { note: stored.note } : {}),
+    text: page,
+    offset,
+    totalChars: text.length,
+    more: offset + page.length < text.length,
+  };
+};
 
 /** A Documents → Library folder label: trimmed, at most 80 characters; blank means none. */
 const libraryFolder = (value: unknown): string | null => {
@@ -251,6 +275,8 @@ function parseBankAccounts(raw: unknown): InvoiceBankAccount[] | undefined {
 type DecidedRequest = AuthedRequest & { authzDecided?: boolean };
 
 export interface CreateServerOptions extends DataStoreOptions {
+  /** Read stored files' text at start-up for search (default: on, except under NODE_ENV=test). */
+  documentTextBackfill?: boolean;
   /** The in-app assistant's model; tests pass a scripted one. */
   assistant?: AssistantOptions;
   allowSeedReset?: boolean;
@@ -2201,7 +2227,14 @@ export function createServer(options: CreateServerOptions = {}) {
   };
 
   // What route modules (src/routes) get from here: the store and the guards above.
+  // Text of files and generated documents, for library search and the assistant.
+  // resolveDocumentContext is defined further down; it is only called after start-up.
+  const documentText = new DocumentTextIndex(store, (doc) => resolveDocumentContext(doc), logger);
+  if (options.documentTextBackfill ?? process.env.NODE_ENV !== 'test') {
+    setTimeout(() => { void documentText.backfill(); }, 3000).unref();
+  }
   const routeContext: RouteContext = {
+    documentText,
     store, permissionsEngine: engine, authMiddleware, requireCompanyAccess, requireCompanyRoles, allowsRule, allowsKey, requirePermission, forbidden, withActor, viewerOf, maskFor, maskEvent, seesField, requireFieldEdit, requireFieldEdits, canSee, canViewProject, canViewTask, ensureClientBelongsToCompany, parseInvoiceLineItems,
     requireSuperAdmin, ensureSalesItemsBelongToCompany, accessibleCompanyIds, logger, uploadedImage, parseSalesOrderItems,
   };
@@ -2776,6 +2809,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ? (enumValue(body.status, 'status', ['draft', 'final']) as any)
           : undefined,
       }));
+      void documentText.enqueue('document', d.id);
       res.status(201).json(d);
     } catch (error) {
       if (error instanceof HttpError) throw error;
@@ -2799,7 +2833,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (nextId && (!nextType || nextType === 'none')) throw new HttpError(400, 'Say what kind of record the document links to.');
       ensureDocumentRecordInCompany(nextType, nextId, existing.companyId);
     }
-    res.json(store.updateDocument(req.params.id, {
+    const saved = store.updateDocument(req.params.id, {
       title: optionalString(body.title),
       fieldValues: parseFieldValues(body.fieldValues),
       recordType: body.recordType !== undefined && body.recordType !== null
@@ -2807,12 +2841,23 @@ export function createServer(options: CreateServerOptions = {}) {
         : undefined,
       recordId: body.recordId !== undefined ? (optionalString(body.recordId) ?? '') : undefined,
       status: body.status !== undefined ? (enumValue(body.status, 'status', ['draft', 'final']) as any) : undefined,
-    }));
+    });
+    void documentText.enqueue('document', req.params.id);
+    res.json(saved);
   }));
   app.delete('/documents/:id', authMiddleware, handler((req, res) => {
     loadDocument(req);
     store.deleteDocument(req.params.id);
+    documentText.remove('document', req.params.id);
     res.status(204).end();
+  }));
+  // The text of a generated document, fields filled in (what the assistant reads).
+  app.get('/documents/:id/text', authMiddleware, handler((req, res) => {
+    const doc = loadDocument(req);
+    const known = documentText.get('document', doc.id);
+    // Read again when the document changed after its text was last read.
+    const stored = known && new Date(known.extractedAt) >= new Date(doc.updatedAt) ? known : documentText.indexDocument(doc.id);
+    res.json(textPage(doc.id, doc.title, stored, req.query));
   }));
 
   // Resolve a document's merge context (company + bound record + manual fields)
@@ -5851,7 +5896,23 @@ export function createServer(options: CreateServerOptions = {}) {
           content,
         }),
       );
+      // Its text is read in the background, for library search and the assistant.
+      void documentText.enqueue('attachment', attachment.id);
       res.status(201).json(attachment);
+    }),
+  );
+
+  // The text read out of an attachment (stage 4 of the documents hub): what the
+  // assistant reads. Same access as downloading the file.
+  app.get(
+    '/record-attachments/:id/text',
+    authMiddleware,
+    handler(async (req, res) => {
+      const attachment = store.getRecordAttachmentById(req.params.id);
+      if (!attachment) throw new HttpError(404, 'Attachment not found.');
+      requireRecordSupportAccess(req, attachment.companyId, attachment.entityType, attachment.entityId);
+      const stored = documentText.get('attachment', attachment.id) ?? await documentText.indexAttachment(attachment.id);
+      res.json(textPage(attachment.id, attachment.fileName, stored, req.query));
     }),
   );
 
@@ -5916,6 +5977,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!attachment) throw new HttpError(404, 'Attachment not found.');
       requireCompanyRoles(req, attachment.companyId, companyManagementRoles);
       store.deleteRecordAttachment(req.params.id);
+      documentText.remove('attachment', req.params.id);
       res.status(204).end();
     }),
   );

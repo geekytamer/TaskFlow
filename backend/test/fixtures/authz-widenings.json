@@ -107,7 +107,9 @@
     "GET /companies/:companyId/dashboard/insights"
   ],
   "documents:read": [
-    "GET /companies/:companyId/library"
+    "GET /companies/:companyId/library",
+    "GET /documents/:id/text",
+    "GET /record-attachments/:id/text"
   ],
   "documents:write": [
     "PATCH /record-attachments/:id"

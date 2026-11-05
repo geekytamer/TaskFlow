@@ -1,4 +1,5 @@
 import { canAccessCompany, HttpError } from '../http';
+import { DocumentTextStore } from '../documents/text-store';
 import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import { taskWeek, weekStartOf } from '../tasks/task-week';
 import path from 'path';
@@ -729,6 +730,8 @@ export class DataStore {
   readonly requests: PortalRequestsStore;
   /** Clients' reviews of submitted campaign content. */
   readonly reviews: DeliverableReviewsStore;
+  /** Text of attachments and generated documents, and its word index (documents hub stage 4). */
+  readonly documentTexts: DocumentTextStore;
   /** The shared message thread and files between staff and a portal contact. */
   readonly thread: PortalThreadStore;
   /** Conversations, threads and messages for every channel. */
@@ -790,6 +793,7 @@ export class DataStore {
     this.catalogue = new PortalCatalogueStore(this.db);
     this.requests = new PortalRequestsStore(this.db);
     this.reviews = new DeliverableReviewsStore(this.db);
+    this.documentTexts = new DocumentTextStore(this.db);
     this.thread = new PortalThreadStore(this.db);
     this.conversations = new ConversationsStore(this.db);
     this.referrals = new PortalReferralsStore(this.db);
@@ -5922,6 +5926,30 @@ export class DataStore {
           const columns = (this.db.prepare('PRAGMA table_info(record_attachments)').all() as any[]).map((c) => c.name);
           if (!columns.includes('folder')) this.db.exec('ALTER TABLE record_attachments ADD COLUMN folder TEXT;');
           this.db.exec('CREATE INDEX IF NOT EXISTS idx_record_attachments_company ON record_attachments (companyId, createdAt);');
+        },
+      },
+      {
+        // Documents → the assistant reads documents (spec 2026-11-06-documents-hub-design,
+        // stage 4): each file's and generated document's text, and a word index over it.
+        id: '167_document_texts',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS document_texts (
+              sourceKind TEXT NOT NULL,
+              sourceId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              status TEXT NOT NULL,
+              text TEXT NOT NULL DEFAULT '',
+              note TEXT,
+              extractedAt TEXT NOT NULL,
+              PRIMARY KEY (sourceKind, sourceId)
+            );
+            CREATE INDEX IF NOT EXISTS idx_document_texts_company ON document_texts (companyId);
+            CREATE VIRTUAL TABLE IF NOT EXISTS document_search USING fts5(
+              body, sourceKind UNINDEXED, sourceId UNINDEXED, companyId UNINDEXED,
+              tokenize = 'unicode61 remove_diacritics 2'
+            );
+          `);
         },
       },
     ];

@@ -16,6 +16,8 @@ export interface LibraryItem {
   route: string | null;
   uploadedByName?: string;
   createdAt: Date;
+  /** Where the search words appear inside the file, when they matched its text. */
+  snippet?: string;
 }
 
 export interface LibraryPage {

@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import { RECORD_ENTITY_MODULES } from '../permissions/company-modules';
+import { snippetOf } from '../documents/text-extract';
 import type { RecordAttachment, UserRole } from '../types';
 import type { RouteContext } from './context';
 import { type AuthedRequest, handler } from './shared';
@@ -60,10 +61,12 @@ export interface LibraryItem {
   route: string | null;
   uploadedByName?: string;
   createdAt: Date;
+  /** Where the search words appear in the file's text, when they matched inside it. */
+  snippet?: string;
 }
 
 export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
-  const { store, authMiddleware, requireCompanyRoles, allowsKey, canSee, canViewProject, canViewTask } = ctx;
+  const { store, documentText, authMiddleware, requireCompanyRoles, allowsKey, canSee, canViewProject, canViewTask } = ctx;
 
   /** The record behind an attachment, by entity type (undefined when gone or unknown). */
   const recordOf = (entityType: string, id: string): any => {
@@ -159,11 +162,27 @@ export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
       }
 
       const folders = [...new Set(items.map((i) => i.folder).filter((f): f is string => Boolean(f)))].sort((a, b) => a.localeCompare(b));
+      // Words inside a file's text count too (stage 4); only rows already allowed above can match.
+      const rawQ = String(req.query.q ?? '').trim();
+      const textRank = new Map<string, number>();
+      if (rawQ) documentText.search(companyId, rawQ).forEach((hit, i) => textRank.set(`${hit.sourceKind}:${hit.sourceId}`, i));
+      const nameMatch = (i: LibraryItem) => [i.name, i.recordLabel, i.folder, i.uploadedByName].some((f) => f && f.toLowerCase().includes(q));
       const matches = items.filter((i) =>
         (!source || i.entityType === source)
         && (!folder || i.folder === folder)
-        && (!q || [i.name, i.recordLabel, i.folder, i.uploadedByName].some((f) => f && f.toLowerCase().includes(q))));
-      matches.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        && (!q || nameMatch(i) || textRank.has(`${i.kind}:${i.id}`)));
+      if (q) {
+        // Best first: a name match, then the strongest text match, then the newest.
+        const score = (i: LibraryItem) => (nameMatch(i) ? -1 : textRank.get(`${i.kind}:${i.id}`) ?? 1e9);
+        matches.sort((a, b) => score(a) - score(b) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        for (const item of matches.slice(0, 50)) {
+          if (!textRank.has(`${item.kind}:${item.id}`)) continue;
+          const text = documentText.get(item.kind, item.id)?.text;
+          if (text) item.snippet = snippetOf(text, rawQ);
+        }
+      } else {
+        matches.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
       res.json({ items: matches.slice(0, LIMIT), truncated: matches.length > LIMIT, folders });
     }),
   );

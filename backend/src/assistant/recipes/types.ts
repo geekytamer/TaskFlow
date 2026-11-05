@@ -16,6 +16,13 @@ export interface RecipeContext {
   get<T = unknown>(path: string): Promise<T>;
   /** A change that waits for the person's confirmation; resolves to { pending, actionId, summary }. */
   propose(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body: unknown, summary: string): Promise<unknown>;
+  /**
+   * Shown to the model with the script's result, whatever the script returned:
+   * text a recipe read that the answer must come from (a small model often
+   * filters it away in code with a phrase that isn't there). Left out when the
+   * script's result already holds `unlessReturned`.
+   */
+  note?(text: string, unlessReturned?: string): void;
   /** Display names for ids the recipe already read (never a way to read data). */
   names: {
     user(id: string): string | undefined;
@@ -39,5 +46,11 @@ export interface Recipe {
   words: string[];
   /** True when it proposes changes rather than only reading. */
   changes?: boolean;
+  /**
+   * Described to the model only when the request is about it (see mentionsDocuments),
+   * not in the shared prompt: every extra line there moves a small model's answers
+   * to unrelated questions (eval 2026-11-06). Still callable, and found by findApi.
+   */
+  onDemand?: boolean;
   run(ctx: RecipeContext, args: unknown): Promise<unknown>;
 }

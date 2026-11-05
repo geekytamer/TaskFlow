@@ -158,3 +158,51 @@ and its quotations offered only typed lines.
 - **+ New client** beside the client picker (name, optional phone/email;
   `contacts.create`), selected on save.
 - The line column reads "Item / service".
+
+## Stage 4 — The assistant reads documents (2026-11-06)
+
+- **Text out of files** (`backend/src/documents/text-extract.ts`): plain text,
+  HTML/XML, Word/Excel/PowerPoint/OpenDocument (a small zip reader + XML), PDF
+  through `unpdf` (pure JS pdf.js, loaded by Node 22+ `require(esm)`; 20 s cap).
+  Arabic-only PDF lines are put back in reading order (pdf.js gives them in visual
+  order); mixed lines are left alone. **Images are not read** — OCR needs
+  tesseract, which the server doesn't have; they are marked `unsupported`, never
+  guessed. Text kept per file: 200 000 characters.
+- **Generated documents**: their design blocks (`docSnapshot`, or the typed
+  template's `doc`) with fields filled in by the print view's own resolver.
+- **Storage** (migration `167_document_texts`): `document_texts` (status, text,
+  note) and an FTS5 table `document_search`. Indexed body = every word in folded
+  forms: lower case, Arabic alef/yaa/taa-marbuta/hamza variants folded, harakat
+  and tatweel dropped, the PDF lam-alef ligature order folded, and Arabic words
+  also without a leading article (ال، وال، بال…). Query: every word as a prefix in
+  any of its forms.
+- **When**: after an upload or a document save, in a one-at-a-time background
+  queue; once at start-up for anything never read (files from before this) —
+  not under `NODE_ENV=test`. Deleting a file or document drops its text.
+- **Search**: `GET /companies/:id/library?q=` also matches words inside files,
+  only among rows the library already allows; best first (name match, then text
+  rank); a snippet in the original spelling around the match.
+- **Read**: `GET /record-attachments/:id/text` (same access as downloading) and
+  `GET /documents/:id/text`, both `documents.view`; pages of `limit` characters
+  (default 12 000) from `offset`, with `more`.
+- **Assistant**: recipes `tf.findDocuments(words)` → up to 8
+  `{ id, kind, name, from, folder, date, snippet, link }`, and
+  `tf.readDocument(doc)` → `{ name, text, more, next }` (pages of 5 000
+  characters, to fit the 6 000 the model sees per step). Both go through the API
+  as the person, so their access decides; the model never gets a file the person
+  couldn't open.
+  - **Prompt, decided by eval (qwen3:8b, 2026-11-06):** any extra line in the
+    shared prompt — a rule, or just the two recipe lines — moved the small model
+    on unrelated Arabic cases (assign-task/ar, create-contact/ar failed every
+    run; master 95–97.5%, branch 90–92.5%). So the two recipes are `onDemand`:
+    described only when the request mentions a file or document (contract,
+    agreement, MoU, PDF, عقد، اتفاقية، مذكرة، ملف…). The shared prompt is
+    byte-identical to master; eval back to 97.5%.
+  - The model often filters the text in code with a phrase that isn't there
+    (`text.includes('notice period')`). So readDocument also leaves the text it
+    read as a note shown with the result, unless the script already returned it.
+  - Search forgives a small model: an invented folder is retried without it, and
+    when not every word is in the file, the words are retried leaving one out.
+  - Real model, PDF contract: "monthly fee?" → 1,200 OMR and "مدة الإشعار؟" →
+    30 يومًا, 6/6.
+- **Library page**: the snippet shows under a file found by its contents.

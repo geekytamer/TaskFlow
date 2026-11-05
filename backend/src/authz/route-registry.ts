@@ -227,6 +227,8 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PUT', path: '/documents/:id', permission: 'documents.edit', legacyRoles: MGMT },
   { method: 'DELETE', path: '/documents/:id', permission: 'documents.delete', legacyRoles: MGMT },
   { method: 'GET', path: '/documents/:id/pdf', permission: 'documents.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/documents/:id/text', permission: 'documents.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/record-attachments/:id/text', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/records/:entityType/:entityId/attachments', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/library', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'PATCH', path: '/record-attachments/:id', permission: 'documents.edit', legacyRoles: MGMT },
