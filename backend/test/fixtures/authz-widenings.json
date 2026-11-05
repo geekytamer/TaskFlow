@@ -106,6 +106,12 @@
   "dashboard:read": [
     "GET /companies/:companyId/dashboard/insights"
   ],
+  "documents:read": [
+    "GET /companies/:companyId/library"
+  ],
+  "documents:write": [
+    "PATCH /record-attachments/:id"
+  ],
   "finance:create": [
     "PATCH /vendor-bills/:id/status",
     "PATCH /vendor-bills/:id/template",

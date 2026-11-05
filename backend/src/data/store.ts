@@ -5914,6 +5914,16 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Documents → Library (spec 2026-11-06-documents-hub-design): a free folder
+        // label on any attachment. 165 is taken by the unmerged assistant PR #34.
+        id: '166_library_folder',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(record_attachments)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('folder')) this.db.exec('ALTER TABLE record_attachments ADD COLUMN folder TEXT;');
+          this.db.exec('CREATE INDEX IF NOT EXISTS idx_record_attachments_company ON record_attachments (companyId, createdAt);');
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -22015,7 +22025,7 @@ export class DataStore {
   // (potentially large) file bytes on every list. Instead expose a boolean via
   // `length(content)` and serve the bytes only through getRecordAttachmentContent.
   private static readonly recordAttachmentColumns =
-    'id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, uploadedByUserId, uploadedByName, createdAt, (content IS NOT NULL) AS hasContent';
+    'id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, folder, uploadedByUserId, uploadedByName, createdAt, (content IS NOT NULL) AS hasContent';
 
   listRecordAttachments(
     companyId: string,
@@ -22073,7 +22083,7 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO record_attachments (id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, uploadedByUserId, uploadedByName, content, createdAt) VALUES (@id, @companyId, @entityType, @entityId, @fileName, @url, @mimeType, @sizeBytes, @note, @uploadedByUserId, @uploadedByName, @content, @createdAt)',
+        'INSERT INTO record_attachments (id, companyId, entityType, entityId, fileName, url, mimeType, sizeBytes, note, folder, uploadedByUserId, uploadedByName, content, createdAt) VALUES (@id, @companyId, @entityType, @entityId, @fileName, @url, @mimeType, @sizeBytes, @note, @folder, @uploadedByUserId, @uploadedByName, @content, @createdAt)',
       )
       .run({
         id: attachment.id,
@@ -22085,6 +22095,7 @@ export class DataStore {
         mimeType: attachment.mimeType ?? null,
         sizeBytes: attachment.sizeBytes ?? null,
         note: attachment.note ?? null,
+        folder: attachment.folder ?? null,
         uploadedByUserId: attachment.uploadedByUserId ?? null,
         uploadedByName: attachment.uploadedByName ?? null,
         content,
@@ -22108,6 +22119,29 @@ export class DataStore {
     }
 
     return attachment;
+  }
+
+  /**
+   * Every attachment of a company, newest first, without the bytes (Documents →
+   * Library). The caller filters by what the person may open.
+   */
+  listCompanyAttachments(companyId: string): RecordAttachment[] {
+    const rows = this.db
+      .prepare(`SELECT ${DataStore.recordAttachmentColumns} FROM record_attachments WHERE companyId = ? ORDER BY createdAt DESC`)
+      .all(companyId) as any[];
+    return rows.map((row) => this.decodeRecordAttachment(row));
+  }
+
+  /** Rename an attachment or move it to a folder (null clears the folder). */
+  updateRecordAttachment(id: string, updates: { fileName?: string; folder?: string | null }): RecordAttachment | undefined {
+    const existing = this.getRecordAttachmentById(id);
+    if (!existing) return undefined;
+    this.db.prepare('UPDATE record_attachments SET fileName = ?, folder = ? WHERE id = ?').run(
+      updates.fileName ?? existing.fileName,
+      updates.folder === undefined ? existing.folder ?? null : updates.folder,
+      id,
+    );
+    return this.getRecordAttachmentById(id);
   }
 
   deleteRecordAttachment(id: string): boolean {
@@ -24643,6 +24677,7 @@ export class DataStore {
       sizeBytes:
         row.sizeBytes === null || row.sizeBytes === undefined ? undefined : Number(row.sizeBytes),
       note: row.note ?? undefined,
+      folder: row.folder ?? undefined,
       uploadedByUserId: row.uploadedByUserId ?? undefined,
       uploadedByName: row.uploadedByName ?? undefined,
       hasContent:

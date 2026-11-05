@@ -165,6 +165,7 @@ import { dispatchStaffPush, flushThreadPushes, sweepResponseOverdue } from './co
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerClientEmailRoutes } from './routes/client-email';
 import { registerSearchRoutes } from './routes/search';
+import { registerLibraryRoutes } from './routes/library';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerIntercompanyRoutes } from './routes/intercompany';
 import { registerAssistantRoutes, type AssistantOptions } from './routes/assistant';
@@ -197,6 +198,14 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
 
 /** Largest file (in raw bytes) accepted as a record attachment. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+/** A Documents → Library folder label: trimmed, at most 80 characters; blank means none. */
+const libraryFolder = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new HttpError(400, 'folder must be text.');
+  const folder = value.trim().replace(/\s+/g, ' ').slice(0, 80);
+  return folder || null;
+};
 const invoiceColumnKeys: InvoiceColumn['key'][] = ['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'];
 const invoiceColumnAligns: NonNullable<InvoiceColumn['align']>[] = ['left', 'center', 'right'];
 
@@ -5837,6 +5846,7 @@ export function createServer(options: CreateServerOptions = {}) {
           mimeType: optionalString(body.mimeType),
           sizeBytes,
           note: optionalString(body.note),
+          folder: libraryFolder(body.folder) ?? undefined,
           content,
         }),
       );
@@ -5877,6 +5887,23 @@ export function createServer(options: CreateServerOptions = {}) {
         throw new HttpError(400, 'limit must be a positive number.');
       }
       res.json(store.getRecordTimeline(req.params.companyId, entityType, req.params.entityId, limit));
+    }),
+  );
+
+  // Documents → Library: rename a file or move it to a folder.
+  app.patch(
+    '/record-attachments/:id',
+    authMiddleware,
+    handler((req, res) => {
+      const attachment = store.getRecordAttachmentById(req.params.id);
+      if (!attachment) throw new HttpError(404, 'Attachment not found.');
+      requireRecordSupportAccess(req, attachment.companyId, attachment.entityType, attachment.entityId);
+      requireCompanyRoles(req, attachment.companyId, companyManagementRoles);
+      const body = asRecord(req.body, 'body');
+      const updates: { fileName?: string; folder?: string | null } = {};
+      if (body.fileName !== undefined) updates.fileName = requiredString(body.fileName, 'fileName', { min: 1 }).slice(0, 200);
+      if (body.folder !== undefined) updates.folder = libraryFolder(body.folder);
+      res.json(withActor(req, () => store.updateRecordAttachment(req.params.id, updates)));
     }),
   );
 
@@ -7096,6 +7123,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerRecurringRoutes(app, routeContext);
   registerClientEmailRoutes(app, routeContext);
   registerSearchRoutes(app, routeContext);
+  registerLibraryRoutes(app, routeContext);
   registerApprovalRoutes(app, routeContext, { docSummary, decideDocument });
   registerIntercompanyRoutes(app, routeContext);
   registerAssistantRoutes(app, routeContext, options.assistant);

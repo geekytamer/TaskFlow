@@ -23,6 +23,7 @@ import {
 } from '@/modules/documents/document-template-types';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
 import { DocumentComposer } from './document-composer';
+import { LibraryPanel } from './library-panel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -186,6 +187,10 @@ export function DocumentsPanel() {
                 ))}
               </TabsList>
             </div>
+
+            <TabsContent value="library" className="space-y-3">
+              <LibraryPanel />
+            </TabsContent>
 
             <TabsContent value="templates" className="space-y-3">
               <div className="rounded-lg border bg-muted/20 p-4">
