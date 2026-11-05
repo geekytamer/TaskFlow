@@ -13,7 +13,7 @@ export const stock: Recipe = {
   needs: [['GET', '/companies/:companyId/inventory-items']],
   params: ['item', 'low', 'text'],
   signature: 'stock({ item?: name|sku, low?: true })',
-  returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
+  returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }] — a list even for one item; "how many X do we have" is its inStock, not the number of rows; low: true keeps those at or under their reorder point',
   example: "const [item] = await tf.stock({ item: 'printer paper' }); return item ? { name: item.name, inStock: item.inStock, unit: item.unit } : 'not found';",
   words: ['stock', 'inventory', 'item', 'items', 'quantity', 'low', 'reorder', 'warehouse', 'available', 'product'],
   async run(ctx, args) {

@@ -17,7 +17,7 @@ import { similarExamples } from '../assistant/examples';
 import { DEFAULT_ASSISTANT_SETTINGS, ASSISTANT_ROLES, mayUseAssistant, parseAssistantSettings, type AssistantSettings } from '../assistant/settings';
 import type { UserRole } from '../types';
 import { applyEdits, areaOf, changesOf, docTypeOf, fieldsOf, inverseOf, type Inverse, type Namer, type ReviewChange } from '../assistant/review';
-import { norm, pickOne, round } from '../assistant/recipes/util';
+import { norm, pickOne, round, sameName } from '../assistant/recipes/util';
 import { childIds, subtreeIds } from '../companies/tree';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
@@ -612,11 +612,21 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
               kind: LOOKUP_KIND[g.type] ?? kindOfPath(`/${g.type}`), id: i.id, title: i.title, ...(i.subtitle ? { subtitle: i.subtitle } : {}), ...(group ? { company: c.name } : {}),
             }))));
             // A person found by name comes with how to reach them ("what is Ahmed's phone?"), from the contacts list the person may read.
+            // A name typed in the other script ("أحمد البلوشي" for "Ahmed Al Balushi") is not seen by search: matched by sound against the contacts.
+            const nameLike = !/\d/.test(path) && path.trim().split(/\s+/).length <= 4;
             for (const c of covered) {
               const hits = found.filter((f) => f.kind === 'contact' && (!group || f.company === c.name));
-              if (!hits.length) continue;
-              const list = await callApi(token, 'GET', `/companies/${encodeURIComponent(c.id)}/contacts`, undefined).catch(() => []) as Array<{ id: string; phone?: string; email?: string }>;
-              const byId = new Map((Array.isArray(list) ? list : []).map((r) => [r.id, r]));
+              if (!hits.length && !nameLike) continue;
+              const list = await callApi(token, 'GET', `/companies/${encodeURIComponent(c.id)}/contacts`, undefined).catch(() => []) as Array<{ id: string; name?: string; kind?: string; phone?: string; email?: string }>;
+              const rows = Array.isArray(list) ? list : [];
+              if (!hits.length) {
+                for (const r of rows.filter((x) => x.name && sameName(path, x.name)).slice(0, 5)) {
+                  const f = { kind: 'contact', id: r.id, title: String(r.name), ...(r.kind ? { subtitle: r.kind } : {}), ...(group ? { company: c.name } : {}) };
+                  found.push(f);
+                  hits.push(f);
+                }
+              }
+              const byId = new Map(rows.map((r) => [r.id, r]));
               for (const f of hits) {
                 const r = byId.get(f.id);
                 if (r?.phone) f.phone = r.phone;
@@ -731,7 +741,10 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
         // Records shown as cards are an answer in themselves: only a script that showed nothing and returned nothing is pointed out.
-        if (outcome.ok && (outcome.value === null || outcome.value === undefined) && cards.length === cardsBefore) notes.push(helperShapes.length
+        // A list read as one record ({ inStock: item?.inStock } on an array) comes back with every field missing.
+        const hollow = outcome.ok && outcome.value !== null && typeof outcome.value === 'object' && !Array.isArray(outcome.value)
+          && Object.values(outcome.value as object).every((x) => x === undefined || x === null);
+        if (outcome.ok && (((outcome.value === null || outcome.value === undefined) && cards.length === cardsBefore) || (hollow && helperShapes.length))) notes.push(helperShapes.length
           ? `The script returned nothing: a field you used may not exist. The helpers returned: ${helperShapes.join('; ')}. Use those field names.`
           : 'The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
         if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);

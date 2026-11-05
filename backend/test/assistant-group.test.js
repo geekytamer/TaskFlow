@@ -125,3 +125,15 @@ test('whole group: a read for one named company answers as that company; a compa
   assert.match(mixed.error, /say which company/);
   assert.equal(mixed.proposals.length, 0);
 });
+
+test('lookup() finds a person typed in the other script (أحمد البلوشي → Ahmed Al Balushi), with their phone', async () => {
+  const { run } = setup();
+  const r = await run("return (await lookup('أحمد البلوشي')).filter((f) => f.kind === 'contact').map((f) => [f.title, f.phone]);", { companyId: '1', scope: 'company' });
+  assert.deepEqual(r.result, [['Ahmed Al Balushi', '+968 9123 4567']], JSON.stringify(r));
+});
+
+test('a helper list read as one record (fields all missing) is pointed out even when cards were shown', async () => {
+  const { run } = setup();
+  const r = await run("const item = await tf.stock({ item: 'promo' }); await show(item); return { inStock: item?.inStock, unit: item?.unit };", { companyId: '1', scope: 'company' });
+  assert.match(r.logs.join('\n'), /a field you used may not exist[\s\S]*tf\.stock → /);
+});
