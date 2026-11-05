@@ -1472,7 +1472,7 @@ git commit -m "feat(assistant): static-first prompt (KV-cache reuse) that teache
 - Produces:
   - `similarExamples(request, examples, k = 3, min = 0.34)`, `examplesBlock(examples)`, `tokens(text)`;
   - store `createAssistantExample({ companyId, userId, request, code, kind }) → AssistantExampleRow`, `listAssistantExamples(companyId, limit = 300)`, `getAssistantExample(id)`, `deleteAssistantExample(id)`, `touchAssistantExamples(ids)`;
-  - routes `POST /assistant/threads/:id/feedback { ref, helpful }`, `GET /assistant/examples?companyId=`, `DELETE /assistant/examples/:id`;
+  - routes `POST /assistant/threads/:id/feedback { ref, helpful }`, `GET /companies/:companyId/assistant/examples`, `DELETE /assistant/examples/:id`;
   - a view item gains `ref: number` and `feedback?: 'up' | 'down'`.
 
 - [ ] **Step 1: Append the failing tests.**
@@ -1845,7 +1845,7 @@ export const sendAssistantFeedback = (threadId: string, ref: number, helpful: bo
 - [ ] **Step 4: Check it in the browser.**
   1. Start `ai-api` and `ai-web` (update the `ai-api` launch config's `TASKFLOW_DB_PATH` to this session's scratchpad if the old one is gone).
   2. Sign in as the seed admin and ask "how many open tasks do I have".
-  3. Click 👍. The icon highlights, and `GET /assistant/examples?companyId=1` returns 1 row.
+  3. Click 👍. The icon highlights, and `GET /companies/1/assistant/examples` returns 1 row.
   4. Take a screenshot.
 
 - [ ] **Step 5: Commit.**

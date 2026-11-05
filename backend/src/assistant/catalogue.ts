@@ -33,6 +33,8 @@ export function assistantOps(): AssistantOp[] {
   cached ??= ROUTES
     .filter((r) => !EXCLUDED_KINDS.has(r.permission))
     .filter((r) => !EXCLUDED_PREFIXES.some((p) => r.path === p || r.path.startsWith(`${p}/`)))
+    // The assistant's own company routes (learned examples) too: it never manages itself.
+    .filter((r) => !r.path.split('/').includes('assistant'))
     .map((r) => ({ method: r.method, path: r.path, permission: r.permission, ...(r.note ? { note: r.note } : {}), words: wordsOf(r) }));
   return cached;
 }

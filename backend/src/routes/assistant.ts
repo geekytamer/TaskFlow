@@ -13,6 +13,7 @@ import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import { RECIPES, describeRecipe, recipeByName, searchRecipes } from '../assistant/recipes';
+import { similarExamples } from '../assistant/examples';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
@@ -32,7 +33,12 @@ export interface AssistantOptions {
 
 /** A stored message: the model's own shape plus what the chat screen needs. */
 type FileRef = { id: string; name: string; mimeType: string; sizeBytes: number };
-type StoredMessage = ChatMessage & { ui?: { hidden?: true; actionIds?: string[]; cards?: AssistantCard[]; files?: FileRef[] } };
+type StoredMessage = ChatMessage & { ui?: {
+  hidden?: true; actionIds?: string[]; cards?: AssistantCard[]; files?: FileRef[];
+  /** What worked this turn: saved as a learned example once confirmed or marked helpful. */
+  example?: { request: string; code: string; kind: 'read' | 'change'; savedId?: string };
+  feedback?: 'up' | 'down';
+} };
 
 /** What the assistant is doing right now, for the "working" line (polled by the chat screen). */
 type Step = { kind: 'thinking' | 'search' | 'read' | 'prepare' | 'show' | 'run' | 'confirm'; detail?: string };
@@ -82,7 +88,7 @@ const CHANGE_TIMEOUT_MS = 5 * 60_000;
 class NoAnswerError extends Error {}
 
 export function registerAssistantRoutes(app: Express, ctx: RouteContext, options: AssistantOptions = {}): void {
-  const { store, authMiddleware, requireCompanyAccess, allowsKey, accessibleCompanyIds } = ctx;
+  const { store, authMiddleware, requireCompanyAccess, allowsKey, requirePermission, accessibleCompanyIds } = ctx;
   const config = options.chat ? null : modelConfigFromEnv();
   const chat: ChatFn | null = options.chat ?? (config ? openAiChat(config) : null);
   const modelName = options.modelName ?? config?.model ?? null;
@@ -195,13 +201,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       }
     }
     const byId = new Map(actions.map((a) => [a.id, a]));
-    const items: Array<{ role: 'user' | 'assistant'; text: string; actions: ReturnType<typeof actionView>[]; cards: AssistantCard[]; suggestions?: string[]; files?: FileRef[] }> = [];
+    const items: Array<{ role: 'user' | 'assistant'; ref?: number; feedback?: 'up' | 'down'; text: string; actions: ReturnType<typeof actionView>[]; cards: AssistantCard[]; suggestions?: string[]; files?: FileRef[] }> = [];
     let carried: string[] = [];
     let carriedCards: AssistantCard[] = [];
-    for (const m of thread.messages as StoredMessage[]) {
+    (thread.messages as StoredMessage[]).forEach((m, ref) => {
       if (m.ui?.actionIds) carried.push(...m.ui.actionIds);
       if (m.ui?.cards) carriedCards.push(...m.ui.cards);
-      if (m.ui?.hidden) continue;
+      if (m.ui?.hidden) return;
       if (m.role === 'user') items.push({ role: 'user', text: m.content.replace(/\n\n\[Attached files:[\s\S]*$/, ''), actions: [], cards: [], ...(m.ui?.files?.length ? { files: m.ui.files } : {}) });
       if (m.role === 'assistant' && !m.tool_calls?.length) {
         const { text, suggestions } = splitSuggestions(cleanReply(m.content));
@@ -209,9 +215,9 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         carried = [];
         const shown = carriedCards;
         carriedCards = [];
-        if (text || own.length || shown.length) items.push({ role: 'assistant', text, actions: own, cards: shown, ...(suggestions.length ? { suggestions } : {}) });
+        if (text || own.length || shown.length) items.push({ role: 'assistant', ref, text, actions: own, cards: shown, ...(suggestions.length ? { suggestions } : {}), ...(m.ui?.feedback ? { feedback: m.ui.feedback } : {}) });
       }
-    }
+    });
     return {
       id: thread.id, title: thread.title, companyId: thread.companyId, items,
       pending: actions.filter((a) => a.status === 'pending').length,
@@ -248,6 +254,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const companyId = thread.companyId;
     const company = store.getCompanyById(companyId);
     const proposed: string[] = [];
+    let lastOkCode: string | undefined;
+    let proposingCode: string | undefined;
     let reads: string[] = [];
     // Every record read this turn, by id, with its kind: show() needs only ids.
     const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
@@ -388,6 +396,10 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         },
         };
         const outcome = await runInSandbox(code, host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
+        if (outcome.ok) {
+          lastOkCode = code;
+          if (proposed.length > before) proposingCode = code;
+        }
         // Records the script returned but did not show() still reach the person as cards.
         if (outcome.ok && cards.length === cardsBefore) {
           for (const r of recordsIn(outcome.value).slice(0, MAX_CARDS)) {
@@ -408,6 +420,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     };
 
     const history = (thread.messages as StoredMessage[]).map(({ ui: _ui, ...m }) => m as ChatMessage);
+    const examples = similarExamples(request, store.listAssistantExamples(companyId));
+    if (examples.length) store.touchAssistantExamples(examples.map((e) => e.id));
     const system = systemPrompt({
       userName: user.name,
       userId: user.id,
@@ -416,6 +430,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       companies: accessibleCompanyIds(user).map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id })),
       areas: [...new Set(ops.filter((op) => op.method === 'GET' && op.permission.includes('.') && allowedOp(req, companyId, op)).map((op) => op.permission.split('.')[0]))].sort(),
       files: (thread.messages as StoredMessage[]).flatMap((m) => m.ui?.files ?? []),
+      examples,
     }, mode);
     let outcome;
     try {
@@ -433,6 +448,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const last = added[added.length - 1];
     if (proposed.length) last.ui = { ...(last.ui ?? {}), actionIds: proposed };
     if (cards.length) last.ui = { ...(last.ui ?? {}), cards };
+    // What worked this turn, kept on the answer: saved as an example once confirmed (or marked helpful).
+    const exampleCode = proposingCode ?? lastOkCode;
+    if (exampleCode && request && outcome.reply && !/^I stopped after too many steps/.test(outcome.reply)) {
+      last.ui = { ...(last.ui ?? {}), example: { request: request.slice(0, 500), code: exampleCode, kind: proposingCode ? 'change' : 'read' } };
+    }
     store.saveAssistantMessages(thread.id, [...thread.messages, ...added]);
   }
 
@@ -602,6 +622,17 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         }
       }
       const fresh = store.getAssistantThread(thread.id)!;
+      // A change that was confirmed and went through: the request and its code become an example.
+      const doneIds = new Set(store.listAssistantActions(thread.id).filter((a) => a.status === 'done').map((a) => a.id));
+      let examplesChanged = false;
+      fresh.messages = (fresh.messages as StoredMessage[]).map((m) => {
+        const ex = m.ui?.example;
+        if (!ex || ex.kind !== 'change' || ex.savedId || !m.ui?.actionIds?.some((id) => doneIds.has(id))) return m;
+        examplesChanged = true;
+        const saved = store.createAssistantExample({ companyId: thread.companyId, userId: req.user!.id, request: ex.request, code: ex.code, kind: 'change' });
+        return { ...m, ui: { ...m.ui, example: { ...ex, savedId: saved.id } } } as StoredMessage;
+      });
+      if (examplesChanged && !report.length) store.saveAssistantMessages(fresh.id, fresh.messages);
       const waiting = store.listAssistantActions(thread.id).some((a) => a.status === 'pending');
       if (report.length) {
         fresh.messages = [...fresh.messages, { role: 'user', content: `[The person decided on the proposed changes]\n${report.join('\n')}${made.length ? '\n(The new records are shown to the person as cards.)' : ''}`, ui: { hidden: true, ...(made.length ? { cards: made } : {}) } }];
@@ -615,6 +646,47 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         });
       }
     });
+  }));
+
+  /** 👍 / 👎 on an answer: 👍 keeps what worked as an example; 👎 removes one saved from it. */
+  app.post('/assistant/threads/:id/feedback', authMiddleware, handler((req, res) => {
+    const thread = threadFor(req, req.params.id);
+    requireCompanyAccess(req, thread.companyId);
+    const body = asRecord(req.body, 'body');
+    const ref = Number(body.ref);
+    const messages = thread.messages as StoredMessage[];
+    const m = Number.isInteger(ref) ? messages[ref] : undefined;
+    if (!m || m.role !== 'assistant' || m.ui?.hidden) throw new HttpError(404, 'Answer not found');
+    const helpful = body.helpful === true;
+    const ui = { ...(m.ui ?? {}), feedback: helpful ? 'up' as const : 'down' as const };
+    if (helpful && ui.example && !ui.example.savedId) {
+      const saved = store.createAssistantExample({ companyId: thread.companyId, userId: req.user!.id, request: ui.example.request, code: ui.example.code, kind: ui.example.kind });
+      ui.example = { ...ui.example, savedId: saved.id };
+    }
+    if (!helpful && ui.example?.savedId) {
+      store.deleteAssistantExample(ui.example.savedId);
+      ui.example = { ...ui.example, savedId: undefined };
+    }
+    messages[ref] = { ...m, ui } as StoredMessage;
+    store.saveAssistantMessages(thread.id, messages);
+    res.json(viewOf(store.getAssistantThread(thread.id)!));
+  }));
+
+  /** The company's learned examples, for whoever edits its settings (the screen comes in Wave 2). */
+  app.get('/companies/:companyId/assistant/examples', authMiddleware, handler((req, res) => {
+    const { companyId } = req.params;
+    requireCompanyAccess(req, companyId);
+    requirePermission(req, companyId, 'settings.edit', legacyRolesOf.get('GET /companies/:companyId/assistant/examples'));
+    res.json(store.listAssistantExamples(companyId));
+  }));
+
+  app.delete('/assistant/examples/:id', authMiddleware, handler((req, res) => {
+    const example = store.getAssistantExample(req.params.id);
+    if (!example) throw new HttpError(404, 'Example not found');
+    requireCompanyAccess(req, example.companyId);
+    requirePermission(req, example.companyId, 'settings.edit', legacyRolesOf.get('DELETE /assistant/examples/:id'));
+    store.deleteAssistantExample(example.id);
+    res.status(204).end();
   }));
 }
 

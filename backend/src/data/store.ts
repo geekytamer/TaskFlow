@@ -5875,6 +5875,26 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Requests that worked (confirmed changes, or reads marked helpful), per company: examples for the next similar one.
+        id: '163_assistant_examples',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS assistant_examples (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              userId TEXT NOT NULL,
+              request TEXT NOT NULL,
+              code TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              uses INTEGER NOT NULL DEFAULT 0,
+              createdAt TEXT NOT NULL,
+              lastUsedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_assistant_examples_company ON assistant_examples (companyId, createdAt);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6731,6 +6751,31 @@ export class DataStore {
   /** Claims a pending action for running, so a double click runs it once. */
   claimAssistantAction(id: string): boolean {
     return this.db.prepare("UPDATE assistant_actions SET status = 'running' WHERE id = ? AND status = 'pending'").run(id).changes > 0;
+  }
+
+  createAssistantExample(input: { companyId: string; userId: string; request: string; code: string; kind: 'read' | 'change' }): AssistantExampleRow {
+    const row: AssistantExampleRow = { id: uuid(), ...input, request: input.request.slice(0, 500), code: input.code.slice(0, 4000), uses: 0, createdAt: new Date().toISOString(), lastUsedAt: null };
+    this.db.prepare('INSERT INTO assistant_examples (id, companyId, userId, request, code, kind, uses, createdAt, lastUsedAt) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL)')
+      .run(row.id, row.companyId, row.userId, row.request, row.code, row.kind, row.createdAt);
+    return row;
+  }
+
+  listAssistantExamples(companyId: string, limit = 300): AssistantExampleRow[] {
+    return this.db.prepare('SELECT * FROM assistant_examples WHERE companyId = ? ORDER BY createdAt DESC LIMIT ?').all(companyId, limit) as AssistantExampleRow[];
+  }
+
+  getAssistantExample(id: string): AssistantExampleRow | undefined {
+    return this.db.prepare('SELECT * FROM assistant_examples WHERE id = ?').get(id) as AssistantExampleRow | undefined;
+  }
+
+  deleteAssistantExample(id: string): void {
+    this.db.prepare('DELETE FROM assistant_examples WHERE id = ?').run(id);
+  }
+
+  touchAssistantExamples(ids: string[]): void {
+    const stmt = this.db.prepare('UPDATE assistant_examples SET uses = uses + 1, lastUsedAt = ? WHERE id = ?');
+    const now = new Date().toISOString();
+    for (const id of ids) stmt.run(now, id);
   }
 
   getUserByToken(token: string): SanitizedUser | undefined {
@@ -25351,4 +25396,16 @@ export interface AssistantActionRow {
   result: unknown;
   createdAt: string;
   decidedAt: string | null;
+}
+
+export interface AssistantExampleRow {
+  id: string;
+  companyId: string;
+  userId: string;
+  request: string;
+  code: string;
+  kind: 'read' | 'change';
+  uses: number;
+  createdAt: string;
+  lastUsedAt: string | null;
 }

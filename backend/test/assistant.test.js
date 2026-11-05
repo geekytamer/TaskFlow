@@ -82,7 +82,7 @@ test('sandbox: api calls go to the host with method, path, body and summary; err
 test('catalogue: the staff API without sign-in, portal, admin or the assistant itself', () => {
   const ops = assistantOps();
   assert.ok(ops.length > 300);
-  assert.ok(!ops.some((o) => o.path.startsWith('/assistant') || o.path.startsWith('/auth') || o.path.startsWith('/portal-api') || o.permission === 'public'));
+  assert.ok(!ops.some((o) => o.path.split('/').includes('assistant') || o.path.startsWith('/auth') || o.path.startsWith('/portal-api') || o.permission === 'public'));
   assert.equal(matchOp(ops, 'POST', '/tasks')?.path, '/tasks');
   assert.equal(matchOp(ops, 'GET', '/companies/1/invoices?status=Overdue')?.path, '/companies/:companyId/invoices');
   assert.equal(matchOp(ops, 'POST', '/assistant/threads/x/decide'), undefined);
@@ -504,4 +504,64 @@ test('findApi lists matching recipes before endpoints', async () => {
   const result = s.model.seen[1].at(-1).content;
   assert.match(result, /tf\.invoices/);
   assert.ok(result.indexOf('tf.invoices') < result.indexOf('GET /companies/:companyId/invoices'));
+});
+
+test('examples: similar requests are found in English and Arabic; unrelated ones are not', () => {
+  const { similarExamples } = require('../dist/assistant/examples');
+  const ex = [
+    { id: '1', request: 'Which invoices are overdue?', code: 'a' },
+    { id: '2', request: 'Add a task to call the bank tomorrow', code: 'b' },
+    { id: '3', request: 'ما هي الفواتير المتأخرة؟', code: 'c' },
+  ];
+  assert.deepEqual(similarExamples('show me overdue invoices', ex).map((e) => e.id), ['1']);
+  assert.deepEqual(similarExamples('الفواتير المتأخره', ex).map((e) => e.id), ['3']);
+  assert.deepEqual(similarExamples('who is on leave today', ex), []);
+});
+
+test('examples: a confirmed change saves its request and code; the next similar request sees it; 👎 removes it', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(
+    say("```js\nreturn await tf.createTasks([{ title: 'Call the bank', dueDate: 'tomorrow' }]);\n```"),
+    say('Prepared. Confirm below.'),
+    say('Done.'),
+  );
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'Add a task to call the bank tomorrow' });
+  const action = asked.body.items.at(-1).actions[0];
+  await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/decide`, { confirm: [action.id] });
+  const saved = s.store.listAssistantExamples('1');
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].request, 'Add a task to call the bank tomorrow');
+  assert.match(saved[0].code, /tf\.createTasks/);
+  assert.equal(saved[0].kind, 'change');
+
+  steps.push(say('ok'));
+  await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'add a task to call the supplier tomorrow' });
+  assert.match(s.model.seen.at(-1)[0].content, /Requests like this that worked here before[\s\S]*Call the bank/);
+
+  const view = (await s.as(s.admin.id).get(`/assistant/threads/${asked.body.id}`)).body;
+  const answer = view.items.find((i) => i.role === 'assistant' && i.actions.length);
+  const down = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/feedback`, { ref: answer.ref, helpful: false });
+  assert.equal(down.status, 200, JSON.stringify(down.body));
+  assert.equal(s.store.listAssistantExamples('1').length, 0);
+});
+
+test('examples: 👍 on a read answer saves it; admins list and delete; others cannot', async () => {
+  const steps = [];
+  const s = setup(steps);
+  steps.push(say("```js\nreturn (await tf.myTasks()).length;\n```"), say('You have 1 open task.'));
+  const asked = await s.as(s.admin.id).post('/assistant/chat', { companyId: '1', message: 'how many open tasks do I have' });
+  const answer = asked.body.items.at(-1);
+  assert.equal(typeof answer.ref, 'number');
+  const up = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/feedback`, { ref: answer.ref, helpful: true });
+  assert.equal(up.body.items.at(-1).feedback, 'up');
+  const list = await s.as(s.admin.id).get('/companies/1/assistant/examples');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 1);
+  assert.equal(list.body[0].kind, 'read');
+  const employee = s.store.listUsers().find((u) => u.email === 'charlie.d@innovatecorp.com');
+  assert.equal((await s.as(employee.id).get('/companies/1/assistant/examples')).status, 403);
+  const del = await request(s.app).delete(`/assistant/examples/${list.body[0].id}`).set('Authorization', `Bearer ${s.store.issueToken(s.admin.id)}`);
+  assert.equal(del.status, 204);
+  assert.equal(s.store.listAssistantExamples('1').length, 0);
 });
