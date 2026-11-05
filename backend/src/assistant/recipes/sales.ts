@@ -111,7 +111,7 @@ export const recordPayment: Recipe = {
       if (!target) {
         throw new Error(ofClient.length
           ? `${ofClient.length} unpaid invoices of "${String(ref)}": ${ofClient.map((r) => `${r.invoiceNumber} (${r.outstanding} ${r.currency} owed)`).join('; ')}. Ask the person which one.`
-          : `no unpaid invoice matches "${String(ref)}"`);
+          : `no unpaid invoice matches "${String(ref)}". The unpaid ones: ${unpaid.slice(0, 12).map((r) => `${r.invoiceNumber} ${r.client} (${r.outstanding} ${r.currency} owed)`).join('; ') || 'none'}. If one of these is the client the person means (perhaps named in another language), call again with its invoice number.`);
       }
     }
     const amount = amountArg ?? target.outstanding;

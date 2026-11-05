@@ -58,8 +58,40 @@ export function pickOne<T extends { id: string }>(rows: T[], ref: unknown, label
     return l.length > 0 && (l.includes(want) || (l.length >= 3 && want.includes(l)));
   });
   if (partial.length === 1) return partial[0];
+  if (!partial.length) {
+    // A typo or a transliteration a letter or two off ("samatha"): the one close label, if only one is close.
+    const close = rows.filter((r) => closeTo(want, norm(label(r))));
+    if (close.length === 1) return close[0];
+  }
   if (partial.length > 1) throw new Error(`several ${kind}s match "${String(ref)}": ${partial.slice(0, 8).map((r) => `${label(r)} (id ${r.id})`).join('; ')}. Ask the person which one, or pass the id.`);
   throw new Error(`no ${kind} matches "${String(ref)}"${rows.length ? `; some there are: ${rows.slice(0, 8).map(label).join('; ')}` : ''}`);
+}
+
+/** Edit distance between two short strings (Levenshtein). */
+function distance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const up = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = up;
+    }
+  }
+  return prev[b.length];
+}
+
+/** Whether `want` is within a letter or two of the label or of a run of its words (5+ letters asked: shorter words collide). */
+function closeTo(want: string, label: string): boolean {
+  if (want.length < 5) return false;
+  const allowed = want.length >= 8 ? 2 : 1;
+  const words = label.split(' ');
+  const size = want.split(' ').length;
+  for (let i = 0; i + size <= words.length; i += 1) {
+    if (distance(want, words.slice(i, i + size).join(' ')) <= allowed) return true;
+  }
+  return distance(want, label) <= allowed;
 }
 
 /** A company path: co(ctx, '/invoices') → /companies/<id>/invoices. */

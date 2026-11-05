@@ -49,7 +49,7 @@ const HREF: Record<string, (id: string) => string> = {
   'document-template': () => '/documents?tab=templates',
 };
 
-const TITLE_FIELDS = ['title', 'name', 'fileName', 'templateName', 'invoiceNumber', 'quoteNumber', 'quotationNumber', 'orderNumber', 'billNumber', 'number', 'reference', 'lotNumber', 'subject', 'sku', 'email'];
+const TITLE_FIELDS = ['title', 'name', 'employee', 'employeeName', 'fileName', 'templateName', 'invoiceNumber', 'quoteNumber', 'quotationNumber', 'orderNumber', 'billNumber', 'number', 'reference', 'lotNumber', 'subject', 'sku', 'email'];
 const SUBTITLE_FIELDS = ['clientName', 'supplierName', 'vendorName', 'customerName', 'contactName', 'company', 'category', 'sku', 'email', 'phone'];
 
 export interface CardLookups {

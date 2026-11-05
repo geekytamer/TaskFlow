@@ -69,7 +69,11 @@ const api = Object.freeze({
 });
 const show = async (rows, kind) => __j(await __host('SHOW', '/', JSON.stringify({ rows, kind: kind === undefined ? null : kind }), ''));
 const search = async (q) => __j(await __host('SEARCH', String(q), '', ''));
-const findApi = search;
+// Small models reach for findApi('contacts', { name }) as if it found records: say so, and where to look instead.
+const findApi = async (q, extra) => {
+  if (extra !== undefined) throw new Error("findApi(words) lists endpoints, it does not find records. To find records use tf.findContact('name'), tf.invoices({ client }), tf.myTasks(), tf.stock({ item }) or lookup('name').");
+  return search(q);
+};
 const makeDocument = async (template, fields, summary) => __j(await __host('DOC', '/', JSON.stringify({ template, fields: fields ?? {} }), summary === undefined ? '' : String(summary)));
 const lookup = async (q) => __j(await __host('LOOKUP', String(q), '', ''));
 const console = Object.freeze({ log: (...a) => __log(a.map((x) => typeof x === 'string' ? x : JSON.stringify(x)).join(' ')) });

@@ -174,3 +174,21 @@ test('recipes keep the person\'s permissions: an employee cannot read invoices t
   assert.equal(out.error !== undefined || out.result === undefined, true, JSON.stringify(out));
   assert.match(String(out.error), /403/);
 });
+
+test('eval round 2: leave cards are named, typos in names still match, a payment miss lists what is owed, findApi is not a record search', async () => {
+  const { cardOf } = require('../dist/assistant/cards');
+  const card = cardOf('leave-request', { id: 'l1', employee: 'Fatma Al Lawati', from: '2026-11-04' }, { userName: () => undefined, clientName: () => undefined, projectName: () => undefined, currency: 'OMR' });
+  assert.equal(card.title, 'Fatma Al Lawati');
+
+  const people = [{ id: 's', name: 'Samantha Bee' }, { id: 'c', name: 'Charlie Davis' }];
+  assert.equal(pickOne(people, 'samatha', (p) => p.name, 'person').id, 's', 'one letter off still finds her');
+  assert.throws(() => pickOne(people, 'zzz', (p) => p.name, 'person'), /no person matches/);
+
+  const { run } = setup();
+  const miss = await run("return await tf.recordPayment({ invoice: 'النور للأغذية', amount: 450 });");
+  assert.match(miss.error, /no unpaid invoice matches[\s\S]*Al Noor Foods/, 'the error lists the unpaid invoices so the model can pick');
+
+  const misuse = await runInSandbox("return await findApi('contacts', { name: 'Ahmed' });", { call: async () => [] });
+  assert.equal(misuse.ok, false);
+  assert.match(misuse.error, /findApi\(words\) lists endpoints[\s\S]*tf\.findContact/);
+});
