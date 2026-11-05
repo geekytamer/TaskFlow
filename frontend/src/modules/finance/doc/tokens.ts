@@ -14,11 +14,13 @@ export interface DocDataContext {
   publicUrl: string;
   /** Values typed when a document was created, keyed `field.<name>` (and `document.notes`). */
   fields?: Record<string, string>;
+  /** The document's own language for dates; unset follows the interface. */
+  locale?: string;
 }
 
-const fmtDate = (d?: Date) =>
+const fmtDate = (d?: Date, locale?: string) =>
   d
-    ? new Date(d).toLocaleDateString(getCurrentLocale(), { year: 'numeric', month: 'short', day: 'numeric' })
+    ? new Date(d).toLocaleDateString(locale || getCurrentLocale(), { year: 'numeric', month: 'short', day: 'numeric' })
     : '';
 
 /** Available binding tokens shown in the editor's data picker. */
@@ -129,8 +131,8 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'document.status':
     case 'invoice.status': return invoice.status || '';
     case 'document.date':
-    case 'invoice.issueDate': return fmtDate(invoice.issueDate);
-    case 'invoice.dueDate': return fmtDate(invoice.dueDate);
+    case 'invoice.issueDate': return fmtDate(invoice.issueDate, ctx.locale);
+    case 'invoice.dueDate': return fmtDate(invoice.dueDate, ctx.locale);
     case 'invoice.currency': return invoice.currency || 'USD';
     case 'invoice.subtotal': return ctx.formatMoney(ctx.subtotal);
     case 'invoice.tax': return ctx.formatMoney(ctx.taxAmount);
@@ -148,7 +150,7 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'company.address': return company?.address || '';
     case 'company.phone': return company?.phone || '';
     case 'company.email': return company?.email || '';
-    case 'today': return fmtDate(new Date());
+    case 'today': return fmtDate(new Date(), ctx.locale);
     default:
       if (!token.trim().startsWith('field.')) return '';
       return ctx.fields?.[token.trim()] || FIELD_FALLBACKS[token.trim()]?.(ctx) || '';

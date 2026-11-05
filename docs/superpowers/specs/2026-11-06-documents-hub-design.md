@@ -87,3 +87,53 @@ file from an employee who can't see the task; hides files of a module switched o
 hides HR files from someone without `hr.view`; `q`/`source`/`folder` filters;
 upload with folder; PATCH moves folder and refuses without `documents.edit`;
 500-cap sets `truncated`. Run under legacy, shadow and v2.
+
+## Stage 2 — Create (2026-11-06)
+
+Today a document needs a template of the chosen type first; an empty company
+sees "Create a template for this document type before generating a document"
+and has nowhere to start. Stage 2 makes creating any document one click.
+
+### "New document" chooser (Documents tab, and a button on the Library tab)
+
+One dialog with three groups:
+
+1. **Quotation** — the priced sales quotation (lines, VAT, converts to an
+   invoice). Opens Sales → Quotations with its new-quotation dialog
+   (`/sales?tab=quotations&new=1`). Hidden when the sales module is off or the
+   person lacks `sales.create`.
+2. **Your templates** — every template of a creatable type the company already
+   has (letter, memo, quote, certificate, statement, custom, …), newest first.
+3. **Ready-made** — starter templates, each in Arabic or English (the person
+   picks): Memorandum of Understanding, Service agreement, Influencer
+   agreement, To-whom-it-may-concern letter, Blank document. Picking one saves it
+   as a company template (so it shows under "Your templates" next time and can be
+   redesigned in Templates) and opens the composer on it.
+
+Needs `documents.create`; installing a starter also needs the template create
+permission the API already enforces (on refusal: a toast, nothing half-made).
+
+### Starter templates
+
+Built in the frontend (the block model is frontend-owned), in
+`modules/documents/starter-templates.ts`: plain data, no backend change.
+Each uses fill-in boxes (`{{field.*}}`, e.g. party, scope, fee, term), the chosen
+client (`{{client.*}}`), company (`{{company.*}}`), the document date, a
+`{{document.notes}}` area for extra terms, and a signature block. Branding is
+copied from the company's existing default letter or quote template (colours,
+logo, letterhead, stamp, signature) when there is one. Wording is a sensible
+default, not legal advice; the owner edits it in Templates.
+
+### Direction follows the document
+
+`InvoiceDoc.direction?: 'rtl' | 'ltr'`. When set, the renderer (screen and PDF)
+uses it instead of the interface language, so an Arabic MoU prints right-to-left
+even for someone using the app in English. Unset keeps today's behaviour.
+
+### Tests
+
+Unit: every starter in both languages builds a valid doc (known block types, ids
+unique, direction set, only `field./client./company./document./today` tokens,
+has a signature and a notes area), names are distinct, and the composer's field
+boxes come out of it. Renderer: `direction` overrides the locale. Browser:
+install a starter from an empty company, fill, save, PDF.

@@ -240,10 +240,13 @@ export function DocRenderer({
     formatMoney: (v) => String(v),
     publicUrl: publicUrl ?? publicInvoiceUrl(invoice.id),
     fields,
+    locale: doc.direction === 'rtl' ? 'ar' : doc.direction === 'ltr' ? 'en' : undefined,
   };
   const theme = doc.theme;
-  const isRtl = isRtlLocale();
-  const s = docStrings();
+  // A document written in one language reads in it whatever the interface language is.
+  const docLocale = doc.direction === 'rtl' ? 'ar' : doc.direction === 'ltr' ? 'en' : undefined;
+  const isRtl = isRtlLocale(docLocale);
+  const s = docStrings(docLocale);
   const portrait = doc.page.orientation === 'portrait';
   const pageWidth = doc.page.size === 'A4' ? (portrait ? 210 : 297) : (portrait ? 216 : 279);
   const pageHeight = doc.page.size === 'A4' ? (portrait ? 297 : 210) : (portrait ? 279 : 216);

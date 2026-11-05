@@ -21,7 +21,8 @@ import {
   DOCUMENT_CREATION_TYPES,
   DOCUMENT_TEMPLATE_TYPES,
 } from '@/modules/documents/document-template-types';
-import { chooseTemplateId } from '@/modules/finance/template-selection';
+import { usePermissions } from '@/context/permissions-context';
+import { NewDocumentDialog } from './new-document-dialog';
 import { DocumentComposer } from './document-composer';
 import { LibraryPanel } from './library-panel';
 import { Card, CardContent } from '@/components/ui/card';
@@ -67,8 +68,9 @@ export function DocumentsPanel() {
   const approvalStatus = useApprovalStatuses('document', documents);
   const [loading, setLoading] = React.useState(true);
   const [view, setView] = React.useState<View>({ mode: 'list' });
-  const [composeTemplateId, setComposeTemplateId] = React.useState('');
-  const [composeType, setComposeType] = React.useState<TemplateDocumentType>('letter');
+  const [chooserOpen, setChooserOpen] = React.useState(false);
+  const { can } = usePermissions();
+  const canCreateDocument = can('documents.create');
   const loadRequest = React.useRef(0);
   const activeTab = getDocumentWorkspaceTab(searchParams.get('tab'));
   const requestedTemplateType = searchParams.get('type');
@@ -118,15 +120,6 @@ export function DocumentsPanel() {
       if (requestId === loadRequest.current) setLoading(false);
     }
   }, [companyId]);
-
-  const creationTemplates = React.useMemo(
-    () => templates.filter((template) => template.docType === composeType),
-    [composeType, templates],
-  );
-
-  React.useEffect(() => {
-    setComposeTemplateId((current) => chooseTemplateId(creationTemplates, current));
-  }, [creationTemplates]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -189,7 +182,7 @@ export function DocumentsPanel() {
             </div>
 
             <TabsContent value="library" className="space-y-3">
-              <LibraryPanel />
+              <LibraryPanel onNewDocument={canCreateDocument ? () => setChooserOpen(true) : undefined} />
             </TabsContent>
 
             <TabsContent value="templates" className="space-y-3">
@@ -225,54 +218,10 @@ export function DocumentsPanel() {
             </TabsContent>
 
             <TabsContent value="documents" className="space-y-3">
-              <div className="flex flex-wrap items-end gap-2">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {tr('Document type', 'نوع المستند')}
-                    </p>
-                    <Select
-                      value={composeType}
-                      onValueChange={(value) => setComposeType(value as TemplateDocumentType)}
-                    >
-                      <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {DOCUMENT_CREATION_TYPES.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {tr(item.label, item.labelAr)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                {creationTemplates.length > 0 && (
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {tr('Template', 'القالب')}
-                    </p>
-                  <Select value={composeTemplateId} onValueChange={setComposeTemplateId}>
-                    <SelectTrigger className="w-64"><SelectValue placeholder={tr('Pick a template', 'اختر قالباً')} /></SelectTrigger>
-                      <SelectContent>
-                        {creationTemplates.map((template) => (
-                          <SelectItem key={template.id} value={template.id}>
-                            {template.name}{template.isDefault ? tr(' (Default)', ' (افتراضي)') : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                  </Select>
-                  </div>
-                )}
-                  <Button disabled={!composeTemplateId} onClick={() => {
-                    const t = templates.find((x) => x.id === composeTemplateId);
-                    if (t) setView({ mode: 'compose', template: t });
-                  }}><Plus className="me-2 h-4 w-4" />{tr('New document', 'مستند جديد')}</Button>
-              </div>
-              {creationTemplates.length === 0 && (
-                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  {tr(
-                    'Create a template for this document type before generating a document.',
-                    'أنشئ قالباً لهذا النوع قبل إنشاء المستند.',
-                  )}
-                </p>
+              {canCreateDocument && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <Button onClick={() => setChooserOpen(true)}><Plus className="me-2 h-4 w-4" />{tr('New document', 'مستند جديد')}</Button>
+                </div>
               )}
               {documents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center">
@@ -322,6 +271,17 @@ export function DocumentsPanel() {
           )}
         </CardContent>
       </Card>
+      <NewDocumentDialog
+        open={chooserOpen}
+        onOpenChange={setChooserOpen}
+        templates={templates}
+        onPick={(template, installed) => {
+          // A saved document lands in the Documents list, wherever it was started.
+          if (activeTab !== 'documents') handleTabChange('documents');
+          if (installed) load();
+          setView({ mode: 'compose', template });
+        }}
+      />
     </div>
   );
 }

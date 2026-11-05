@@ -176,5 +176,9 @@ export interface InvoiceDoc {
   theme: DocTheme;
   /** Flowing blocks that paginate. */
   body: Block[];
+  /** Text direction of the document itself; unset follows the interface language. */
+  direction?: 'rtl' | 'ltr';
+  /** Labels for the fill-in boxes ({{field.*}}), in the document's language. */
+  fieldLabels?: Record<string, string>;
   // overlay layer (repeating per-page elements) lands in P3.
 }

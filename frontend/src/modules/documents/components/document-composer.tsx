@@ -86,6 +86,8 @@ export function DocumentComposer({
   }, [selectedCompany]);
 
   const doc = React.useMemo(() => template.doc || templateToDoc(template), [template]);
+  // A template may name its own boxes (ready-made ones do, in their language).
+  const labelOf = (token: string) => (doc as { fieldLabels?: Record<string, string> }).fieldLabels?.[token] ?? fieldLabel(token);
   // Fields the template asks for, plus any the notes or an earlier save use.
   const fields = React.useMemo(() => {
     const asked = templateFields(doc);
@@ -136,7 +138,7 @@ export function DocumentComposer({
       toast({
         variant: 'destructive',
         title: tr('Fill in every field before finalizing', 'املأ كل الحقول قبل الاعتماد'),
-        description: missing.map(fieldLabel).join(', '),
+        description: missing.map(labelOf).join(', '),
       });
       return;
     }
@@ -183,7 +185,7 @@ export function DocumentComposer({
 
   const variableGroups = React.useMemo(() => {
     const groups = localizedTokenGroups(GENERIC_TOKEN_GROUPS, language);
-    const own = fields.map((token) => ({ token, label: fieldLabel(token) }));
+    const own = fields.map((token) => ({ token, label: labelOf(token) }));
     if (own.length) groups.unshift({ group: tr('This document', 'هذا المستند'), tokens: own });
     return groups;
   }, [fields, language]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -246,7 +248,7 @@ export function DocumentComposer({
                 const long = key === 'field.body';
                 return (
                   <div key={key} className="space-y-1">
-                    <Label htmlFor={`doc-${key}`}>{fieldLabel(key)}</Label>
+                    <Label htmlFor={`doc-${key}`}>{labelOf(key)}</Label>
                     {long ? (
                       <Textarea id={`doc-${key}`} dir="auto" rows={4} value={values[key] ?? ''} onChange={(event) => setValue(key, event.target.value)} />
                     ) : (
