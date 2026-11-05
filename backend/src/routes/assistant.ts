@@ -463,6 +463,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           if (method === 'RECIPE') {
             const recipe = recipeByName(path);
             if (!recipe) throw new Error(`tf.${path} does not exist; there are: ${RECIPES.map((r) => r.name).join(', ')}`);
+            if (body && typeof body === 'object' && !Array.isArray(body)) {
+              // 'summary' is the raw-change habit: harmless, recipes write their own.
+              const unknown = Object.keys(body).filter((k) => k !== 'summary' && !recipe.params.includes(k));
+              if (unknown.length) throw new Error(`tf.${recipe.name} does not take ${unknown.map((k) => `"${k}"`).join(', ')}; it takes: ${recipe.params.join(', ') || 'nothing'}`);
+            }
             step({ kind: recipe.changes ? 'prepare' : 'read', detail: recipe.name });
             recipeDepth += 1;
             try { return await recipe.run(recipeContext(host), body); } finally { recipeDepth -= 1; }

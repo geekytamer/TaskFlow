@@ -40,6 +40,7 @@ import { StageSelect, useProjectStages } from './stage-select';
 import { MentionTextarea, useMentions } from './mention-textarea';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { AskAboutThis } from '@/modules/assistant/components/ask-about-this';
 import { add, format, formatDistanceToNow } from 'date-fns';
 import { Calendar as CalendarIcon, User as UserIcon, Tag, MessageSquare, GripVertical, Pencil, FileImage, Info, ExternalLink, Trash2, Lock, Repeat, Flag } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -312,6 +313,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                   <span className="text-muted-foreground">{tr('No project', 'لا يوجد مشروع')}</span>
                 )}
               </SheetDescription>
+              <AskAboutThis className="mt-2 w-fit" subject={editableTask ? { kind: 'task', id: editableTask.id, title: editableTask.title } : null} />
             </SheetHeader>
             <div className="flex-1 overflow-y-auto pe-6 -me-6 ps-1 -ms-1">
             <div className="space-y-6 py-4">

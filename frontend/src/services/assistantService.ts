@@ -81,7 +81,11 @@ async function untilDone(first: AssistantThread, onThread?: (t: AssistantThread)
   return t;
 }
 
-export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
+/** What is on the person's screen when they ask: the page, and the record open there. */
+export interface AssistantSubject { kind: string; id: string; title: string }
+export interface ScreenContext { path?: string; subject?: AssistantSubject }
+
+export const askAssistant = async (input: { message: string; threadId?: string; companyId: string; fileIds?: string[]; requestId?: string; context?: ScreenContext }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>('/assistant/chat', { method: 'POST', body: JSON.stringify({ ...input, background: true }) }), onThread);
 export const decideAssistantActions = async (threadId: string, decision: { confirm?: string[]; decline?: string[]; edits?: Record<string, Record<string, unknown>>; requestId?: string }, onThread?: (t: AssistantThread) => void) =>
   untilDone(await apiFetch<AssistantThread>(`/assistant/threads/${threadId}/decide`, { method: 'POST', body: JSON.stringify({ ...decision, background: true }) }), onThread);
@@ -149,3 +153,41 @@ export const listAssistantLog = (companyId: string, filter: { status?: string; a
 export interface AssistantExample { id: string; userId: string; request: string; code: string; kind: 'read' | 'change'; uses: number; createdAt: string; lastUsedAt: string | null }
 export const listAssistantExamples = (companyId: string) => apiFetch<AssistantExample[]>(`/companies/${companyId}/assistant/examples`);
 export const deleteAssistantExample = (id: string) => apiFetch<void>(`/assistant/examples/${id}`, { method: 'DELETE' });
+
+export type AssistantStreamEvent =
+  | { type: 'step'; step: AssistantStep }
+  | { type: 'reply'; text: string }
+  | { type: 'done'; error?: string };
+
+/**
+ * The live view of one request (GET /assistant/stream/:requestId): what it is
+ * doing and the answer as it is written. Read with fetch so the token travels in
+ * the Authorization header. Resolves when the request is done or the stream ends;
+ * rejects when it cannot be opened (the caller falls back to polling).
+ */
+export async function streamAssistant(requestId: string, onEvent: (e: AssistantStreamEvent) => void, signal: AbortSignal): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/assistant/stream/${requestId}`, {
+    headers: { Authorization: `Bearer ${getStoredToken() ?? ''}`, Accept: 'text/event-stream' },
+    signal,
+    cache: 'no-store',
+  });
+  if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let at;
+    while ((at = buffer.indexOf('\n\n')) >= 0) {
+      const line = buffer.slice(0, at).split('\n').find((l) => l.startsWith('data: '));
+      buffer = buffer.slice(at + 2);
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line.slice(6)) as AssistantStreamEvent;
+        onEvent(event);
+        if (event.type === 'done') { void reader.cancel().catch(() => undefined); return; }
+      } catch { /* a malformed line is skipped */ }
+    }
+  }
+}

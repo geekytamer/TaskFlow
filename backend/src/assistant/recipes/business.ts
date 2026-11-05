@@ -10,6 +10,7 @@ const digits = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
 export const stock: Recipe = {
   name: 'stock',
+  params: ['item', 'low', 'text'],
   signature: 'stock({ item?: name|sku, low?: true })',
   returns: 'items [{ id, name, sku, inStock (the quantity), unit, reorderPoint, low }]; low: true keeps those at or under their reorder point',
   example: "const [item] = await tf.stock({ item: 'printer paper' }); return item ? { name: item.name, inStock: item.inStock, unit: item.unit } : 'not found';",
@@ -30,6 +31,7 @@ export const stock: Recipe = {
 
 export const onLeave: Recipe = {
   name: 'onLeave',
+  params: ['date', 'text'],
   signature: "onLeave({ date?: 'YYYY-MM-DD'|'today'|'tomorrow' })",
   returns: 'approved leave covering that day [{ id, employee, from, to, days }]; today by default',
   example: "const away = await tf.onLeave({ date: 'tomorrow' }); return away.map((l) => l.employee);",
@@ -50,6 +52,7 @@ export const onLeave: Recipe = {
 
 export const findContact: Recipe = {
   name: 'findContact',
+  params: ['text', 'name', 'query'],
   signature: 'findContact(text: name, phone or email)',
   returns: 'up to 10 contacts [{ id, name, kind, phone, email, roles }]',
   example: "const [c] = await tf.findContact('Salim Al Harthy'); return c ? { name: c.name, phone: c.phone, email: c.email } : 'not found';",
@@ -69,6 +72,7 @@ export const findContact: Recipe = {
 
 export const createContact: Recipe = {
   name: 'createContact',
+  params: ['name', 'text', 'phone', 'email', 'kind', 'roles', 'notes'],
   signature: "createContact({ name, phone?, email?, kind?: 'Person'|'Organization', roles?: ['Lead'|'Client'|'Vendor'|'Influencer'|'Partner'], notes? })",
   returns: 'one proposal adding the contact',
   example: "return await tf.createContact({ name: 'Maryam Al Zadjali', phone: '+968 9000 0000', roles: ['Lead'] });",
@@ -91,6 +95,7 @@ export const createContact: Recipe = {
 
 export const pendingApprovals: Recipe = {
   name: 'pendingApprovals',
+  params: [],
   signature: 'pendingApprovals()',
   returns: 'what waits for the person to approve [{ id, docType, number, amount, party, date, requester }]',
   example: "const waiting = await tf.pendingApprovals(); return { count: waiting.length, first: waiting[0] };",

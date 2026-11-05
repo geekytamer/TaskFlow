@@ -34,6 +34,8 @@ import { TourHelpButton, WelcomeTourModal } from '@/components/tutorial/tour-lau
 import { CommandPalette } from '@/modules/layout/components/command-palette';
 import { NotificationBell } from '@/modules/layout/components/notification-bell';
 import { ImpersonationBanner } from '@/modules/admin/components/impersonation-banner';
+import { AssistantPanelProvider } from '@/modules/assistant/assistant-context';
+import { AssistantButton, AssistantPanel } from '@/modules/assistant/components/assistant-panel';
 import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { ModuleGate } from '@/modules/companies/components/module-gate';
 import { PermissionsErrorNotice } from '@/components/permissions-error';
@@ -97,6 +99,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <AssistantPanelProvider>
     <SidebarProvider>
     <TourProvider>
     <AcademyProvider>
@@ -152,6 +155,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Search className="h-4 w-4" />
             </button>
+            <AssistantButton />
             <NotificationBell />
             <div className="hidden shrink-0 items-center gap-2 md:flex xl:gap-4">
               <ThemeSwitcher />
@@ -166,9 +170,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <TourOverlay />
       <WelcomeTourModal />
       <CommandPalette />
+      <AssistantPanel />
       <AcademyDock />
     </AcademyProvider>
     </TourProvider>
     </SidebarProvider>
+    </AssistantPanelProvider>
   );
 }

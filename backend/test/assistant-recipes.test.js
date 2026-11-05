@@ -192,3 +192,15 @@ test('eval round 2: leave cards are named, typos in names still match, a payment
   assert.equal(misuse.ok, false);
   assert.match(misuse.error, /findApi\(words\) lists endpoints[\s\S]*tf\.findContact/);
 });
+
+test('recipes refuse options they do not take; myTasks filters by project (everyone in it by default)', async () => {
+  const { run, fx } = setup();
+  const bad = await run("return await tf.myTasks({ status: 'open', colour: 'red' });");
+  assert.match(bad.error, /tf\.myTasks does not take "colour"; it takes: status, due, everyone, project/);
+  const inProject = await run(`return (await tf.myTasks({ project: '${fx.project.id}' })).map((t) => t.title);`);
+  assert.ok(inProject.result.includes('Prepare Q4 report'), JSON.stringify(inProject));
+  const byName = await run(`return (await tf.myTasks({ project: '${fx.project.name}' })).length;`);
+  assert.equal(byName.result, inProject.result.length);
+  const none = await run("return await tf.myTasks({ project: 'No such project' });");
+  assert.match(none.error, /no project matches/);
+});

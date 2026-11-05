@@ -6,7 +6,9 @@
  * you, through the same permissions and approvals as your own clicks.
  */
 import * as React from 'react';
-import { Bot, Check, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, X } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Bot, Check, FileText, History, Loader2, Maximize2, MessageSquarePlus, Paperclip, SendHorizontal, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -16,9 +18,10 @@ import { isApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
 import { ActionReview, type ActionEdits } from './action-review';
+import { useAssistantPanel } from '../assistant-context';
 import {
   AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
-  listAssistantThreads, sendAssistantFeedback, undoAssistantAction, uploadAssistantFile,
+  listAssistantThreads, sendAssistantFeedback, streamAssistant, undoAssistantAction, uploadAssistantFile,
   type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
 
@@ -40,8 +43,18 @@ function writeLast(userId: string, companyId: string, id: string | null) {
   } catch { /* private mode: the conversation is simply not remembered */ }
 }
 
-export function AssistantPage() {
+/**
+ * `page`: the full-screen assistant (/assistant). `panel`: the same chat in the
+ * side sheet on every page — its own scroll area, composer pinned below, and
+ * the record on screen offered as context ("About: …").
+ */
+export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel' }) {
+  const panel = variant === 'panel';
   const { selectedCompany, currentUser } = useCompany();
+  const pathname = usePathname();
+  const { subject, dismiss, focusRequest, takeAbout } = useAssistantPanel();
+  // Opened by "Ask about this": a fresh conversation, so the remembered one must not come back.
+  const fresh = React.useRef(false);
   const { language } = useI18n();
   const tr = React.useCallback<Tr>((en, ar) => (language === 'ar' ? ar : en), [language]);
   const [status, setStatus] = React.useState<AssistantStatus | null>(null);
@@ -58,17 +71,36 @@ export function AssistantPage() {
   // Files for the next message: uploaded as soon as they are picked, sent by id.
   const [attached, setAttached] = React.useState<Array<{ key: string; name: string; file?: AssistantFile; failed?: string }>>([]);
   const [dragging, setDragging] = React.useState(false);
-  // What it is doing right now ("Reading tasks…"), asked every second while it works.
+  // What it is doing right now ("Reading tasks…") and the answer as it is written, streamed
+  // while it works; asked every second instead if the stream cannot be opened.
   const [step, setStep] = React.useState<AssistantStep | null>(null);
+  const [liveReply, setLiveReply] = React.useState('');
   const requestRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!working) { setStep(null); return; }
-    const timer = window.setInterval(() => {
-      const id = requestRef.current;
-      if (id) void getAssistantProgress(id).then((p) => setStep(p.step)).catch(() => undefined);
-    }, 1000);
-    return () => window.clearInterval(timer);
+    if (!working) { setStep(null); setLiveReply(''); return; }
+    const id = requestRef.current;
+    if (!id) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    streamAssistant(id, (e) => {
+      if (e.type === 'step') setStep(e.step);
+      if (e.type === 'reply') setLiveReply(e.text);
+    }, controller.signal).catch(() => {
+      if (controller.signal.aborted) return;
+      timer = window.setInterval(() => { void getAssistantProgress(id).then((p) => setStep(p.step)).catch(() => undefined); }, 1000);
+    });
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, [working]);
+  // "Ask about this" opened the panel: a fresh conversation about that record (the last one
+  // stays in history), with the composer focused. Not while a turn is running.
+  const workingRef = React.useRef(working);
+  workingRef.current = working;
+  React.useEffect(() => {
+    if (!panel || !takeAbout()) return;
+    fresh.current = true;
+    if (!workingRef.current) { setThread(null); setError(null); }
+    window.setTimeout(() => inputRef.current?.focus(), 50);
+  }, [focusRequest, panel, takeAbout]);
   const newRequestId = () => {
     const id = `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     requestRef.current = id;
@@ -104,7 +136,7 @@ export function AssistantPage() {
     if (!id) return;
     let live = true;
     getAssistantThread(id)
-      .then((t) => { if (live && t.companyId === companyId) setThread((cur) => cur ?? t); })
+      .then((t) => { if (live && !fresh.current && t.companyId === companyId) setThread((cur) => cur ?? t); })
       .catch(() => writeLast(userId, companyId, null));
     return () => { live = false; };
   }, [userId, companyId]);
@@ -131,7 +163,8 @@ export function AssistantPage() {
     setWorking('asking');
     try {
       // While it works, the thread (with this message in it) is shown as it stands.
-      const done = await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), ...(thread ? { threadId: thread.id } : {}) }, (t) => { setPendingQuestion(null); setThread(t); });
+      const context = { ...(pathname ? { path: pathname } : {}), ...(subject ? { subject } : {}) };
+      const done = await askAssistant({ message, companyId: selectedCompany.id, fileIds, requestId: newRequestId(), context, ...(thread ? { threadId: thread.id } : {}) }, (t) => { setPendingQuestion(null); setThread(t); });
       setThread(done);
     } catch (err) {
       setError(failMessage(err));
@@ -185,7 +218,12 @@ export function AssistantPage() {
     setThreads(await listAssistantThreads().catch(() => []));
   };
 
-  const examples = [
+  const kindWord = (kind: string) => ({ task: tr('task', 'المهمة'), project: tr('project', 'المشروع'), contact: tr('contact', 'جهة الاتصال') } as Record<string, string>)[kind] ?? tr('record', 'السجل');
+  const examples = subject ? [
+    tr(`Summarize this ${kindWord(subject.kind)}`, `لخّص ${kindWord(subject.kind)}`),
+    tr("What's left to do here?", 'ما المتبقي هنا؟'),
+    tr('Who is working on it, and what is due soon?', 'من يعمل عليه، وما المستحق قريبًا؟'),
+  ] : [
     tr('Which invoices are overdue, and how much is owed in total?', 'ما الفواتير المتأخرة، وكم المبلغ المستحق إجمالاً؟'),
     tr('What tasks are due this week for me?', 'ما المهام المستحقة علي هذا الأسبوع؟'),
     tr('Create a task to call the supplier tomorrow, high priority', 'أنشئ مهمة للاتصال بالمورد غداً بأولوية عالية'),
@@ -206,32 +244,42 @@ export function AssistantPage() {
   const empty = items.length === 0 && !pendingQuestion;
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col">
-      <div className="flex items-center justify-between gap-2 pb-4">
+    <div className={cn('flex w-full flex-col', panel ? 'h-full min-h-0' : 'mx-auto min-h-full max-w-3xl')}>
+      <div className={cn('flex items-center justify-between gap-2', panel ? 'border-b px-4 py-3 pe-12' : 'pb-4')}>
         <div className="flex min-w-0 items-center gap-2">
           <Bot className="h-5 w-5 shrink-0 text-primary" />
-          <h1 className="truncate font-headline text-lg font-semibold">{thread?.title ?? tr('Assistant', 'المساعد')}</h1>
+          {panel
+            ? <h2 className="truncate text-sm font-semibold">{thread?.title ?? tr('Assistant', 'المساعد')}</h2>
+            : <h1 className="truncate font-headline text-lg font-semibold">{thread?.title ?? tr('Assistant', 'المساعد')}</h1>}
         </div>
         <div className="flex shrink-0 gap-1">
-          <Button variant="ghost" size="sm" onClick={() => void openHistory()}>
-            <History className="h-4 w-4" /><span className="hidden sm:inline">{tr('History', 'السابقة')}</span>
-          </Button>
+          {panel ? (
+            <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+              <Link href="/assistant" aria-label={tr('Open full screen', 'فتح بملء الشاشة')} title={tr('Open full screen', 'فتح بملء الشاشة')}><Maximize2 className="h-4 w-4" /></Link>
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => void openHistory()}>
+              <History className="h-4 w-4" /><span className="hidden sm:inline">{tr('History', 'السابقة')}</span>
+            </Button>
+          )}
           <Button variant="ghost" size="sm" disabled={!thread || Boolean(working)} onClick={() => { setThread(null); setError(null); if (userId && companyId) writeLast(userId, companyId, null); inputRef.current?.focus(); }}>
-            <MessageSquarePlus className="h-4 w-4" /><span className="hidden sm:inline">{tr('New', 'جديدة')}</span>
+            <MessageSquarePlus className="h-4 w-4" /><span className={panel ? 'sr-only' : 'hidden sm:inline'}>{tr('New', 'جديدة')}</span>
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 pb-4" aria-live="polite">
+      <div className={cn('flex flex-1 flex-col gap-4 pb-4', panel && 'min-h-0 overflow-y-auto px-4 pt-4')} aria-live="polite">
         {empty ? (
-          <div className="flex flex-col gap-4 py-10">
+          <div className={cn('flex flex-col gap-4', panel ? 'py-2' : 'py-10')}>
             <div>
-              <p className="text-base font-medium">{tr('Ask about your business, or ask for something to be done.', 'اسأل عن عملك، أو اطلب تنفيذ شيء.')}</p>
+              <p className="text-base font-medium">{subject
+                ? tr(`Ask about “${subject.title}”, or ask for something to be done.`, `اسأل عن «${subject.title}»، أو اطلب تنفيذ شيء.`)
+                : tr('Ask about your business, or ask for something to be done.', 'اسأل عن عملك، أو اطلب تنفيذ شيء.')}</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {tr(`It works in ${selectedCompany?.name ?? 'this company'} with your permissions. Changes wait for your confirmation.`, `يعمل في ${selectedCompany?.name ?? 'هذه الشركة'} بصلاحياتك. التغييرات تنتظر تأكيدك.`)}
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className={cn('grid gap-2', !panel && 'sm:grid-cols-2')}>
               {examples.map((e) => (
                 <button key={e} type="button" onClick={() => void send(e)} disabled={!selectedCompany || Boolean(working)}
                   className="rounded-lg border bg-card px-3 py-2.5 text-start text-sm transition-colors hover:bg-muted disabled:opacity-60">
@@ -284,6 +332,12 @@ export function AssistantPage() {
         ))}
 
         {pendingQuestion ? <UserBubble text={pendingQuestion} /> : null}
+        {working && liveReply ? (
+          <div className="flex flex-col gap-1">
+            <ReplyText text={liveReply} />
+            <span className="h-3.5 w-1.5 animate-pulse rounded-sm bg-primary/60" aria-hidden />
+          </div>
+        ) : null}
         {working ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -299,12 +353,23 @@ export function AssistantPage() {
       </div>
 
       <form
-        className={cn('sticky bottom-0 -mx-1 flex flex-col gap-2 border-t bg-background px-1 pb-1 pt-3', dragging && 'ring-2 ring-primary/60')}
+        className={cn('flex flex-col gap-2 border-t bg-background pt-3', panel ? 'px-4 pb-4' : 'sticky bottom-0 -mx-1 px-1 pb-1', dragging && 'ring-2 ring-primary/60')}
         onSubmit={(e) => { e.preventDefault(); void send(draft); }}
         onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
       >
+        {subject ? (
+          <div className="flex">
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-muted/50 py-0.5 pe-1 ps-2.5 text-xs">
+              <span className="text-muted-foreground">{tr('About:', 'عن:')}</span>
+              <span className="truncate font-medium">{subject.title}</span>
+              <button type="button" className="rounded-full p-0.5 hover:bg-muted" aria-label={tr('Ask without this record', 'اسأل دون هذا السجل')} onClick={dismiss}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          </div>
+        ) : null}
         {attached.length ? (
           <div className="flex flex-wrap gap-2">
             {attached.map((a) => (

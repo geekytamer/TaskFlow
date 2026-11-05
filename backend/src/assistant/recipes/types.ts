@@ -33,6 +33,8 @@ export interface Recipe {
   returns: string;
   /** One call as a small model should copy it (made-up names, never real data). */
   example: string;
+  /** The options it takes; anything else is refused (small models invent options, and an ignored one gives a confident wrong answer). */
+  params: string[];
   /** English search words for findApi (the name counts too). */
   words: string[];
   /** True when it proposes changes rather than only reading. */
