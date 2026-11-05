@@ -83,7 +83,7 @@ function ScanBox({ onScan, tr, placeholder }: { onScan: (code: string) => void; 
   const inputRef = React.useRef<HTMLInputElement>(null);
   const submit = (code: string) => { if (code.trim()) { onScan(code.trim()); setValue(''); inputRef.current?.focus(); } };
   return (
-    <div className="sticky top-0 z-10 space-y-2 bg-background pb-2">
+    <div className="sticky top-14 z-10 space-y-2 bg-background pb-2 md:top-16">
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); submit(value); }}>
         <div className="relative flex-1">
           <ScanLine className="pointer-events-none absolute start-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />

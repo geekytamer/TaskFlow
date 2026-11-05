@@ -25,5 +25,10 @@ export default function SettingsRoute() {
     );
   }
 
-  return <SettingsPage />;
+  // The section lives in the address (?section=…), read with useSearchParams.
+  return (
+    <React.Suspense fallback={null}>
+      <SettingsPage />
+    </React.Suspense>
+  );
 }
