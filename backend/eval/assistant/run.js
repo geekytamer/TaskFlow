@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * npm run eval:assistant [-- --only id1,id2] [-- --lang en|ar]
+ * npm run eval:assistant [-- --only id1,id2] [-- --lang en|ar] [-- --verbose]
  * Runs every case against the model in AI_BASE_URL / AI_MODEL on a fresh
  * fixture, prints a table and appends the score to history.jsonl. Changes are
  * never confirmed: a case checks what was proposed.
@@ -39,6 +39,7 @@ async function main() {
       const started = Date.now();
       let verdict;
       let reply = '';
+      let threadId;
       try {
         const res = await fetch(`${base}/assistant/chat`, {
           method: 'POST',
@@ -47,6 +48,7 @@ async function main() {
         });
         const view = await res.json();
         if (!res.ok) throw new Error(`${res.status} ${view.message ?? ''}`);
+        threadId = view.id;
         const answer = [...view.items].reverse().find((i) => i.role === 'assistant') ?? { text: '', cards: [] };
         reply = answer.text;
         const proposals = store.listAssistantActions(view.id).map((a) => ({ method: a.method, path: a.path.split('?')[0], body: a.body ?? {}, summary: a.summary }));
@@ -55,6 +57,10 @@ async function main() {
         verdict = `error: ${err instanceof Error ? err.message : String(err)}`;
       }
       const ms = Date.now() - started;
+      if (process.argv.includes('--verbose') && threadId) {
+        // What the model wrote and what came back, to see why a case failed.
+        for (const m of store.getAssistantThread(threadId).messages.slice(-12)) console.log(`   ${m.role}: ${String(m.content ?? '').replace(/\s+/g, ' ').slice(0, 400)}`);
+      }
       results.push({ id: c.id, lang, ok: verdict === true, why: verdict === true ? '' : String(verdict), ms, reply: reply.slice(0, 160) });
       console.log(`${verdict === true ? 'PASS' : 'FAIL'}  ${c.id.padEnd(20)} ${lang}  ${String(Math.round(ms / 1000)).padStart(3)}s  ${verdict === true ? '' : verdict}`);
     }
