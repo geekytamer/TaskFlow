@@ -6,7 +6,7 @@
  * you, through the same permissions and approvals as your own clicks.
  */
 import * as React from 'react';
-import { Bot, Check, ChevronDown, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, FileText, History, Loader2, MessageSquarePlus, Paperclip, SendHorizontal, ThumbsDown, ThumbsUp, Trash2, TriangleAlert, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { RecordCards } from './record-cards';
 import {
   AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
-  listAssistantThreads, uploadAssistantFile,
+  listAssistantThreads, sendAssistantFeedback, uploadAssistantFile,
   type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
 
@@ -228,6 +228,27 @@ export function AssistantPage() {
             {item.text ? <ReplyText text={item.text} /> : null}
             {item.cards?.length ? <RecordCards cards={item.cards} tr={tr} language={language} /> : null}
             {item.actions.length ? <ActionGroup actions={item.actions} tr={tr} busy={Boolean(working)} onDecide={decide} /> : null}
+            {item.text && typeof item.ref === 'number' && thread ? (
+              <div className="-mt-1 flex gap-0.5 text-muted-foreground">
+                {([true, false] as const).map((helpful) => {
+                  const on = item.feedback === (helpful ? 'up' : 'down');
+                  const Icon = helpful ? ThumbsUp : ThumbsDown;
+                  return (
+                    <button
+                      key={String(helpful)}
+                      type="button"
+                      aria-label={helpful ? tr('Helpful', 'مفيد') : tr('Not right', 'غير صحيح')}
+                      aria-pressed={on}
+                      title={helpful ? tr('Helpful: remember how this was done', 'مفيد: تذكّر طريقة الإنجاز') : tr('Not right', 'غير صحيح')}
+                      className={cn('rounded p-1.5 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', on && 'text-primary')}
+                      onClick={async () => setThread(await sendAssistantFeedback(thread.id, item.ref!, helpful).catch(() => thread))}
+                    >
+                      <Icon className="h-3.5 w-3.5" fill={on ? 'currentColor' : 'none'} />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             {i === items.length - 1 && !working && item.suggestions?.length ? (
               <div className="flex flex-wrap gap-2" aria-label={tr('Suggested replies', 'ردود مقترحة')}>
                 {item.suggestions.map((sug) => (

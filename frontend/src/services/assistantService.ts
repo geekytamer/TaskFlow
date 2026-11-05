@@ -23,7 +23,7 @@ export interface AssistantCard {
   href?: string;
 }
 export interface AssistantFile { id: string; name: string; mimeType: string; sizeBytes: number }
-export interface AssistantItem { role: 'user' | 'assistant'; text: string; actions: AssistantAction[]; cards?: AssistantCard[]; suggestions?: string[]; files?: AssistantFile[] }
+export interface AssistantItem { role: 'user' | 'assistant'; ref?: number; feedback?: 'up' | 'down'; text: string; actions: AssistantAction[]; cards?: AssistantCard[]; suggestions?: string[]; files?: AssistantFile[] }
 export type AssistantStepKind = 'thinking' | 'search' | 'read' | 'prepare' | 'show' | 'run' | 'confirm';
 export interface AssistantStep { kind: AssistantStepKind; detail?: string }
 export interface AssistantThread { id: string; title: string; companyId: string; items: AssistantItem[]; pending: number; working?: boolean; error?: { status: number; message: string } | null }
@@ -72,6 +72,10 @@ export function assistantStatusOnce(): Promise<AssistantStatus> {
   });
   return statusCache;
 }
+
+/** 👍 keeps what worked as an example for the next similar request; 👎 removes it. */
+export const sendAssistantFeedback = (threadId: string, ref: number, helpful: boolean) =>
+  apiFetch<AssistantThread>(`/assistant/threads/${threadId}/feedback`, { method: 'POST', body: JSON.stringify({ ref, helpful }) });
 
 export const getAssistantProgress = (requestId: string) => apiFetch<{ step: AssistantStep | null }>(`/assistant/progress/${requestId}`);
 

@@ -1527,12 +1527,12 @@ test('examples: 👍 on a read answer saves it; admins list and delete; others c
   assert.equal(typeof answer.ref, 'number');
   const up = await s.as(s.admin.id).post(`/assistant/threads/${asked.body.id}/feedback`, { ref: answer.ref, helpful: true });
   assert.equal(up.body.items.at(-1).feedback, 'up');
-  const list = await s.as(s.admin.id).get('/assistant/examples?companyId=1');
+  const list = await s.as(s.admin.id).get('/companies/1/assistant/examples');
   assert.equal(list.status, 200);
   assert.equal(list.body.length, 1);
   assert.equal(list.body[0].kind, 'read');
   const employee = s.store.listUsers().find((u) => u.email === 'charlie.d@innovatecorp.com');
-  assert.equal((await s.as(employee.id).get('/assistant/examples?companyId=1')).status, 403);
+  assert.equal((await s.as(employee.id).get('/companies/1/assistant/examples')).status, 403);
   const del = await request(s.app).delete(`/assistant/examples/${list.body[0].id}`).set('Authorization', `Bearer ${s.store.issueToken(s.admin.id)}`);
   assert.equal(del.status, 204);
   assert.equal(s.store.listAssistantExamples('1').length, 0);
