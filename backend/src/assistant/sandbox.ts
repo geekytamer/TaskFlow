@@ -35,6 +35,8 @@ const quickjs = () => (modulePromise ??= newQuickJSWASMModuleFromVariant(variant
 /** What a run adds to the script's globals: constants (COMPANY_ID, ME, TODAY) and tf.<recipe>. */
 export interface SandboxExtras {
   globals?: Record<string, string>;
+  /** Constants holding JSON values (COMPANIES: the companies a whole-group conversation covers). */
+  json?: Record<string, unknown>;
   recipes?: string[];
 }
 
@@ -42,6 +44,7 @@ function extrasPrelude(extras: SandboxExtras): string {
   const lines = Object.entries(extras.globals ?? {})
     .filter(([k]) => /^[A-Z][A-Z_]*$/.test(k))
     .map(([k, v]) => `const ${k} = ${JSON.stringify(String(v))};`);
+  for (const [k, v] of Object.entries(extras.json ?? {})) if (/^[A-Z][A-Z_]*$/.test(k)) lines.push(`const ${k} = Object.freeze(${JSON.stringify(v ?? null)});`);
   const names = (extras.recipes ?? []).filter((n) => /^[a-zA-Z]+$/.test(n));
   lines.push(`const tf = Object.freeze({ ${names.map((n) => `${n}: (a) => __recipe(${JSON.stringify(n)}, a)`).join(', ')} });`);
   return lines.join('\n');

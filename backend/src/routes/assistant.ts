@@ -17,7 +17,8 @@ import { similarExamples } from '../assistant/examples';
 import { DEFAULT_ASSISTANT_SETTINGS, ASSISTANT_ROLES, mayUseAssistant, parseAssistantSettings, type AssistantSettings } from '../assistant/settings';
 import type { UserRole } from '../types';
 import { applyEdits, areaOf, changesOf, docTypeOf, fieldsOf, inverseOf, type Inverse, type Namer, type ReviewChange } from '../assistant/review';
-import { norm } from '../assistant/recipes/util';
+import { norm, pickOne, round } from '../assistant/recipes/util';
+import { childIds, subtreeIds } from '../companies/tree';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
 
@@ -144,6 +145,31 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   };
   const roleIn = (req: AuthedRequest, companyId: string): UserRole | undefined =>
     (req.user as { companyRoles?: Array<{ companyId: string; role: UserRole }> } | undefined)?.companyRoles?.find((r) => r.companyId === companyId)?.role ?? req.user?.role;
+  type Covered = { id: string; name: string; currency: string };
+  /**
+   * The companies a conversation covers: its company, or (whole group) the group
+   * company and every company under it that this person can open. A company they
+   * cannot open is never read, named or written to.
+   */
+  const coverageOf = (user: NonNullable<AuthedRequest['user']>, thread: Pick<AssistantThreadRow, 'companyId' | 'scope'>): Covered[] => {
+    let ids = [thread.companyId];
+    if (thread.scope === 'group') {
+      const reach = new Set(accessibleCompanyIds(user));
+      ids = subtreeIds(store.companyTreeNodes(), thread.companyId).filter((id) => id === thread.companyId || reach.has(id));
+    }
+    return ids.map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id, currency: store.getCompanyFinanceSettings(id).currencyCode }));
+  };
+  const isGroupCompany = (id: string) => childIds(store.companyTreeNodes(), id).length > 0;
+  /** The company a call names (its path, its companyId query, or its body), if any. */
+  const companyOfCall = (path: string, body: unknown): string | undefined => {
+    const inPath = /^\/companies\/([^/?]+)/.exec(path);
+    if (inPath) return decodeURIComponent(inPath[1]);
+    const inQuery = /[?&]companyId=([^&]+)/.exec(path);
+    if (inQuery) return decodeURIComponent(inQuery[1]);
+    const fromBody = body && typeof body === 'object' && !Array.isArray(body) ? (body as { companyId?: unknown }).companyId : undefined;
+    return typeof fromBody === 'string' ? fromBody : undefined;
+  };
+
   /** The company's settings decide whether this person may use the assistant there at all. */
   const requireAssistantFor = (req: AuthedRequest, companyId: string) => {
     if (!mayUseAssistant(settingsOf(companyId), roleIn(req, companyId), Boolean(req.user?.isSuperAdmin))) {
@@ -393,6 +419,17 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const token = tokenOf(req);
     const companyId = thread.companyId;
     const company = store.getCompanyById(companyId);
+    const group = thread.scope === 'group';
+    const covered = coverageOf(user, thread);
+    const coveredIds = new Set(covered.map((c) => c.id));
+    /** A call that names a company outside this conversation is refused (never naming it). */
+    const inConversation = (target: string | undefined) => {
+      if (target && !coveredIds.has(target)) {
+        throw new Error(group
+          ? 'That company is not part of this conversation: it is not among the companies of the group this person can open.'
+          : `That company is not part of this conversation, which is about ${company?.name ?? 'one company'}. To work there, ask the person to switch the assistant to that company.`);
+      }
+    };
     const proposed: string[] = [];
     let lastOkCode: string | undefined;
     let proposingCode: string | undefined;
@@ -408,10 +445,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const lang = /[\u0600-\u06FF]/.test(request) ? 'ar' as const : 'en' as const;
     // Reads a recipe makes are its own business: the model gets the recipe's return, not "GET … → shape" notes.
     let recipeDepth = 0;
-    const recipeContext = (host: SandboxHost): RecipeContext => ({
-      companyId, userId: user.id, today, currency: lookups.currency, lang,
+    const recipeContext = (host: SandboxHost, cid = companyId, prefix?: string): RecipeContext => ({
+      companyId: cid, userId: user.id, today, currency: store.getCompanyFinanceSettings(cid).currencyCode, lang,
       get: <T>(path: string) => host.call('GET', path, undefined, undefined) as Promise<T>,
-      propose: (method, path, body, summary) => host.call(method, path, body, summary),
+      // In the whole group the card says which company a change is for.
+      propose: (method, path, body, summary) => host.call(method, path, body, prefix ? `${prefix} — ${summary}` : summary),
       names: { user: lookups.userName, client: lookups.clientName, project: lookups.projectName },
     });
     const remember = (kind: string, value: unknown) => {
@@ -420,6 +458,52 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       };
       if (Array.isArray(value)) value.slice(0, 2000).forEach(add);
       else add(value);
+    };
+
+    /**
+     * A helper over the whole group. A change runs in the one company it names
+     * (`company`); a read runs in each covered company (or the one named), each
+     * through the API as the person: lists merge with a `company` on every row,
+     * summaries come per company with totals per currency (never mixed).
+     */
+    const runAcrossGroup = async (recipe: (typeof RECIPES)[number], body: unknown, host: SandboxHost): Promise<unknown> => {
+      const args = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : undefined;
+      const { company: named, ...rest } = args ?? {};
+      if (recipe.changes) {
+        if (named === undefined || named === null || named === '') {
+          throw new Error(`This conversation covers the whole group: say which company the change is for, e.g. tf.${recipe.name}({ company: '${(covered[1] ?? covered[0]).name}', ... }). Companies: ${covered.map((c) => c.name).join(', ')}. If the person did not say, ask them.`);
+        }
+        const target = pickOne(covered, named, (c) => c.name, 'company');
+        recipeDepth += 1;
+        try { return await recipe.run(recipeContext(host, target.id, target.name), rest); } finally { recipeDepth -= 1; }
+      }
+      const scope = named !== undefined ? [pickOne(covered, named, (c) => c.name, 'company')] : covered;
+      recipeDepth += 1;
+      let results: Array<{ c: Covered; value?: unknown; error?: string }>;
+      try {
+        results = await Promise.all(scope.map(async (c) => {
+          try { return { c, value: await recipe.run(recipeContext(host, c.id), args ? rest : body) }; } catch (err) { return { c, error: err instanceof Error ? err.message : String(err) }; }
+        }));
+      } finally { recipeDepth -= 1; }
+      const ok = results.filter((r) => r.error === undefined);
+      const refused = results.filter((r) => r.error !== undefined && /\b403\b|permission/i.test(r.error));
+      const failed = results.filter((r) => r.error !== undefined && !refused.includes(r));
+      if (!ok.length) throw new Error(failed[0]?.error ?? refused[0]?.error ?? 'no company answered');
+      if (refused.length) reads.push(`Not allowed for this person in: ${refused.map((r) => r.c.name).join(', ')} (left out of the answer).`);
+      if (failed.length) reads.push(`In ${failed.map((r) => `${r.c.name}: ${r.error}`).join('; ')}`);
+      if (ok.every((r) => Array.isArray(r.value))) {
+        return ok.flatMap((r) => (r.value as unknown[]).map((row) => (row && typeof row === 'object' ? { ...(row as object), company: r.c.name } : row)));
+      }
+      const companies = ok.map((r) => (r.value && typeof r.value === 'object' && !Array.isArray(r.value)
+        ? { company: r.c.name, currency: r.c.currency, ...(r.value as object) }
+        : { company: r.c.name, value: r.value })) as Array<Record<string, unknown>>;
+      const totalsByCurrency: Record<string, Record<string, number>> = {};
+      for (const c of companies) {
+        if (typeof c.currency !== 'string') continue;
+        const totals = (totalsByCurrency[c.currency] ??= {});
+        for (const [k, v] of Object.entries(c)) if (typeof v === 'number') totals[k] = round((totals[k] ?? 0) + v);
+      }
+      return { companies, totalsByCurrency };
     };
 
     const tools = {
@@ -441,6 +525,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         const host: SandboxHost = {
         call: async (method, path, body, summary) => {
           if (method === 'DOC') {
+            if (group) throw new Error('Documents are made in one company: ask the person to switch the assistant to that company.');
             // makeDocument(templateName, fields, summary): the template by name, blanks by key or label.
             const { template: wantedName, fields } = (body ?? {}) as { template?: unknown; fields?: unknown };
             const templates = await callApi(token, 'GET', `/companies/${encodeURIComponent(companyId)}/document-templates`, undefined) as Array<{ id: string; name: string; manualFields?: Array<{ key: string; label: string }> }>;
@@ -465,10 +550,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             if (!recipe) throw new Error(`tf.${path} does not exist; there are: ${RECIPES.map((r) => r.name).join(', ')}`);
             if (body && typeof body === 'object' && !Array.isArray(body)) {
               // 'summary' is the raw-change habit: harmless, recipes write their own.
-              const unknown = Object.keys(body).filter((k) => k !== 'summary' && !recipe.params.includes(k));
+              const unknown = Object.keys(body).filter((k) => k !== 'summary' && !(group && k === 'company') && !recipe.params.includes(k));
               if (unknown.length) throw new Error(`tf.${recipe.name} does not take ${unknown.map((k) => `"${k}"`).join(', ')}; it takes: ${recipe.params.join(', ') || 'nothing'}`);
             }
             step({ kind: recipe.changes ? 'prepare' : 'read', detail: recipe.name });
+            if (group) return runAcrossGroup(recipe, body, host);
             recipeDepth += 1;
             try { return await recipe.run(recipeContext(host), body); } finally { recipeDepth -= 1; }
           }
@@ -476,8 +562,14 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           if (method === 'LOOKUP') {
             // Any record by name or number, through global search (which applies the person's permissions).
             step({ kind: 'search', detail: path.slice(0, 60) });
-            const groups = await callApi(token, 'GET', `/companies/${encodeURIComponent(companyId)}/search?q=${encodeURIComponent(path.slice(0, 100))}`, undefined) as Array<{ type: string; items: Array<{ id: string; title: string; subtitle?: string }> }>;
-            const found = (groups ?? []).flatMap((g) => g.items.map((i) => ({ kind: LOOKUP_KIND[g.type] ?? kindOfPath(`/${g.type}`), id: i.id, title: i.title, ...(i.subtitle ? { subtitle: i.subtitle } : {}) })));
+            // In the whole group, each company the person can open is searched; every hit says its company.
+            const searched = await Promise.all(covered.map(async (c) => ({
+              c,
+              groups: await callApi(token, 'GET', `/companies/${encodeURIComponent(c.id)}/search?q=${encodeURIComponent(path.slice(0, 100))}`, undefined).catch(() => []) as Array<{ type: string; items: Array<{ id: string; title: string; subtitle?: string }> }>,
+            })));
+            const found = searched.flatMap(({ c, groups }) => (groups ?? []).flatMap((g) => g.items.map((i) => ({
+              kind: LOOKUP_KIND[g.type] ?? kindOfPath(`/${g.type}`), id: i.id, title: i.title, ...(i.subtitle ? { subtitle: i.subtitle } : {}), ...(group ? { company: c.name } : {}),
+            }))));
             // Document templates by name too, with their blanks: what a letter or certificate needs.
             const words = path.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
             const templates = await callApi(token, 'GET', `/companies/${encodeURIComponent(companyId)}/document-templates`, undefined).catch(() => []) as Array<{ id: string; name: string; type?: string; dataSource?: string; manualFields?: Array<{ key: string; label: string }> }>;
@@ -506,6 +598,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             return { shown, note: shown ? 'shown to the person as cards; do not list them again in your answer' : 'nothing shown: pass records that have an id' };
           }
           if (method !== 'GET') path = soundPath(path);
+          inConversation(companyOfCall(path, method === 'GET' ? undefined : body));
           const op = matchOp(ops, method, path);
           if (!op) throw new Error(`${method} ${path.split('?')[0]} is not a TaskFlow endpoint you can use; find one with findApi('words')`);
           if (method === 'GET') {
@@ -527,9 +620,15 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           if (op.method === 'POST' && op.path === '/companies/:companyId/documents') checkDocument(body, companyId);
           step({ kind: 'prepare', detail: (summary ?? '').slice(0, 80) });
           if (!open) throw new Error('the script has already ended');
+          // The company the change lands in: its settings apply, and it must be one of this conversation's.
+          let target = companyOfCall(path, body) ?? companyId;
+          const targetSettings = target === companyId ? settings : settingsOf(target);
+          if (target !== companyId && !mayUseAssistant(targetSettings, roleIn(req, target), Boolean(user.isSuperAdmin))) {
+            throw new Error(`The assistant is turned off for this person in ${store.getCompanyById(target)?.name ?? 'that company'}; they can make the change in TaskFlow itself.`);
+          }
           const area = areaOf(op);
-          if (settings.changeAreas && !settings.changeAreas.includes(area)) throw new Error(`Changes to ${area} through the assistant are turned off in this company; the person can do it in TaskFlow itself.`);
-          const most = Math.min(settings.maxChanges, MAX_WRITES_PER_RUN);
+          if (targetSettings.changeAreas && !targetSettings.changeAreas.includes(area)) throw new Error(`Changes to ${area} through the assistant are turned off in this company; the person can do it in TaskFlow itself.`);
+          const most = Math.min(targetSettings.maxChanges, MAX_WRITES_PER_RUN);
           if (proposed.length >= most) throw new Error(`at most ${most} changes at once`);
           // What the change touches, read now as the person: the card shows before → after, a delete shows what goes.
           let before: Record<string, unknown> | null = null;
@@ -539,15 +638,17 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
               if (read && typeof read === 'object' && !Array.isArray(read)) before = read as Record<string, unknown>;
             } catch { /* no snapshot: the card shows the fields only */ }
           }
+          // A record of another company, edited or deleted from here: refused like a named one.
+          if (before && typeof before.companyId === 'string') { inConversation(before.companyId); target = before.companyId; }
           const action = store.createAssistantAction({
-            threadId: thread.id, userId: user.id, companyId, method, path, body,
+            threadId: thread.id, userId: user.id, companyId: target, method, path, body,
             summary: (summary ?? `${method} ${path}`).slice(0, 300), before, area,
           });
           proposed.push(action.id);
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
         },
         };
-        const outcome = await runInSandbox(withImplicitReturn(code), host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
+        const outcome = await runInSandbox(withImplicitReturn(code), host, undefined, { globals: { COMPANY_ID: companyId, ME: user.id, TODAY: today }, json: { COMPANIES: covered }, recipes: RECIPES.map((r) => r.name) }).finally(() => { open = false; });
         if (outcome.ok) {
           lastOkCode = code;
           if (proposed.length > before) proposingCode = code;
@@ -588,6 +689,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       areas: [...new Set(ops.filter((op) => op.method === 'GET' && op.permission.includes('.') && allowedOp(req, companyId, op)).map((op) => op.permission.split('.')[0]))].sort(),
       files: (thread.messages as StoredMessage[]).flatMap((m) => m.ui?.files ?? []),
       ...(lastAsked?.ui?.context ? { onScreen: lastAsked.ui.context } : {}),
+      ...(group ? { group: { name: company?.name ?? companyId, companies: covered } } : {}),
       examples,
     }, mode);
     let outcome;
@@ -738,7 +840,10 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       const companyId = requiredString(body.companyId, 'companyId');
       requireCompanyAccess(req, companyId);
       requireAssistantFor(req, companyId);
-      thread = store.createAssistantThread({ userId: req.user!.id, companyId, title: message.replace(/\s+/g, ' ').slice(0, 80) });
+      // 'group': the whole group under this company (the companies under it this person can open).
+      const scope = body.scope === 'group' ? 'group' as const : 'company' as const;
+      if (scope === 'group' && !isGroupCompany(companyId)) throw new HttpError(400, 'This company is not a group: there are no companies under it.');
+      thread = store.createAssistantThread({ userId: req.user!.id, companyId, scope, title: message.replace(/\s+/g, ' ').slice(0, 80) });
     }
     requireCompanyAccess(req, thread.companyId);
     requireAssistantFor(req, thread.companyId);

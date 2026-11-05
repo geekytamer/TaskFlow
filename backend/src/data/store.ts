@@ -5914,6 +5914,13 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Wave 4: a conversation over a whole group (the companies under it the person can open).
+        id: '165_assistant_scope',
+        run: () => {
+          this.db.exec(`ALTER TABLE assistant_threads ADD COLUMN scope TEXT NOT NULL DEFAULT 'company';`);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6702,11 +6709,11 @@ export class DataStore {
   }
 
   // ─── assistant ─────────────────────────────────────────────────────────────
-  createAssistantThread(input: { userId: string; companyId: string; title: string }): AssistantThreadRow {
+  createAssistantThread(input: { userId: string; companyId: string; title: string; scope?: 'company' | 'group' }): AssistantThreadRow {
     const now = new Date().toISOString();
-    const row: AssistantThreadRow = { id: uuid(), userId: input.userId, companyId: input.companyId, title: input.title.slice(0, 120), messages: [], createdAt: now, updatedAt: now };
-    this.db.prepare('INSERT INTO assistant_threads (id, userId, companyId, title, messages, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(row.id, row.userId, row.companyId, row.title, '[]', now, now);
+    const row: AssistantThreadRow = { id: uuid(), userId: input.userId, companyId: input.companyId, scope: input.scope ?? 'company', title: input.title.slice(0, 120), messages: [], createdAt: now, updatedAt: now };
+    this.db.prepare('INSERT INTO assistant_threads (id, userId, companyId, title, messages, createdAt, updatedAt, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.userId, row.companyId, row.title, '[]', now, now, row.scope);
     return row;
   }
 
@@ -6716,7 +6723,7 @@ export class DataStore {
   }
 
   listAssistantThreads(userId: string, limit = 30): Array<Omit<AssistantThreadRow, 'messages'>> {
-    return this.db.prepare('SELECT id, userId, companyId, title, createdAt, updatedAt FROM assistant_threads WHERE userId = ? ORDER BY updatedAt DESC LIMIT ?')
+    return this.db.prepare('SELECT id, userId, companyId, scope, title, createdAt, updatedAt FROM assistant_threads WHERE userId = ? ORDER BY updatedAt DESC LIMIT ?')
       .all(userId, limit) as Array<Omit<AssistantThreadRow, 'messages'>>;
   }
 
@@ -25445,6 +25452,8 @@ export interface AssistantThreadRow {
   id: string;
   userId: string;
   companyId: string;
+  /** 'group': the whole group under companyId (the companies the person can open); 'company': that company only. */
+  scope: 'company' | 'group';
   title: string;
   messages: unknown[];
   createdAt: string;

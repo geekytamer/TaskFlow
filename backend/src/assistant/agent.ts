@@ -40,6 +40,8 @@ export interface AgentContext {
   files?: Array<{ id: string; name: string; mimeType: string }>;
   /** Similar requests that worked before in this company (learned examples). */
   examples?: Array<{ request: string; code: string }>;
+  /** A whole-group conversation: the group and the companies under it this person can open. */
+  group?: { name: string; companies: Array<{ id: string; name: string; currency: string }> };
   /** What was on the person's screen when they asked (checked and flattened by the route). */
   onScreen?: { path?: string; subject?: { kind: string; id: string; title: string } };
 }
@@ -100,6 +102,7 @@ export function staticPrompt(mode: AgentMode = 'text'): string {
 function contextPrompt(c: AgentContext): string {
   return [
     `You act for ${c.userName} (ME = ${c.userId}). Today is ${c.today} (TODAY). The current company is "${c.company.name}" (COMPANY_ID = ${c.company.id}, currency ${c.company.currency}). Their other companies: ${c.companies.filter((x) => x.id !== c.company.id).map((x) => `${x.name} (${x.id})`).join(', ') || 'none'}.`,
+    ...(c.group ? [`This conversation covers the WHOLE GROUP "${c.group.name}": ${c.group.companies.map((x) => `${x.name} (id ${x.id}, ${x.currency})`).join('; ')} (also in the constant COMPANIES). Reading helpers cover all of them and add "company" to each row; summaries come per company with totalsByCurrency: never add up different currencies. Pass { company: 'name' } to read one company only. Every change needs { company: 'name' }: if the person did not say which company, ask them. With raw endpoints, loop over COMPANIES and use each id in the path.`] : []),
     ...(c.areas?.length ? [`Areas they can use here: ${c.areas.join(', ')}. For anything else, say they do not have access.`] : []),
     ...(c.files?.length ? [`Files they attached (use the fileId; the server adds the file itself): ${c.files.map((f) => `"${f.name}" ${f.mimeType} fileId ${f.id}`).join('; ')}. To file one on a record: const [t] = await lookup('record name'); then api.post('/companies/' + COMPANY_ID + '/records/' + t.kind.replace('-', '_') + '/' + t.id + '/attachments', { fileId, note }, summary) (kind singular: task, contact, invoice...). An endpoint field that takes an image (logo, letterhead, photo) takes "file:<fileId>".`] : []),
     ...(c.onScreen?.subject
