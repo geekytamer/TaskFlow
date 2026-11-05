@@ -185,7 +185,7 @@ test('eval round 2: leave cards are named, typos in names still match, a payment
   assert.throws(() => pickOne(people, 'zzz', (p) => p.name, 'person'), /no person matches/);
 
   const { run } = setup();
-  const miss = await run("return await tf.recordPayment({ invoice: 'النور للأغذية', amount: 450 });");
+  const miss = await run("return await tf.recordPayment({ invoice: 'شركة الأمل', amount: 450 });");
   assert.match(miss.error, /no unpaid invoice matches[\s\S]*Al Noor Foods/, 'the error lists the unpaid invoices so the model can pick');
 
   const misuse = await runInSandbox("return await findApi('contacts', { name: 'Ahmed' });", { call: async () => [] });
@@ -203,4 +203,22 @@ test('recipes refuse options they do not take; myTasks filters by project (every
   assert.equal(byName.result, inProject.result.length);
   const none = await run("return await tf.myTasks({ project: 'No such project' });");
   assert.match(none.error, /no project matches/);
+});
+
+test('names typed in Arabic find records stored in English (and the other way round), only when one matches', async () => {
+  const { sameName } = require('../dist/assistant/recipes/util');
+  assert.equal(sameName('النور للأغذية', 'Al Noor Foods'), true);
+  assert.equal(sameName('أحمد البلوشي', 'Ahmed Al Balushi'), true);
+  assert.equal(sameName('مسقط باي', 'Muscat Bay Trading'), true);
+  assert.equal(sameName('Ahmed', 'أحمد البلوشي'), true);
+  assert.equal(sameName('النور', 'Desert Rose Hotel'), false);
+  assert.equal(sameName('Muscat', 'Muscat Bay Trading'), false, 'same script is the ordinary match, not this one');
+
+  const { run, fx } = setup();
+  const pay = await run("return await tf.recordPayment({ invoice: 'النور للأغذية', amount: 450 });");
+  assert.equal(pay.proposals[0]?.path, `/invoices/${fx.invoices.alNoorOverdue.id}/payments`, JSON.stringify(pay.error));
+  const contact = await run("return (await tf.findContact('أحمد البلوشي')).map((c) => c.name);");
+  assert.deepEqual(contact.result, ['Ahmed Al Balushi']);
+  const owed = await run("return (await tf.invoices({ client: 'صحراء' })).length;");
+  assert.equal(owed.result, 0, 'a word that only translates (desert) is not a match');
 });

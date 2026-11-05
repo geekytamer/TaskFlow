@@ -62,6 +62,10 @@ export function pickOne<T extends { id: string }>(rows: T[], ref: unknown, label
     // A typo or a transliteration a letter or two off ("samatha"): the one close label, if only one is close.
     const close = rows.filter((r) => closeTo(want, norm(label(r))));
     if (close.length === 1) return close[0];
+    // Typed in Arabic, stored in English (or the other way round).
+    const across = rows.filter((r) => sameName(String(ref), label(r)));
+    if (across.length === 1) return across[0];
+    if (across.length > 1) throw new Error(`several ${kind}s match "${String(ref)}": ${across.slice(0, 8).map((r) => `${label(r)} (id ${r.id})`).join('; ')}. Ask the person which one, or pass the id.`);
   }
   if (partial.length > 1) throw new Error(`several ${kind}s match "${String(ref)}": ${partial.slice(0, 8).map((r) => `${label(r)} (id ${r.id})`).join('; ')}. Ask the person which one, or pass the id.`);
   throw new Error(`no ${kind} matches "${String(ref)}"${rows.length ? `; some there are: ${rows.slice(0, 8).map(label).join('; ')}` : ''}`);
@@ -92,6 +96,40 @@ function closeTo(want: string, label: string): boolean {
     if (distance(want, words.slice(i, i + size).join(' ')) <= allowed) return true;
   }
   return distance(want, label) <= allowed;
+}
+
+const AR_LATIN: Record<string, string> = {
+  ا: 'a', أ: 'a', إ: 'a', آ: 'a', ب: 'b', ت: 't', ث: 'th', ج: 'j', ح: 'h', خ: 'kh', د: 'd', ذ: 'dh', ر: 'r', ز: 'z', س: 's', ش: 'sh',
+  ص: 's', ض: 'd', ط: 't', ظ: 'z', ع: '', غ: 'gh', ف: 'f', ق: 'q', ك: 'k', ل: 'l', م: 'm', ن: 'n', ه: 'h', ة: '', و: 'w', ي: 'y',
+  ى: 'a', ء: '', ئ: '', ؤ: '',
+};
+const ARABIC = /[\u0600-\u06FF]/;
+const FILLER = new Set(['al', 'el', 'the', 'and', 'co', 'llc', 'شركه', 'مؤسسه']);
+
+/** A word's consonant outline, the same for "نور" and "Noor": in Latin letters, vowels (and w, y) dropped, close sounds merged. */
+function outline(word: string): string {
+  const latin = ARABIC.test(word) ? [...word].map((c) => AR_LATIN[c] ?? '').join('') : word.toLowerCase();
+  return latin.replace(/[^a-z]/g, '').replace(/q|c(?!h)/g, 'k').replace(/ph/g, 'f').replace(/[aeiouwy]/g, '').replace(/(.)\1+/g, '$1');
+}
+
+function outlines(text: string): string[] {
+  const arabic = ARABIC.test(text);
+  return norm(text).split(/[\s\-_.,/]+/)
+    .map((w) => (arabic ? w.replace(/^(وال|بال|لل|ال)/, '') : w))
+    .filter((w) => w && !FILLER.has(w))
+    .map(outline)
+    .filter((o) => o.length >= 2);
+}
+
+/**
+ * A name typed in one script naming a record stored in the other ("النور للأغذية"
+ * → "Al Noor Foods", "أحمد البلوشي" → "Ahmed Al Balushi"): some word sounds the same.
+ * Same-script names are the ordinary match's job; this one says false for them.
+ */
+export function sameName(typed: string, stored: string): boolean {
+  if (!typed || !stored || ARABIC.test(typed) === ARABIC.test(stored)) return false;
+  const typedOutlines = new Set(outlines(typed));
+  return outlines(stored).some((o) => typedOutlines.has(o));
 }
 
 /** A company path: co(ctx, '/invoices') → /companies/<id>/invoices. */

@@ -1,5 +1,5 @@
 import type { Recipe } from './types';
-import { argsOf, co, dateArg, dayOf, norm, oneOf, say } from './util';
+import { argsOf, co, dateArg, dayOf, norm, oneOf, sameName, say } from './util';
 
 interface ItemRow { id: string; name: string; sku: string; unit: string; onHand: number; reorderPoint: number; tracksInventory: boolean; location?: string }
 interface ContactRow { id: string; name: string; legalName?: string; contactPerson?: string; kind: string; phone?: string; email?: string; roles?: string[] }
@@ -64,6 +64,7 @@ export const findContact: Recipe = {
     const wantDigits = digits(want);
     return (await ctx.get<ContactRow[]>(co(ctx, '/contacts')))
       .filter((c) => [c.name, c.legalName, c.contactPerson, c.email].some((f) => f && norm(f).includes(want))
+        || [c.name, c.legalName, c.contactPerson].some((f) => f && sameName(String(a.text ?? a.name ?? a.query), f))
         || (wantDigits.length >= 6 && digits(c.phone).includes(wantDigits)))
       .slice(0, 10)
       .map((c) => ({ id: c.id, name: c.name, kind: c.kind, ...(c.phone ? { phone: c.phone } : {}), ...(c.email ? { email: c.email } : {}), roles: c.roles ?? [] }));

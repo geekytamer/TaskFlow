@@ -1,5 +1,5 @@
 import type { Recipe, RecipeContext } from './types';
-import { argsOf, co, dateArg, dayOf, norm, round, say } from './util';
+import { argsOf, co, dateArg, dayOf, norm, round, sameName, say } from './util';
 
 interface InvoiceRow { id: string; invoiceNumber: string; clientId: string; status: string; total: number; outstandingAmount?: number; currency?: string; exchangeRate?: number; issueDate?: string; dueDate?: string }
 
@@ -34,10 +34,11 @@ export const invoices: Recipe = {
     const textIsStatus = typeof a.text === 'string' && (STATUS_WORDS as readonly string[]).includes(norm(a.text));
     const status = String(a.status ?? (textIsStatus ? norm(a.text) : 'unpaid'));
     if (!(STATUS_WORDS as readonly string[]).includes(status)) throw new Error(`status must be one of ${STATUS_WORDS.join('|')}`);
-    const client = norm(a.client ?? (textIsStatus ? '' : a.text));
+    const clientRaw = String(a.client ?? (textIsStatus ? '' : a.text ?? ''));
+    const client = norm(clientRaw);
     return (await listInvoices(ctx))
       .map((i) => rowOf(ctx, i))
-      .filter((r) => !client || norm(r.client).includes(client))
+      .filter((r) => !client || norm(r.client).includes(client) || sameName(clientRaw, r.client))
       .filter((r) => status === 'all' || (status === 'unpaid' ? r.outstanding > 0 : status === 'overdue' ? r.overdue : status === 'paid' ? r.status === 'Paid' : r.status === 'Draft'))
       .sort((x, y) => (x.dueDate ?? '').localeCompare(y.dueDate ?? ''))
       .map(({ outstandingBase: _b, ...r }) => r);
@@ -109,7 +110,7 @@ export const recordPayment: Recipe = {
     if (!want) throw new Error('say which invoice: its number, or the client');
     let target = unpaid.find((r) => r.id === String(ref) || norm(r.invoiceNumber) === want);
     if (!target) {
-      const ofClient = unpaid.filter((r) => norm(r.client).includes(want));
+      const ofClient = unpaid.filter((r) => norm(r.client).includes(want) || sameName(String(ref), r.client));
       const sameAmount = amountArg !== undefined ? ofClient.filter((r) => Math.abs(r.outstanding - amountArg) < 0.001) : [];
       target = ofClient.length === 1 ? ofClient[0] : sameAmount.length === 1 ? sameAmount[0] : undefined;
       if (!target) {
