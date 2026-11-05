@@ -7,7 +7,7 @@ import type { RouteContext } from './context';
 import { handler, type AuthedRequest } from './shared';
 import { assistantOps, describeOp, matchOp, searchOps, type AssistantOp } from '../assistant/catalogue';
 import { runInSandbox, type SandboxHost } from '../assistant/sandbox';
-import { runAgent, systemPrompt, toolText, cleanReply, type AgentMode } from '../assistant/agent';
+import { runAgent, systemPrompt, toolText, cleanReply, mentionsDocuments, type AgentMode } from '../assistant/agent';
 import { modelConfigFromEnv, openAiChat, ModelUnavailableError, type ChatFn, type ChatMessage } from '../assistant/model';
 import { ROUTES } from '../authz/route-registry';
 import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assistant/hints';
@@ -397,6 +397,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     let lastOkCode: string | undefined;
     let proposingCode: string | undefined;
     let reads: string[] = [];
+    // Notes recipes leave for the model (readDocument's text), checked against what the script returned.
+    let recipeNotes: Array<{ text: string; unlessReturned?: string }> = [];
     // Every record read this turn, by id, with its kind: show() needs only ids.
     const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
     const cards: AssistantCard[] = [];
@@ -413,6 +415,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       get: <T>(path: string) => host.call('GET', path, undefined, undefined) as Promise<T>,
       propose: (method, path, body, summary) => host.call(method, path, body, summary),
       names: { user: lookups.userName, client: lookups.clientName, project: lookups.projectName },
+      note: (text: string, unlessReturned?: string) => { if (recipeNotes.length < 4) recipeNotes.push({ text, unlessReturned }); },
     });
     const remember = (kind: string, value: unknown) => {
       const add = (r: unknown) => {
@@ -432,6 +435,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       },
       run: async (code: string) => {
         reads = [];
+        recipeNotes = [];
         step({ kind: 'run' });
         const before = proposed.length;
         const cardsBefore = cards.length;
@@ -566,6 +570,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         }
         // What the model needs for its next step: the real field names, and that changes are not done.
         const notes: string[] = [...reads];
+        const returned = outcome.ok ? JSON.stringify(outcome.value ?? '') : '';
+        for (const n of recipeNotes) {
+          const probe = n.unlessReturned?.slice(0, 200);
+          if (!probe || !returned.includes(JSON.stringify(probe).slice(1, -1))) notes.push(n.text);
+        }
         if (outcome.ok && (outcome.value === null || outcome.value === undefined)) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
         if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);
         const fresh = proposed.slice(before).map((id) => store.getAssistantAction(id)?.summary).filter(Boolean);
@@ -588,6 +597,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       files: (thread.messages as StoredMessage[]).flatMap((m) => m.ui?.files ?? []),
       ...(lastAsked?.ui?.context ? { onScreen: lastAsked.ui.context } : {}),
       examples,
+      aboutDocuments: mentionsDocuments(request),
     }, mode);
     let outcome;
     try {

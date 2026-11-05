@@ -31,6 +31,7 @@ function setup() {
     const parsed = JSON.parse(resultMsg.content.replace(/^Result of your code:\n/, ''));
     return { ...parsed, proposals: store.listAssistantActions(res.body.id), view: res.body };
   };
+  run.app = app;
   return { store, fx, run };
 }
 
@@ -166,6 +167,50 @@ test('createContact proposes with roles checked; pendingApprovals reads the pers
   assert.match(bad.error, /roles must be/);
   const approvals = await run('return await tf.pendingApprovals();');
   assert.deepEqual(approvals.result, []);
+});
+
+test('findDocuments and readDocument: words inside a file find it; the text comes back in pages; employees get nothing', async () => {
+  const { run, fx, store } = setup();
+  const app = run.app;
+  const contact = store.createContact({ companyId: '1', kind: 'Organization', name: 'Blue Dune Trading', roles: ['Client'] });
+  const body = `اتفاقية تقديم خدمات\nThe second party pays 1,200 OMR per month for social media management.\n${'Clause. '.repeat(3000)}`;
+  const auth = ['Authorization', `Bearer ${store.issueToken(fx.admin.id)}`];
+  const up = await request(app).post(`/companies/1/records/contact/${contact.id}/attachments`).set(...auth)
+    .send({ fileName: 'Service agreement.txt', mimeType: 'text/plain', contentBase64: Buffer.from(body).toString('base64') });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  // Read once so the words are indexed before the script searches (the upload queues it in the background).
+  assert.equal((await request(app).get(`/record-attachments/${up.body.id}/text`).set(...auth)).status, 200);
+
+  const found = await run("const [d] = await tf.findDocuments({ text: 'social media management' }); return d;");
+  assert.equal(found.result.name, 'Service agreement.txt', JSON.stringify(found));
+  assert.equal(found.result.from, 'Blue Dune Trading');
+  assert.equal(found.result.kind, 'attachment');
+  assert.equal(found.result.link, `/contacts/${contact.id}`);
+  assert.match(found.result.snippet, /social media management/);
+
+  const page = await run(`const p = await tf.readDocument({ id: '${up.body.id}', kind: 'attachment' }); return { start: p.text.slice(0, 19), more: p.more, next: p.next };`);
+  assert.equal(page.result.start, 'اتفاقية تقديم خدمات');
+  assert.equal(page.result.more, true);
+  const rest = await run(`const p = await tf.readDocument({ id: '${up.body.id}', from: ${page.result.next} }); return p.text.slice(0, 7);`);
+  assert.equal(rest.result, body.trim().slice(page.result.next, page.result.next + 7), 'kind may be left out; the next page starts exactly where the first stopped');
+
+  // A word that isn't in the file (small models add one) still finds it; the found item is passed straight to readDocument.
+  const sloppy = await run("const [d] = await tf.findDocuments('lease social media'); return (await tf.readDocument(d)).text.slice(0, 19);");
+  assert.equal(sloppy.result, 'اتفاقية تقديم خدمات', JSON.stringify(sloppy));
+  // A script that filters the text away with a phrase that isn't there still shows the model the text.
+  const filtered = await run("const [d] = await tf.findDocuments('social media'); const p = await tf.readDocument(d); return p.text.includes('monthly fee') ? 'x' : 'not found';");
+  assert.equal(filtered.result, 'not found');
+  assert.ok((filtered.logs ?? []).some((l) => l.startsWith('Text of "Service agreement.txt"') && l.includes('1,200 OMR per month')), JSON.stringify(filtered.logs));
+  const returnedText = await run("const [d] = await tf.findDocuments('social media'); return (await tf.readDocument(d)).text;");
+  assert.ok(!(returnedText.logs ?? []).some((l) => l.startsWith('Text of')), 'not repeated when the script returned the text');
+  const wrongFolder = await run("return (await tf.findDocuments({ text: 'social media', folder: 'Leases' })).length;");
+  assert.equal(wrongFolder.result, 1, 'an invented folder does not hide the file');
+  const arabic = await run("return (await tf.findDocuments('خدمات')).map((d) => d.name);");
+  assert.deepEqual(arabic.result, ['Service agreement.txt']);
+  const employee = await run("return await tf.findDocuments({ text: 'social media' });", fx.charlie.id);
+  assert.match(String(employee.error), /403/);
+  const none = await run('return await tf.readDocument({});');
+  assert.match(String(none.error), /findDocuments/);
 });
 
 test('recipes keep the person\'s permissions: an employee cannot read invoices through them', async () => {

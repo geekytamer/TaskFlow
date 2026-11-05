@@ -88,6 +88,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/documents': { module: 'documents', action: 'read' },
   'GET /documents/:id': { module: 'documents', action: 'read' },
   'GET /documents/:id/pdf': { module: 'documents', action: 'read' },
+  'GET /documents/:id/text': { module: 'documents', action: 'read' },
+  'GET /record-attachments/:id/text': { module: 'documents', action: 'read' },
   'GET /companies/:companyId/records/:entityType/:entityId/attachments': { module: 'documents', action: 'read' },
   'GET /record-attachments/:id/content': { module: 'documents', action: 'read' },
   'GET /companies/:companyId/library': { module: 'documents', action: 'read' },

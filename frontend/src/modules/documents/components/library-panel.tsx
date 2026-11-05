@@ -175,7 +175,7 @@ export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } =
           <Input
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder={tr('Search by file, client, project or folder', 'ابحث باسم الملف أو العميل أو المشروع أو المجلد')}
+            placeholder={tr('Search by name, client, folder or words inside the file', 'ابحث بالاسم أو العميل أو المجلد أو كلمات داخل الملف')}
             className="ps-9"
             aria-label={tr('Search the library', 'البحث في المكتبة')}
             dir="auto"
@@ -258,6 +258,9 @@ export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } =
                       <FileIcon item={item} />
                       <bdi className="truncate">{item.name}</bdi>
                     </button>
+                    {item.snippet && (
+                      <p className="mt-1 max-w-[28rem] text-xs leading-relaxed text-muted-foreground" dir="auto">{item.snippet}</p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-muted-foreground">{sourceLabel(item)}</div>
