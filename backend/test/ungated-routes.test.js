@@ -90,6 +90,7 @@ const KNOWN_UNGATED = new Set([
     'DELETE /assistant/threads/:id',
     'GET /assistant/files/:id',
     'GET /assistant/progress/:requestId',
+    'GET /assistant/stream/:requestId', // only the person who made the request can open its stream
 ]);
 
 test('no route is ungated by accident', () => {

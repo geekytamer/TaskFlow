@@ -37,11 +37,31 @@ export interface AssistantOptions {
 
 /** A stored message: the model's own shape plus what the chat screen needs. */
 type FileRef = { id: string; name: string; mimeType: string; sizeBytes: number };
+type ScreenContext = { path?: string; subject?: { kind: string; id: string; title: string } };
+
+/** The page and record the person has open, from the chat request: checked, single-line, short; anything else is dropped. */
+export function screenContextOf(raw: unknown): ScreenContext | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const flat = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[\r\n`]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const path = typeof r.path === 'string' && /^\/[\w\-/?=&.%]{0,199}$/.test(r.path) ? r.path : undefined;
+  let subject: ScreenContext['subject'];
+  if (r.subject && typeof r.subject === 'object') {
+    const s = r.subject as Record<string, unknown>;
+    const kind = flat(s.kind, 40);
+    const id = flat(s.id, 80);
+    const title = flat(s.title, 120);
+    if (/^[a-z-]+$/.test(kind) && /^[\w-]+$/.test(id) && title) subject = { kind, id, title };
+  }
+  return path || subject ? { ...(path ? { path } : {}), ...(subject ? { subject } : {}) } : undefined;
+}
 type StoredMessage = ChatMessage & { ui?: {
   hidden?: true; actionIds?: string[]; cards?: AssistantCard[]; files?: FileRef[];
   /** What worked this turn: saved as a learned example once confirmed or marked helpful. */
   example?: { request: string; code: string; kind: 'read' | 'change'; savedId?: string };
   feedback?: 'up' | 'down';
+  /** What was on the person's screen when they asked (the page, the record open). */
+  context?: ScreenContext;
 } };
 
 /** What the assistant is doing right now, for the "working" line (polled by the chat screen). */
@@ -132,8 +152,53 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   };
   const busy = new Set<string>();
   const progress = new Map<string, { userId: string; step: Step; at: number }>();
+  /**
+   * One request's live view for the person who asked (GET /assistant/stream/:requestId):
+   * what it is doing and the answer as it is written. Kept apart from /live, which carries
+   * topic names only, never data.
+   */
+  type StreamEvent = { type: 'step'; step: Step } | { type: 'reply'; text: string } | { type: 'done'; error?: string };
+  interface LiveRequest { userId: string; clients: Set<ExpressResponse>; step?: Step; reply?: string; done?: { error?: string }; at: number; lastReplyAt: number; pendingReply?: ReturnType<typeof setTimeout> }
+  const streams = new Map<string, LiveRequest>();
+  const streamFor = (requestId: string, userId: string): LiveRequest | undefined => {
+    let s = streams.get(requestId);
+    if (!s) {
+      if (streams.size > 300) for (const [k, v] of streams) if (!v.clients.size && Date.now() - v.at > (v.done ? 2 : 10) * 60_000) streams.delete(k);
+      s = { userId, clients: new Set(), at: Date.now(), lastReplyAt: 0 };
+      streams.set(requestId, s);
+    }
+    return s.userId === userId ? s : undefined;
+  };
+  const sendTo = (s: LiveRequest, event: StreamEvent) => {
+    const line = `data: ${JSON.stringify(event)}\n\n`;
+    for (const c of s.clients) { try { c.write(line); } catch { /* gone */ } }
+    if (event.type === 'done') { for (const c of s.clients) { try { c.end(); } catch { /* gone */ } } s.clients.clear(); }
+  };
+  const emit = (requestId: string | undefined, userId: string, event: StreamEvent) => {
+    if (!requestId) return;
+    const s = streamFor(requestId, userId);
+    if (!s) return;
+    s.at = Date.now();
+    if (event.type === 'step') s.step = event.step;
+    if (event.type === 'reply') {
+      // About 12 updates a second at most; the last one is never lost.
+      s.reply = event.text;
+      const wait = 80 - (Date.now() - s.lastReplyAt);
+      if (wait > 0) {
+        s.pendingReply ??= setTimeout(() => { s.pendingReply = undefined; s.lastReplyAt = Date.now(); sendTo(s, { type: 'reply', text: s.reply ?? '' }); }, wait);
+        return;
+      }
+      s.lastReplyAt = Date.now();
+    }
+    if (event.type === 'done') {
+      if (s.pendingReply) { clearTimeout(s.pendingReply); s.pendingReply = undefined; if (s.reply) sendTo(s, { type: 'reply', text: s.reply }); }
+      s.done = { ...(event.error ? { error: event.error } : {}) };
+    }
+    sendTo(s, event);
+  };
   const stepper = (req: AuthedRequest, requestId: string | undefined) => (step: Step) => {
     if (!requestId) return;
+    emit(requestId, req.user!.id, { type: 'step', step });
     progress.set(requestId, { userId: req.user!.id, step, at: Date.now() });
     if (progress.size > 500) for (const [k, v] of progress) if (Date.now() - v.at > 5 * 60_000) progress.delete(k);
   };
@@ -516,12 +581,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       companies: accessibleCompanyIds(user).map((id) => ({ id, name: store.getCompanyById(id)?.name ?? id })),
       areas: [...new Set(ops.filter((op) => op.method === 'GET' && op.permission.includes('.') && allowedOp(req, companyId, op)).map((op) => op.permission.split('.')[0]))].sort(),
       files: (thread.messages as StoredMessage[]).flatMap((m) => m.ui?.files ?? []),
+      ...(lastAsked?.ui?.context ? { onScreen: lastAsked.ui.context } : {}),
       examples,
     }, mode);
     let outcome;
     try {
-      const thinking: ChatFn = (m, t) => { step({ kind: 'thinking' }); return chat(m, t); };
-      outcome = await runAgent(thinking, system, history, tools, 8, mode);
+      const thinking: ChatFn = (m, t, onDelta) => { step({ kind: 'thinking' }); return chat(m, t, onDelta); };
+      outcome = await runAgent(thinking, system, history, tools, 8, mode, { onReply: (text) => emit(requestId, user.id, { type: 'reply', text }) });
     } catch (err) {
       // The turn is lost, so are the messages that would show its proposals: none may linger as pending.
       for (const id of proposed) store.decideAssistantAction(id, 'expired', null);
@@ -552,12 +618,16 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
    * once (the thread, working: true) and the chat screen polls the thread until
    * it is done, so a slow model never meets a proxy's read timeout.
    */
-  async function turn(res: ExpressResponse, threadId: string, background: boolean, fn: () => Promise<void>): Promise<void> {
+  async function turn(res: ExpressResponse, threadId: string, background: boolean, fn: () => Promise<void>, live?: { requestId?: string; userId: string }): Promise<void> {
     if (busy.has(threadId)) throw new HttpError(409, 'The assistant is still working on this conversation.');
     busy.add(threadId);
     failures.delete(threadId);
     const work = (async () => {
-      try { await fn(); } catch (err) {
+      try {
+        await fn();
+        if (live) emit(live.requestId, live.userId, { type: 'done' });
+      } catch (err) {
+        if (live) emit(live.requestId, live.userId, { type: 'done', error: err instanceof Error ? err.message : String(err) });
         if (!background) throw err;
         failures.set(threadId, { status: err instanceof HttpError ? err.status : 500, message: err instanceof Error ? err.message : String(err) });
       } finally { busy.delete(threadId); }
@@ -574,6 +644,30 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   app.get('/assistant/status', authMiddleware, handler((_req, res) => {
     res.json({ enabled: Boolean(chat), model: modelName });
   }));
+
+  /** The live view of one of your requests: step, the answer so far, done (Server-Sent Events, read with fetch). */
+  app.get('/assistant/stream/:requestId', authMiddleware, (req: AuthedRequest, res: ExpressResponse) => {
+    const requestId = req.params.requestId;
+    const s = /^[\w-]{8,64}$/.test(requestId) ? streamFor(requestId, req.user!.id) : undefined;
+    if (!s) { res.status(404).json({ message: 'Not found' }); return; }
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    res.write('retry: 2000\n\n');
+    const write = (event: StreamEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (s.step) write({ type: 'step', step: s.step });
+    if (s.reply) write({ type: 'reply', text: s.reply });
+    if (s.done) { write({ type: 'done', ...s.done }); res.end(); return; }
+    s.clients.add(res);
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
+    heartbeat.unref?.();
+    const stop = () => { clearInterval(heartbeat); s.clients.delete(res); };
+    req.on('close', stop);
+    res.on('close', stop);
+  });
 
   app.get('/assistant/threads', authMiddleware, handler((req, res) => {
     res.json(store.listAssistantThreads(req.user!.id));
@@ -648,10 +742,11 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     await turn(res, thread.id, body.background === true, async () => {
       // Anything still waiting is set aside: the person moved on.
       for (const a of store.listAssistantActions(thread.id)) if (a.status === 'pending') store.decideAssistantAction(a.id, 'expired', null);
-      thread.messages = [...thread.messages, { role: 'user', content, ...(files.length ? { ui: { files } } : {}) } as StoredMessage];
+      const context = screenContextOf(body.context);
+      thread.messages = [...thread.messages, { role: 'user', content, ...(files.length || context ? { ui: { ...(files.length ? { files } : {}), ...(context ? { context } : {}) } } : {}) } as StoredMessage];
       store.saveAssistantMessages(thread.id, thread.messages);
       await advance(req, thread, requestIdOf(body));
-    });
+    }, { requestId: requestIdOf(body), userId: req.user!.id });
   }));
 
   /**
@@ -754,7 +849,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           throw err;
         });
       }
-    });
+    }, { requestId: requestIdOf(body), userId: req.user!.id });
   }));
 
   /** Takes back a change made in the last 10 minutes: its inverse runs through the API as the person. */

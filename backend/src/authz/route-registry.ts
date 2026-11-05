@@ -728,6 +728,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/assistant/threads', permission: 'self', note: 'your own conversations' },
   { method: 'GET', path: '/assistant/threads/:id', permission: 'self', note: 'your own conversation' },
   { method: 'DELETE', path: '/assistant/threads/:id', permission: 'self', note: 'your own conversation' },
+  { method: 'GET', path: '/assistant/stream/:requestId', permission: 'self', note: 'the live view of your own request (step, answer so far)' },
   { method: 'POST', path: '/assistant/chat', permission: 'self', note: 'company reach for the conversation\'s company; each call its scripts make is checked by its own route' },
   { method: 'POST', path: '/assistant/files', permission: 'self', note: 'company reach for the file\'s company; your own files' },
   { method: 'GET', path: '/assistant/files/:id', permission: 'self', note: 'your own attached file' },

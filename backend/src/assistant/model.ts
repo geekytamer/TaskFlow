@@ -36,7 +36,8 @@ export interface ToolSpec {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
-export type ChatFn = (messages: ChatMessage[], tools: ToolSpec[]) => Promise<{ content: string | null; tool_calls?: ToolCall[] }>;
+/** onDelta: the answer as it is written (streamed), piece by piece; only for calls without tools. */
+export type ChatFn = (messages: ChatMessage[], tools: ToolSpec[], onDelta?: (piece: string) => void) => Promise<{ content: string | null; tool_calls?: ToolCall[] }>;
 
 export function modelConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ModelConfig | null {
   const baseUrl = env.AI_BASE_URL?.trim();
@@ -55,13 +56,15 @@ export function modelConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ModelC
 export class ModelUnavailableError extends Error {}
 
 export function openAiChat(config: ModelConfig): ChatFn {
-  return async (messages, tools) => {
+  return async (messages, tools, onDelta) => {
+    // Stream when someone is watching and no tools are offered (tool-call deltas are not worth parsing for small models).
+    const stream = Boolean(onDelta) && tools.length === 0;
     let response: Response;
     try {
       response = await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}) },
-        body: JSON.stringify({ model: config.model, messages, ...(tools.length ? { tools, tool_choice: 'auto' } : {}), temperature: 0.2, stream: false, ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}) }),
+        body: JSON.stringify({ model: config.model, messages, ...(tools.length ? { tools, tool_choice: 'auto' } : {}), temperature: 0.2, stream, ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}) }),
         signal: AbortSignal.timeout(config.timeoutMs),
       });
     } catch (err) {
@@ -70,6 +73,34 @@ export function openAiChat(config: ModelConfig): ChatFn {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new ModelUnavailableError(`The assistant's model answered ${response.status}: ${text.slice(0, 300)}`);
+    }
+    if (stream && response.body) {
+      let content = '';
+      let buf = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let i: number;
+          while ((i = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, i).trim();
+            buf = buf.slice(i + 1);
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const piece = (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string | null } }> }).choices?.[0]?.delta?.content;
+              if (typeof piece === 'string' && piece) { content += piece; onDelta!(piece); }
+            } catch { /* a keep-alive or a line split oddly: the next one carries on */ }
+          }
+        }
+      } catch (err) {
+        throw new ModelUnavailableError(`The assistant's model stopped answering (${err instanceof Error ? err.message : String(err)}).`);
+      }
+      return { content };
     }
     const data = (await response.json()) as { choices?: Array<{ message?: { content?: string | null; tool_calls?: ToolCall[] } }> };
     const message = data.choices?.[0]?.message;
