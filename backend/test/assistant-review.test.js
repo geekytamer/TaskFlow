@@ -81,3 +81,54 @@ test('settings: defaults, validation, who may use it', () => {
   assert.equal(mayUseAssistant(s, 'Admin', false), true);
   assert.equal(mayUseAssistant({ ...s, enabled: false }, 'Admin', false), false, 'off is off for everyone');
 });
+
+function setupFx(steps = []) {
+  const dbPath = path.join(makeTmpDir('taskflow-review-'), 'taskflow.db');
+  const store = new DataStore({ dbPath, seedOnEmpty: true });
+  const fx = seedFixture(store, new Date().toISOString().slice(0, 10));
+  const chat = async () => (steps.shift() ?? (() => ({ content: 'ok' })))();
+  const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, assistant: { chat, modelName: 'test-model' } }).listen(0);
+  app.unref();
+  const as = (who) => ({
+    get: (url) => request(app).get(url).set('Authorization', `Bearer ${store.issueToken(who)}`),
+    post: (url, body) => request(app).post(url).set('Authorization', `Bearer ${store.issueToken(who)}`).send(body ?? {}),
+    put: (url, body) => request(app).put(url).set('Authorization', `Bearer ${store.issueToken(who)}`).send(body ?? {}),
+  });
+  /** One script, then a reply; returns the thread view. */
+  const ask = async (code, who = fx.admin.id, message = 'do it') => {
+    steps.push(() => ({ content: `\`\`\`js\n${code}\n\`\`\`` }), () => ({ content: 'Prepared.' }));
+    const res = await as(who).post('/assistant/chat', { companyId: '1', message });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    return res.body;
+  };
+  return { store, fx, as, ask, steps };
+}
+
+test('confirm card: an edit shows before → after; the person edits before confirming and that is what runs', async () => {
+  const { store, fx, as, ask } = setupFx();
+  const view = await ask("return await tf.updateTask({ task: 'Prepare Q4 report', status: 'Done', priority: 'High' });");
+  const a = view.items.at(-1).actions[0];
+  assert.deepEqual(a.changes.map((c) => [c.key, c.from, c.to]), [['status', 'To Do', 'Done'], ['priority', 'Medium', 'High']]);
+  assert.ok(a.fields.some((f) => f.key === 'status' && f.kind === 'select'));
+  const decided = await as(fx.admin.id).post(`/assistant/threads/${view.id}/decide`, { confirm: [a.id], edits: { [a.id]: { status: 'In Review' } } });
+  assert.equal(decided.status, 200, JSON.stringify(decided.body));
+  assert.equal(store.getTaskById(fx.tasks.q4Report.id).status, 'In Review', 'the edited value ran');
+  const after = decided.body.items.flatMap((i) => i.actions).find((x) => x.id === a.id);
+  assert.deepEqual(after.edited, [{ key: 'status', label: 'Status', from: 'Done', to: 'In Review' }]);
+  const bad = await ask("return await tf.updateTask({ task: 'Call the supplier', status: 'Done' });");
+  const b = bad.items.at(-1).actions[0];
+  const refused = await as(fx.admin.id).post(`/assistant/threads/${bad.id}/decide`, { confirm: [b.id], edits: { [b.id]: { companyId: '2' } } });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.message, /cannot be changed here/);
+  assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'In Progress', 'a refused edit runs nothing');
+});
+
+test('confirm card: a delete shows what goes and says it cannot be undone', async () => {
+  const { fx, ask } = setupFx();
+  const real = await ask(`return await api.delete('/tasks/' + (await tf.myTasks()).find((t) => t.title === 'Supplier note').id, 'Delete the supplier note');`);
+  const a = real.items.at(-1).actions[0];
+  assert.equal(a.method, 'DELETE');
+  assert.equal(a.target.title, 'Supplier note');
+  assert.equal(a.undoable, false);
+  assert.ok(fx.tasks.supplierNote.id);
+});

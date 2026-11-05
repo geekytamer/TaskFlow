@@ -5895,6 +5895,25 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Wave 2: what an action changes (the record before), how to take it back, its area; company settings.
+        id: '164_assistant_review',
+        run: () => {
+          this.db.exec(`
+            ALTER TABLE assistant_actions ADD COLUMN before TEXT;
+            ALTER TABLE assistant_actions ADD COLUMN inverse TEXT;
+            ALTER TABLE assistant_actions ADD COLUMN area TEXT;
+            ALTER TABLE assistant_actions ADD COLUMN edited TEXT;
+            CREATE INDEX IF NOT EXISTS idx_assistant_actions_company ON assistant_actions (companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS assistant_settings (
+              companyId TEXT PRIMARY KEY,
+              settings TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              updatedBy TEXT
+            );
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6710,15 +6729,21 @@ export class DataStore {
     this.db.prepare('DELETE FROM assistant_threads WHERE id = ?').run(id);
   }
 
-  createAssistantAction(input: Omit<AssistantActionRow, 'id' | 'status' | 'result' | 'createdAt' | 'decidedAt'>): AssistantActionRow {
+  createAssistantAction(input: Omit<AssistantActionRow, 'id' | 'status' | 'result' | 'createdAt' | 'decidedAt' | 'inverse' | 'edited'>): AssistantActionRow {
     const row: AssistantActionRow = { ...input, id: uuid(), status: 'pending', result: null, createdAt: new Date().toISOString(), decidedAt: null };
-    this.db.prepare('INSERT INTO assistant_actions (id, threadId, userId, companyId, method, path, body, summary, status, result, createdAt, decidedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)')
-      .run(row.id, row.threadId, row.userId, row.companyId, row.method, row.path, row.body === undefined ? null : JSON.stringify(row.body), row.summary, row.status, row.createdAt);
+    this.db.prepare('INSERT INTO assistant_actions (id, threadId, userId, companyId, method, path, body, summary, status, result, createdAt, decidedAt, before, area) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)')
+      .run(row.id, row.threadId, row.userId, row.companyId, row.method, row.path, row.body === undefined ? null : JSON.stringify(row.body), row.summary, row.status, row.createdAt,
+        row.before ? JSON.stringify(row.before) : null, row.area ?? null);
     return row;
   }
 
   private decodeAssistantAction(r: Record<string, unknown>): AssistantActionRow {
-    return { ...(r as unknown as AssistantActionRow), body: r.body == null ? undefined : JSON.parse(String(r.body)), result: r.result == null ? null : JSON.parse(String(r.result)) };
+    const json = (v: unknown) => (v == null ? null : JSON.parse(String(v)));
+    return {
+      ...(r as unknown as AssistantActionRow),
+      body: r.body == null ? undefined : JSON.parse(String(r.body)), result: json(r.result),
+      before: json(r.before), inverse: json(r.inverse), edited: json(r.edited),
+    };
   }
 
   getAssistantAction(id: string): AssistantActionRow | undefined {
@@ -6751,6 +6776,46 @@ export class DataStore {
   /** Claims a pending action for running, so a double click runs it once. */
   claimAssistantAction(id: string): boolean {
     return this.db.prepare("UPDATE assistant_actions SET status = 'running' WHERE id = ? AND status = 'pending'").run(id).changes > 0;
+  }
+
+  /** The person's edits before it ran: the body that will run, and what they changed. */
+  editAssistantAction(id: string, body: unknown, edited: unknown): void {
+    this.db.prepare('UPDATE assistant_actions SET body = ?, edited = ? WHERE id = ?').run(JSON.stringify(body), JSON.stringify(edited), id);
+  }
+
+  setAssistantActionInverse(id: string, inverse: unknown): void {
+    this.db.prepare('UPDATE assistant_actions SET inverse = ? WHERE id = ?').run(inverse === null ? null : JSON.stringify(inverse), id);
+  }
+
+  /** A done action taken back; false when it was not done (undone twice, or never ran). */
+  markAssistantActionUndone(id: string): boolean {
+    return this.db.prepare("UPDATE assistant_actions SET status = 'undone' WHERE id = ? AND status = 'done'").run(id).changes > 0;
+  }
+
+  listCompanyAssistantActions(companyId: string, filter: { userId?: string; status?: string; area?: string; limit?: number } = {}): AssistantActionRow[] {
+    const where = ['companyId = ?'];
+    const args: unknown[] = [companyId];
+    if (filter.userId) { where.push('userId = ?'); args.push(filter.userId); }
+    if (filter.status) { where.push('status = ?'); args.push(filter.status); }
+    if (filter.area) { where.push('area = ?'); args.push(filter.area); }
+    args.push(Math.min(Math.max(filter.limit ?? 100, 1), 500));
+    return (this.db.prepare(`SELECT * FROM assistant_actions WHERE ${where.join(' AND ')} ORDER BY createdAt DESC LIMIT ?`).all(...args) as Array<Record<string, unknown>>)
+      .map((r) => this.decodeAssistantAction(r));
+  }
+
+  getAssistantSettingsRaw(companyId: string): unknown {
+    const row = this.db.prepare('SELECT settings FROM assistant_settings WHERE companyId = ?').get(companyId) as { settings: string } | undefined;
+    return row ? JSON.parse(row.settings) : {};
+  }
+
+  saveAssistantSettings(companyId: string, settings: unknown, userId: string): void {
+    this.db.prepare('INSERT INTO assistant_settings (companyId, settings, updatedAt, updatedBy) VALUES (?, ?, ?, ?) ON CONFLICT(companyId) DO UPDATE SET settings = excluded.settings, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy')
+      .run(companyId, JSON.stringify(settings), new Date().toISOString(), userId);
+  }
+
+  /** An undo whose call failed: the change stands, so it is done again (and may be retried). */
+  reopenAssistantActionAfterFailedUndo(id: string): void {
+    this.db.prepare("UPDATE assistant_actions SET status = 'done' WHERE id = ? AND status = 'undone'").run(id);
   }
 
   createAssistantExample(input: { companyId: string; userId: string; request: string; code: string; kind: 'read' | 'change' }): AssistantExampleRow {
@@ -25374,7 +25439,7 @@ export interface AssistantFileRow {
   createdAt: string;
 }
 
-export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired';
+export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'declined' | 'expired' | 'undone';
 
 export interface AssistantThreadRow {
   id: string;
@@ -25399,6 +25464,14 @@ export interface AssistantActionRow {
   result: unknown;
   createdAt: string;
   decidedAt: string | null;
+  /** The record as it was when the change was proposed (edits and deletes), read as the person. */
+  before?: Record<string, unknown> | null;
+  /** How to take it back once it ran (review.ts inverseOf); null when it cannot be. */
+  inverse?: unknown;
+  /** The area it changes (tasks, invoices…), for company settings and the log. */
+  area?: string | null;
+  /** What the person changed before confirming. */
+  edited?: unknown;
 }
 
 export interface AssistantExampleRow {

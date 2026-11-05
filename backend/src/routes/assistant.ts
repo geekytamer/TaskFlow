@@ -14,6 +14,7 @@ import { checkBody, hintFor, ignoredFilters, recordsIn, shapeOf } from '../assis
 import { cardOf, kindOfPath, type AssistantCard } from '../assistant/cards';
 import { RECIPES, describeRecipe, recipeByName, searchRecipes } from '../assistant/recipes';
 import { similarExamples } from '../assistant/examples';
+import { applyEdits, areaOf, changesOf, docTypeOf, fieldsOf, inverseOf, type Inverse, type Namer, type ReviewChange } from '../assistant/review';
 import { norm } from '../assistant/recipes/util';
 import type { RecipeContext } from '../assistant/recipes';
 import type { AssistantActionRow, AssistantThreadRow } from '../data/store';
@@ -95,6 +96,24 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   const modelName = options.modelName ?? config?.model ?? null;
   const mode: AgentMode = options.mode ?? config?.toolMode ?? 'text';
   const legacyRolesOf = new Map(ROUTES.map((r) => [`${r.method} ${r.path}`, r.legacyRoles]));
+  const ops = assistantOps();
+  /** Names and currency for cards in a company. */
+  const cardLookups = (companyId: string) => ({
+    userName: (id: string) => store.getUserById(id)?.name,
+    clientName: (id: string) => store.getClientById(id)?.name,
+    projectName: (id: string) => store.getProjectById(id)?.name,
+    currency: store.getCompanyFinanceSettings(companyId).currencyCode,
+  });
+  /** A person reads names, not ids, on a confirm card. */
+  const namer: Namer = (key, value) => {
+    const id = String(value);
+    if (/user|assignee|owner|approver/i.test(key)) return store.getUserById(id)?.name;
+    if (/client/i.test(key)) return store.getClientById(id)?.name;
+    if (/project/i.test(key)) return store.getProjectById(id)?.name;
+    if (/file/i.test(key)) return store.getAssistantFile(id)?.fileName;
+    return undefined;
+  };
+  const UNDO_MS = 10 * 60 * 1000;
   const busy = new Set<string>();
   const progress = new Map<string, { userId: string; step: Step; at: number }>();
   const stepper = (req: AuthedRequest, requestId: string | undefined) => (step: Step) => {
@@ -234,10 +253,35 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     };
   }
 
-  const actionView = (a: AssistantActionRow) => ({
-    id: a.id, method: a.method, path: a.path, summary: a.summary, status: a.status, body: a.body ?? null,
-    error: a.status === 'failed' ? String((a.result as { error?: string } | null)?.error ?? '') : null,
-  });
+  /** A proposed change as the person judges it: its fields, what it changes, what a delete takes, approvals, undo. */
+  const actionView = (a: AssistantActionRow) => {
+    const op = matchOp(ops, a.method, a.path);
+    const hint = op ? hintFor(op.method, op.path) : undefined;
+    const kind = op ? kindOfPath(op.path) : 'record';
+    const docType = a.method === 'POST' ? docTypeOf(kind) : undefined;
+    const madeId = a.result && typeof a.result === 'object' ? String((a.result as { id?: unknown }).id ?? '') : '';
+    let approval: { status: 'may' } | { status: 'pending'; waitingOn: string[] } | undefined;
+    if (docType && a.status === 'pending' && store.approvalApplies(a.companyId, docType)) approval = { status: 'may' };
+    if (docType && a.status === 'done' && madeId) {
+      const view = store.approvalView(docType, madeId);
+      const current = view.steps.find((x) => x.status === 'pending');
+      if (view.status === 'pending' && current) approval = { status: 'pending', waitingOn: current.approvers.map((x) => x.label) };
+    }
+    const decidedAt = a.decidedAt ? Date.parse(a.decidedAt) : 0;
+    const undoUntil = a.status === 'done' && a.inverse && decidedAt ? new Date(decidedAt + UNDO_MS).toISOString() : undefined;
+    const target = a.before && a.method === 'DELETE' ? cardOf(kind, a.before, cardLookups(a.companyId)) : null;
+    return {
+      id: a.id, method: a.method, path: a.path, summary: a.summary, status: a.status, body: a.body ?? null,
+      error: a.status === 'failed' ? String((a.result as { error?: string } | null)?.error ?? '') : null,
+      ...(a.status === 'pending' && a.method !== 'DELETE' ? { fields: fieldsOf(a.body, hint, namer) } : {}),
+      ...(a.before && a.method !== 'DELETE' && a.method !== 'POST' ? { changes: changesOf(a.before, a.body, namer) } : {}),
+      ...(target ? { target } : {}),
+      undoable: a.method !== 'DELETE' && (a.status !== 'done' || Boolean(a.inverse)),
+      ...(undoUntil && Date.parse(undoUntil) > Date.now() ? { undoUntil } : {}),
+      ...(approval ? { approval } : {}),
+      ...(Array.isArray(a.edited) && a.edited.length ? { edited: a.edited as ReviewChange[] } : {}),
+    };
+  };
 
   /** A document's blanks must be the template's: unknown keys or none filled are sent back to the model. */
   function checkDocument(body: unknown, companyId: string) {
@@ -258,7 +302,6 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     const step = stepper(req, requestId);
     const user = req.user!;
     const token = tokenOf(req);
-    const ops = assistantOps();
     const companyId = thread.companyId;
     const company = store.getCompanyById(companyId);
     const proposed: string[] = [];
@@ -268,12 +311,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     // Every record read this turn, by id, with its kind: show() needs only ids.
     const seen = new Map<string, { kind: string; record: Record<string, unknown> }>();
     const cards: AssistantCard[] = [];
-    const lookups = {
-      userName: (id: string) => store.getUserById(id)?.name,
-      clientName: (id: string) => store.getClientById(id)?.name,
-      projectName: (id: string) => store.getProjectById(id)?.name,
-      currency: store.getCompanyFinanceSettings(companyId).currencyCode,
-    };
+    const lookups = cardLookups(companyId);
     const today = new Date().toISOString().slice(0, 10);
     const lastAsked = [...(thread.messages as StoredMessage[])].reverse().find((m) => m.role === 'user' && !m.ui?.hidden);
     const request = String(lastAsked?.content ?? '').replace(/\n\n\[Attached files:[\s\S]*$/, '');
@@ -395,9 +433,17 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
           step({ kind: 'prepare', detail: (summary ?? '').slice(0, 80) });
           if (!open) throw new Error('the script has already ended');
           if (proposed.length >= MAX_WRITES_PER_RUN) throw new Error(`at most ${MAX_WRITES_PER_RUN} changes at once`);
+          // What the change touches, read now as the person: the card shows before → after, a delete shows what goes.
+          let before: Record<string, unknown> | null = null;
+          if (method !== 'POST' && matchOp(ops, 'GET', path)) {
+            try {
+              const read = await callApi(token, 'GET', path.split('?')[0], undefined);
+              if (read && typeof read === 'object' && !Array.isArray(read)) before = read as Record<string, unknown>;
+            } catch { /* no snapshot: the card shows the fields only */ }
+          }
           const action = store.createAssistantAction({
             threadId: thread.id, userId: user.id, companyId, method, path, body,
-            summary: (summary ?? `${method} ${path}`).slice(0, 300),
+            summary: (summary ?? `${method} ${path}`).slice(0, 300), before, area: areaOf(op),
           });
           proposed.push(action.id);
           return { pending: true, actionId: action.id, summary: action.summary, note: 'waiting for the person to confirm' };
@@ -589,16 +635,25 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     if (!confirm.length && !decline.length) throw new HttpError(400, 'confirm or decline is required');
     const token = tokenOf(req);
     const step = stepper(req, requestIdOf(body));
-    const ops = assistantOps();
+    // The person's edits, all checked before anything runs: one bad edit refuses the whole decision.
+    const edits = body.edits && typeof body.edits === 'object' && !Array.isArray(body.edits) ? body.edits as Record<string, unknown> : {};
+    const editedBodies = new Map<string, { body: Record<string, unknown>; edited: ReviewChange[] }>();
+    for (const [actionId, change] of Object.entries(edits)) {
+      const a = store.getAssistantAction(actionId);
+      if (!a || a.threadId !== thread.id || a.status !== 'pending' || !confirm.includes(actionId)) continue;
+      const op = matchOp(ops, a.method, a.path);
+      const hint = op ? hintFor(op.method, op.path) : undefined;
+      let next: Record<string, unknown>;
+      try { next = applyEdits(a.body, change, hint); } catch (err) { throw new HttpError(400, err instanceof Error ? err.message : String(err)); }
+      const refused = checkBody(hint, next);
+      if (refused) throw new HttpError(400, refused);
+      const edited = changesOf(a.body as Record<string, unknown>, next, namer);
+      if (edited.length) editedBodies.set(actionId, { body: next, edited });
+    }
     await turn(res, thread.id, body.background === true, async () => {
       const report: string[] = [];
       const made: AssistantCard[] = [];
-      const lookups = {
-        userName: (id: string) => store.getUserById(id)?.name,
-        clientName: (id: string) => store.getClientById(id)?.name,
-        projectName: (id: string) => store.getProjectById(id)?.name,
-        currency: store.getCompanyFinanceSettings(thread.companyId).currencyCode,
-      };
+      const lookups = cardLookups(thread.companyId);
       for (const id of decline) {
         const a = store.getAssistantAction(id);
         if (a && a.threadId === thread.id && store.decideAssistantAction(id, 'declined', null)) report.push(`Declined: ${a.summary}`);
@@ -608,6 +663,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         if (!a || a.threadId !== thread.id || a.userId !== req.user!.id) continue;
         if (Date.now() - Date.parse(a.createdAt) > ACTION_TTL_MS) { store.decideAssistantAction(id, 'expired', null); continue; }
         if (!store.claimAssistantAction(id)) continue;
+        const edit = editedBodies.get(id);
+        if (edit) { store.editAssistantAction(id, edit.body, edit.edited); a.body = edit.body; }
         try {
           step({ kind: 'confirm', detail: a.summary.slice(0, 80) });
           const result = await callApi(token, a.method, a.path, withFiles(a.body, req.user!.id, thread.companyId), CHANGE_TIMEOUT_MS);
@@ -618,7 +675,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
             const card = cardOf(kindOfPath(op.path), result as Record<string, unknown>, lookups);
             if (card && made.length < MAX_CARDS) made.push(card);
           }
-          report.push(`Done: ${a.summary} → ${toolText(result).slice(0, 1500)}`);
+          const editedNote = edit ? ` (the person edited it first: ${edit.edited.map((c) => `${c.label} ${c.from} → ${c.to}`).join(', ')})` : '';
+          report.push(`Done: ${a.summary}${editedNote} → ${toolText(result).slice(0, 1500)}`);
         } catch (err) {
           if (err instanceof NoAnswerError) {
             // It may well have been done: say so, so neither the person nor the model simply does it again.
