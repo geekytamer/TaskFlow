@@ -44,7 +44,7 @@ async function main() {
         const res = await fetch(`${base}/assistant/chat`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${tokens[c.as ?? 'admin']}` },
-          body: JSON.stringify({ companyId: fx.companyId, message: c[lang] }),
+          body: JSON.stringify(c.scope === 'group' ? { companyId: fx.group.id, scope: 'group', message: c[lang] } : { companyId: fx.companyId, message: c[lang] }),
         });
         const view = await res.json();
         if (!res.ok) throw new Error(`${res.status} ${view.message ?? ''}`);

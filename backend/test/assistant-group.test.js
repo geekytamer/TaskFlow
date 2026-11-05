@@ -17,9 +17,7 @@ function setup() {
   const dbPath = path.join(makeTmpDir('taskflow-assistant-group-'), 'taskflow.db');
   const store = new DataStore({ dbPath, seedOnEmpty: true });
   const fx = seedFixture(store, new Date().toISOString().slice(0, 10));
-  const group = store.createGroupCompany('Test Holding', fx.admin.id).company;
-  store.setCompanyParent('1', group.id, fx.admin.id);
-  store.setCompanyParent('2', group.id, fx.admin.id);
+  const group = fx.group;
   const steps = [];
   const chat = async () => (steps.shift() ?? (() => ({ content: 'ok' })))();
   const app = createServer({ store, dbPath, seedOnEmpty: false, allowSeedReset: false, logger: { info() {}, warn() {}, error() {} }, assistant: { chat, modelName: 'test-model' } }).listen(0);

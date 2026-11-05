@@ -76,7 +76,12 @@ function seedFixture(store, today) {
   const expense = store.createExpense({ companyId, category: 'Travel', amount: 85, expenseDate: today, vendor: 'Oman Air' });
   const followup = store.createFollowup({ companyId, entityType: 'contact', entityId: contacts.ahmed.id, title: 'Call Ahmed about the renewal', ownerUserId: admin.id, ownerName: admin.name, dueAt: new Date(`${addDays(today, -1)}T09:00:00Z`) });
 
-  return { companyId, today, bills, quotation, expense, followup, tomorrow: addDays(today, 1), admin, samantha, charlie, project, clients: { muscatBay, alNoor, desertRose }, invoices, contacts, employees, tasks, template };
+  // A group over this company and Synergy Solutions, for whole-group questions.
+  const group = store.createGroupCompany('Test Holding', admin.id).company;
+  store.setCompanyParent('1', group.id, admin.id);
+  store.setCompanyParent('2', group.id, admin.id);
+
+  return { companyId, today, group, bills, quotation, expense, followup, tomorrow: addDays(today, 1), admin, samantha, charlie, project, clients: { muscatBay, alNoor, desertRose }, invoices, contacts, employees, tasks, template };
 }
 
 module.exports = { seedFixture, addDays };

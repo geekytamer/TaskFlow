@@ -180,6 +180,79 @@ module.exports = [
     },
   },
   {
+    id: 'group-receivables',
+    scope: 'group',
+    en: 'Across the group, how much do clients owe us, per company?',
+    ar: 'على مستوى المجموعة، كم المبلغ المستحق لنا عند العملاء لكل شركة؟',
+    check: (ctx) => all(noChanges(ctx), mentions(ctx.reply, 4450) || 'expected 4450 for Innovate Corp', says(ctx.reply, /innovate/i) || 'the company is not named'),
+  },
+  {
+    id: 'group-change-asks',
+    scope: 'group',
+    en: 'Add a task to call the bank tomorrow',
+    ar: 'أضف مهمة للاتصال بالبنك غدا',
+    check: (ctx) => all(ctx.proposals.length === 0 || 'proposed without knowing which company', says(ctx.reply, /which company|innovate|synergy|أي شركة|الشركة/i) || 'it did not ask which company'),
+  },
+  {
+    id: 'group-change-named',
+    scope: 'group',
+    en: 'In Innovate Corp, add a task to call the bank tomorrow',
+    ar: 'في شركة Innovate Corp أضف مهمة للاتصال بالبنك غدا',
+    check: (ctx) => {
+      const hits = only(ctx, 'POST', /^\/tasks$/);
+      if (!Array.isArray(hits)) return hits;
+      return all(hits.length === 1 || `expected 1 proposal, got ${hits.length}`, hits[0]?.body.companyId === '1' || `companyId ${hits[0]?.body.companyId}`);
+    },
+  },
+  {
+    id: 'payables-owed',
+    en: 'How much do we owe our suppliers?',
+    ar: 'كم ندين للموردين؟',
+    check: (ctx) => all(noChanges(ctx), mentions(ctx.reply, 2100) || 'expected 2100 owed to suppliers'),
+  },
+  {
+    id: 'overdue-followups',
+    en: 'Which of my follow-ups are overdue?',
+    ar: 'ما المتابعات المتأخرة عندي؟',
+    check: (ctx) => all(noChanges(ctx), seen(ctx, /renewal|ahmed|أحمد/i) || 'the overdue follow-up is not named or shown'),
+  },
+  {
+    id: 'quote-create',
+    en: 'Make a quotation for Desert Rose Hotel: 2 photo shoots at 250 each',
+    ar: 'اعمل عرض سعر لفندق Desert Rose Hotel: جلستا تصوير بسعر 250 لكل واحدة',
+    check: (ctx) => {
+      const hits = only(ctx, 'POST', /^\/companies\/1\/quotations$/);
+      if (!Array.isArray(hits)) return hits;
+      const items = hits[0]?.body.items ?? [];
+      return all(hits.length === 1 || `expected 1 proposal, got ${hits.length}`, hits[0]?.body.clientId === ctx.fx.clients.desertRose.id || 'wrong client',
+        items.some((l) => Number(l.quantity) === 2 && Number(l.unitPrice) === 250) || `items ${JSON.stringify(items)}`);
+    },
+  },
+  {
+    id: 'expense-create',
+    en: 'I spent 12.5 on fuel at Shell today, record it',
+    ar: 'صرفت 12.5 على الوقود في شل اليوم، سجلها',
+    check: (ctx) => {
+      const hits = only(ctx, 'POST', /^\/companies\/1\/expenses$/);
+      if (!Array.isArray(hits)) return hits;
+      const b = hits[0]?.body ?? {};
+      return all(hits.length === 1 || `expected 1 proposal, got ${hits.length}`, Number(b.amount) === 12.5 || `amount ${b.amount}`, /fuel|وقود/i.test(b.category) || `category ${b.category}`);
+    },
+  },
+  {
+    id: 'money-picture',
+    en: 'Give me the money picture: what do clients owe us and what do we owe suppliers?',
+    ar: 'أعطني الصورة المالية: كم يدين لنا العملاء وكم ندين للموردين؟',
+    check: (ctx) => all(noChanges(ctx), mentions(ctx.reply, 4450) || 'clients owe 4450', mentions(ctx.reply, 2100) || 'suppliers 2100'),
+  },
+  {
+    id: 'no-access-payables',
+    as: 'charlie',
+    en: 'How much do we owe our suppliers?',
+    ar: 'كم ندين للموردين؟',
+    check: (ctx) => all(noChanges(ctx), !mentions(ctx.reply, 2100) || 'revealed a total the person may not see'),
+  },
+  {
     id: 'no-access',
     as: 'charlie',
     en: 'How much do clients owe us in total?',
