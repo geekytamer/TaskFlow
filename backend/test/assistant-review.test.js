@@ -58,7 +58,7 @@ test('review: the inverse of a creation is the matching delete; of an edit, the 
   assert.deepEqual(inverseOf(ops, { method: 'POST', path: '/tasks/t1/time-entries', body: {} }, null, { id: 'e9' }), { method: 'DELETE', path: '/time-entries/e9' });
   assert.equal(inverseOf(ops, { method: 'POST', path: '/tasks/t1/comments', body: {} }, null, { id: 'm9' }), null, 'no delete route: no undo');
   assert.equal(inverseOf(ops, { method: 'POST', path: '/projects/p1/members', body: {} }, null, { id: 'p1' }), null, 'an action on a record returns that record: nothing to delete');
-  assert.deepEqual(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done', dueDate: '2026-11-09' } }, { status: 'To Do', title: 'x' }, {}), { method: 'PUT', path: '/tasks/t1', body: { status: 'To Do', dueDate: null } });
+  assert.deepEqual(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done', dueDate: '2026-11-09' } }, { status: 'To Do', title: 'x' }, {}, 'body: { status } or { dueDate: "YYYY-MM-DD" }'), { method: 'PUT', path: '/tasks/t1', body: { status: 'To Do', dueDate: null } }, 'a documented field the record left out was empty');
   assert.equal(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done' } }, null, {}), null, 'no before: no undo');
   assert.equal(inverseOf(ops, { method: 'DELETE', path: '/tasks/t1' }, { id: 't1' }, {}), null);
 });
@@ -205,4 +205,38 @@ test('a script that fails part-way proposes nothing (no half batch, no duplicate
   assert.equal(view.items.at(-1).actions.length, 0);
   assert.equal(view.pending, 0);
   assert.ok(store.listAssistantActions(view.id).every((a) => a.status === 'expired'));
+});
+
+test('review fixes: settings fail closed; undo uses the record as it was when the change ran; honest undo notes; undo works when switched off', async () => {
+  const { store, fx, as, ask } = setupFx();
+  // Stored settings that no longer parse (an area that went away) keep their meaning; the unknown area is dropped.
+  store.saveAssistantSettings('1', { enabled: false, changeAreas: ['tasks', 'gone-area'] }, fx.admin.id);
+  const got = await as(fx.admin.id).get('/companies/1/assistant/settings');
+  assert.equal(got.body.settings.enabled, false, 'off stays off');
+  assert.deepEqual(got.body.settings.changeAreas, ['tasks']);
+  store.saveAssistantSettings('1', { roles: 'garbage' }, fx.admin.id);
+  assert.equal((await as(fx.admin.id).get('/companies/1/assistant/settings')).body.settings.enabled, false, 'unreadable settings fail closed');
+  store.saveAssistantSettings('1', {}, fx.admin.id);
+
+  const proposal = await ask("return await tf.updateTask({ task: 'Call the supplier', status: 'Done' });");
+  const a = proposal.items.at(-1).actions[0];
+  store.updateTask(fx.tasks.callSupplier.id, { status: 'In Review' });
+  await as(fx.admin.id).post(`/assistant/threads/${proposal.id}/decide`, { confirm: [a.id] });
+  assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'Done');
+  await as(fx.admin.id).put('/companies/1/assistant/settings', { enabled: false });
+  const undone = await as(fx.admin.id).post(`/assistant/threads/${proposal.id}/undo`, { actionId: a.id });
+  assert.equal(undone.status, 200, 'undo still works with the assistant off');
+  assert.equal(store.getTaskById(fx.tasks.callSupplier.id).status, 'In Review', 'back to what it was when the change ran, not when it was proposed');
+  await as(fx.admin.id).put('/companies/1/assistant/settings', { enabled: true });
+
+  const comment = await ask(`return await api.post('/tasks/${fx.tasks.q4Report.id}/comments', { content: 'hi' }, 'Comment on the report');`);
+  assert.equal(comment.items.at(-1).actions[0].undoable, false, 'no delete route: the card says so before confirming');
+  const task = await ask("return await tf.createTasks(['Undoable']);");
+  assert.equal(task.items.at(-1).actions[0].undoable, true);
+});
+
+test('review: the inverse of an edit leaves out fields the record does not show', () => {
+  const ops = assistantOps();
+  assert.deepEqual(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { status: 'Done', note: 'x' } }, { status: 'To Do' }, {}), { method: 'PUT', path: '/tasks/t1', body: { status: 'To Do' } });
+  assert.equal(inverseOf(ops, { method: 'PUT', path: '/tasks/t1', body: { note: 'x' } }, { status: 'To Do' }, {}), null);
 });

@@ -94,7 +94,7 @@ export function applyEdits(body: unknown, edits: unknown, hint?: OpHint): Record
  * already names). An edit → the same call with the old values of what it
  * changed. A delete → nothing: history and links cannot be put back honestly.
  */
-export function inverseOf(ops: AssistantOp[], action: { method: string; path: string; body?: unknown }, before: Record<string, unknown> | null | undefined, result: unknown): Inverse | null {
+export function inverseOf(ops: AssistantOp[], action: { method: string; path: string; body?: unknown }, before: Record<string, unknown> | null | undefined, result: unknown, documented = ''): Inverse | null {
   const path = action.path.split('?')[0];
   if (action.method === 'POST') {
     const id = result && typeof result === 'object' && !Array.isArray(result) ? (result as { id?: unknown }).id : undefined;
@@ -108,11 +108,15 @@ export function inverseOf(ops: AssistantOp[], action: { method: string; path: st
     return null;
   }
   if ((action.method === 'PUT' || action.method === 'PATCH') && before && action.body && typeof action.body === 'object') {
+    // A record leaves unset fields out: a missing field is reset to empty only when the endpoint documents it
+    // (dueDate on a task edit); otherwise it is not a field the record has, and undo leaves it alone.
     const body: Record<string, unknown> = {};
+    let restored = 0;
     for (const key of Object.keys(action.body as Record<string, unknown>)) {
-      body[key] = key === 'companyId' ? (action.body as Record<string, unknown>)[key] : (before[key] ?? null);
+      if (key === 'companyId') { body[key] = (action.body as Record<string, unknown>)[key]; continue; }
+      if (key in before) { body[key] = before[key]; restored += 1; } else if (new RegExp(`\\b${key}\\b`).test(documented)) { body[key] = null; restored += 1; }
     }
-    return { method: action.method, path, body };
+    return restored ? { method: action.method, path, body } : null;
   }
   return null;
 }

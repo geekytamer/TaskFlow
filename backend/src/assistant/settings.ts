@@ -20,7 +20,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
 };
 
 /** Settings from a request (or stored JSON), checked; missing fields take the defaults. */
-export function parseAssistantSettings(input: unknown, areas: string[]): AssistantSettings {
+/** `stored`: settings read back from the database keep their meaning when an area has since gone (it is dropped, not an error). */
+export function parseAssistantSettings(input: unknown, areas: string[], stored = false): AssistantSettings {
   const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const d = DEFAULT_ASSISTANT_SETTINGS;
   const roles = o.roles === undefined ? d.roles : Array.isArray(o.roles) ? o.roles.map(String) : null;
@@ -30,8 +31,8 @@ export function parseAssistantSettings(input: unknown, areas: string[]): Assista
   if (o.changeAreas !== undefined && o.changeAreas !== null) {
     if (!Array.isArray(o.changeAreas)) throw new Error('changeAreas must be a list of areas, or null for all');
     const unknown = o.changeAreas.map(String).filter((a) => !areas.includes(a));
-    if (unknown.length) throw new Error(`unknown area ${unknown.join(', ')}`);
-    changeAreas = [...new Set(o.changeAreas.map(String))].sort();
+    if (unknown.length && !stored) throw new Error(`unknown area ${unknown.join(', ')}`);
+    changeAreas = [...new Set(o.changeAreas.map(String).filter((a) => areas.includes(a)))].sort();
   }
   const maxChanges = o.maxChanges === undefined ? d.maxChanges : Number(o.maxChanges);
   if (!Number.isInteger(maxChanges) || maxChanges < 1 || maxChanges > 25) throw new Error('maxChanges must be a whole number from 1 to 25');

@@ -191,7 +191,10 @@ export function AssistantSettingsPanel({ canEdit }: { canEdit: boolean }) {
                 <ul className="flex flex-col divide-y rounded-md border">
                   {log.map((r) => (
                     <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
-                      <span className="min-w-0 flex-1">{r.summary}</span>
+                      <span className="min-w-0 flex-1">
+                        {r.summary}
+                        {r.edited?.length ? <span className="block text-xs text-muted-foreground">{tr('Edited before confirming: ', 'عُدّل قبل التأكيد: ')}{r.edited.map((c) => `${c.label} ${c.from} → ${c.to}`).join(', ')}</span> : null}
+                      </span>
                       <span className="text-xs text-muted-foreground">{r.userName}</span>
                       <span className="text-xs text-muted-foreground" dir="ltr">{when(r.createdAt)}</span>
                       <span className="text-xs font-medium">{tr(...(STATUS[r.status] ?? [r.status, r.status]))}</span>

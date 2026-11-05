@@ -119,7 +119,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   /** The areas the assistant could change (Settings → Assistant offers these). */
   const changeAreasCatalogue = [...new Set(ops.filter((op) => op.method !== 'GET').map(areaOf))].sort();
   const settingsOf = (companyId: string): AssistantSettings => {
-    try { return parseAssistantSettings(store.getAssistantSettingsRaw(companyId), changeAreasCatalogue); } catch { return DEFAULT_ASSISTANT_SETTINGS; }
+    // Unreadable settings fail closed: a company's restrictions never silently turn into "on, everything".
+    try { return parseAssistantSettings(store.getAssistantSettingsRaw(companyId), changeAreasCatalogue, true); } catch { return { ...DEFAULT_ASSISTANT_SETTINGS, enabled: false }; }
   };
   const roleIn = (req: AuthedRequest, companyId: string): UserRole | undefined =>
     (req.user as { companyRoles?: Array<{ companyId: string; role: UserRole }> } | undefined)?.companyRoles?.find((r) => r.companyId === companyId)?.role ?? req.user?.role;
@@ -269,6 +270,13 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     };
   }
 
+  /** Before it runs: will Undo be possible afterwards? (A creation needs a matching DELETE; an edit, a record to read.) */
+  const couldUndo = (a: AssistantActionRow, documented?: string) => {
+    if (a.method === 'DELETE') return false;
+    if (a.method === 'POST') return inverseOf(ops, a, null, { id: '__probe__' }) !== null;
+    return Boolean(a.before) && inverseOf(ops, a, a.before, null, documented) !== null;
+  };
+
   /** A proposed change as the person judges it: its fields, what it changes, what a delete takes, approvals, undo. */
   const actionView = (a: AssistantActionRow) => {
     const op = matchOp(ops, a.method, a.path);
@@ -292,7 +300,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       ...(a.status === 'pending' && a.method !== 'DELETE' ? { fields: fieldsOf(a.body, hint, namer) } : {}),
       ...(a.before && a.method !== 'DELETE' && a.method !== 'POST' ? { changes: changesOf(a.before, a.body, namer) } : {}),
       ...(target ? { target } : {}),
-      undoable: a.method !== 'DELETE' && (a.status !== 'done' || Boolean(a.inverse)),
+      undoable: a.status === 'done' || a.status === 'undone' ? Boolean(a.inverse) : couldUndo(a, hint?.text),
       ...(undoUntil && Date.parse(undoUntil) > Date.now() ? { undoUntil } : {}),
       ...(approval ? { approval } : {}),
       ...(Array.isArray(a.edited) && a.edited.length ? { edited: a.edited as ReviewChange[] } : {}),
@@ -693,10 +701,16 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         if (edit) { store.editAssistantAction(id, edit.body, edit.edited); a.body = edit.body; }
         try {
           step({ kind: 'confirm', detail: a.summary.slice(0, 80) });
+          // The record as it is now, right before the change: undo puts back this, not what it was when proposed.
+          let liveBefore = a.before ?? null;
+          if ((a.method === 'PUT' || a.method === 'PATCH') && matchOp(ops, 'GET', a.path)) {
+            liveBefore = await callApi(token, 'GET', a.path.split('?')[0], undefined).then((r) => (r && typeof r === 'object' && !Array.isArray(r) ? r as Record<string, unknown> : liveBefore)).catch(() => liveBefore);
+          }
           const result = await callApi(token, a.method, a.path, withFiles(a.body, req.user!.id, thread.companyId), CHANGE_TIMEOUT_MS);
           store.decideAssistantAction(id, 'done', result);
           // How to take it back, for 10 minutes (none for a delete, or where the API has no matching call).
-          const inverse = inverseOf(ops, { method: a.method, path: a.path, body: a.body }, a.before ?? null, result);
+          const opDone = matchOp(ops, a.method, a.path);
+          const inverse = inverseOf(ops, { method: a.method, path: a.path, body: a.body }, liveBefore, result, opDone ? hintFor(opDone.method, opDone.path)?.text : undefined);
           if (inverse) store.setAssistantActionInverse(id, inverse);
           // What was just made is shown as a card with its link (a task, a document, a contact...).
           const op = a.method === 'POST' ? matchOp(ops, a.method, a.path) : undefined;
@@ -747,7 +761,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   app.post('/assistant/threads/:id/undo', authMiddleware, handler(async (req, res) => {
     const thread = threadFor(req, req.params.id);
     requireCompanyAccess(req, thread.companyId);
-    requireAssistantFor(req, thread.companyId);
+    // No settings check: taking back one's own change stays possible when the assistant is switched off.
     const actionId = requiredString(asRecord(req.body, 'body').actionId, 'actionId');
     await turn(res, thread.id, false, async () => {
       const a = store.getAssistantAction(actionId);
@@ -765,7 +779,8 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
       }
       // The model hears it, so it does not build on what is gone.
       const fresh = store.getAssistantThread(thread.id)!;
-      store.saveAssistantMessages(fresh.id, [...fresh.messages, { role: 'user', content: `[The person undid: ${a.summary}]`, ui: { hidden: true } }]);
+      const edited = Array.isArray(a.edited) && a.edited.length ? ` (as edited: ${(a.edited as ReviewChange[]).map((c) => `${c.label} ${c.to}`).join(', ')})` : '';
+      store.saveAssistantMessages(fresh.id, [...fresh.messages, { role: 'user', content: `[The person undid: ${a.summary}${edited}]`, ui: { hidden: true } }]);
     });
   }));
 
