@@ -653,7 +653,14 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
   /** The live view of one of your requests: step, the answer so far, done (Server-Sent Events, read with fetch). */
   app.get('/assistant/stream/:requestId', authMiddleware, (req: AuthedRequest, res: ExpressResponse) => {
     const requestId = req.params.requestId;
-    const s = /^[\w-]{8,64}$/.test(requestId) ? streamFor(requestId, req.user!.id) : undefined;
+    const userId = req.user!.id;
+    // Like /live: a few open streams per person, and no hoard of entries for requests that never come.
+    const mine = [...streams.values()].filter((x) => x.userId === userId);
+    if (mine.reduce((n, x) => n + x.clients.size, 0) >= 8 || (!streams.has(requestId) && mine.length >= 50)) {
+      res.status(429).json({ message: 'Too many assistant streams open.' });
+      return;
+    }
+    const s = /^[\w-]{8,64}$/.test(requestId) ? streamFor(requestId, userId) : undefined;
     if (!s) { res.status(404).json({ message: 'Not found' }); return; }
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

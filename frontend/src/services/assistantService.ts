@@ -67,7 +67,7 @@ export class AssistantTurnError extends Error {
  * outlast a proxy's timeout); this waits for the turn by reading the thread.
  * `onThread` sees each state, so the person's message shows while it works.
  */
-async function untilDone(first: AssistantThread, onThread?: (t: AssistantThread) => void): Promise<AssistantThread> {
+export async function untilDone(first: AssistantThread, onThread?: (t: AssistantThread) => void): Promise<AssistantThread> {
   let t = first;
   while (t.working) {
     onThread?.(t);

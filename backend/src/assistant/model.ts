@@ -74,7 +74,8 @@ export function openAiChat(config: ModelConfig): ChatFn {
       const text = await response.text().catch(() => '');
       throw new ModelUnavailableError(`The assistant's model answered ${response.status}: ${text.slice(0, 300)}`);
     }
-    if (stream && response.body) {
+    // A server that ignores `stream` answers with plain JSON: read it the usual way.
+    if (stream && response.body && !(response.headers.get('content-type') ?? '').includes('application/json')) {
       let content = '';
       let buf = '';
       const reader = response.body.getReader();

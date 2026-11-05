@@ -21,7 +21,7 @@ import { ActionReview, type ActionEdits } from './action-review';
 import { useAssistantPanel } from '../assistant-context';
 import {
   AssistantTurnError, askAssistant, assistantFileUrl, assistantStatusOnce, decideAssistantActions, deleteAssistantThread, getAssistantProgress, getAssistantThread,
-  listAssistantThreads, sendAssistantFeedback, streamAssistant, undoAssistantAction, uploadAssistantFile,
+  listAssistantThreads, sendAssistantFeedback, streamAssistant, undoAssistantAction, untilDone, uploadAssistantFile,
   type AssistantAction, type AssistantFile, type AssistantStatus, type AssistantStep, type AssistantThread, type AssistantThreadSummary,
 } from '@/services/assistantService';
 
@@ -136,7 +136,15 @@ export function AssistantPage({ variant = 'page' }: { variant?: 'page' | 'panel'
     if (!id) return;
     let live = true;
     getAssistantThread(id)
-      .then((t) => { if (live && !fresh.current && t.companyId === companyId) setThread((cur) => cur ?? t); })
+      .then((t) => {
+        if (!live || fresh.current || t.companyId !== companyId) return;
+        setThread((cur) => cur ?? t);
+        // Still working (the panel was closed mid-answer, or the page reloaded): wait for it again.
+        if (t.working) {
+          setWorking('asking');
+          untilDone(t, setThread).then(setThread).catch((err) => setError(err instanceof Error ? err.message : String(err))).finally(() => setWorking(null));
+        }
+      })
       .catch(() => writeLast(userId, companyId, null));
     return () => { live = false; };
   }, [userId, companyId]);
