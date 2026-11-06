@@ -214,6 +214,7 @@ export function DocumentsPanel() {
                 key={activeTemplateType}
                 docType={activeTemplateType}
                 onChanged={load}
+                onOpenType={handleTemplateTypeChange}
               />
             </TabsContent>
 
