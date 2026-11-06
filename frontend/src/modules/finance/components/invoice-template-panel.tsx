@@ -1,7 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { Check, Eye, PlusCircle, Trash2 } from 'lucide-react';
+import { Check, Copy, Eye, PlusCircle, Trash2 } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { copyTargets, copyTemplateInput } from '../template-copy';
+import { getDocumentTemplateType } from '@/modules/documents/document-template-types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -250,9 +255,12 @@ function InvoiceTemplatePreview({ template }: { template: InvoiceTemplateInput }
 export function InvoiceTemplatePanel({
   docType = 'invoice',
   onChanged,
+  onOpenType,
 }: {
   docType?: TemplateDocumentType;
   onChanged?: () => void;
+  /** Show another kind's templates (after copying a template as that kind). */
+  onOpenType?: (type: TemplateDocumentType) => void;
 } = {}) {
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
@@ -399,6 +407,33 @@ export function InvoiceTemplatePanel({
         title: tr('Save failed', 'فشل الحفظ'),
         description: error?.message || tr('Could not save invoice template.', 'تعذّر حفظ قالب الفاتورة.'),
       });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Copy: what is on screen (unsaved edits included), under a new name, as this or a sibling kind.
+  const [copying, setCopying] = React.useState<{ name: string; docType: TemplateDocumentType } | null>(null);
+  const handleCopy = async () => {
+    const current = templates.find((t) => t.id === selectedTemplateId);
+    if (!copying || !current || !selectedCompany) return;
+    setSaving(true);
+    try {
+      const input = copyTemplateInput({ ...current, ...cleanForm(form) } as InvoiceTemplate, copying);
+      const saved = await createInvoiceTemplate(selectedCompany.id, input);
+      setCopying(null);
+      onChanged?.();
+      if (copying.docType === docType) {
+        const data = await getInvoiceTemplates(selectedCompany.id, docType);
+        setTemplates(data);
+        setSelectedTemplateId(saved.id);
+        setForm(toForm(saved));
+      } else {
+        onOpenType?.(copying.docType);
+      }
+      toast({ title: tr('Copy saved', 'تم حفظ النسخة'), description: saved.name });
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not copy the template', 'تعذّر نسخ القالب'), description: error?.message });
     } finally {
       setSaving(false);
     }
@@ -559,6 +594,18 @@ export function InvoiceTemplatePanel({
             {selectedTemplateId && (
               <Button type="button" variant="secondary" size="sm" onClick={() => setDesigning(true)}>
                 {tr('Design visually', 'تصميم مرئي')}
+              </Button>
+            )}
+            {selectedTemplateId && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCopying({ name: tr(`${form.name} (copy)`, `${form.name} (نسخة)`), docType })}
+                disabled={saving}
+              >
+                <Copy className="me-2 h-4 w-4" />
+                {tr('Copy', 'نسخ')}
               </Button>
             )}
             {selectedTemplateId && (
@@ -895,6 +942,52 @@ export function InvoiceTemplatePanel({
           <InvoiceTemplatePreview template={form} />
         </CardContent>
       </Card>
+
+      <Dialog open={copying !== null} onOpenChange={(open) => { if (!open) setCopying(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{tr('Copy template', 'نسخ القالب')}</DialogTitle>
+            <DialogDescription>
+              {tr(
+                'Everything is copied — look, logo, bank details, terms and design. Change only what differs.',
+                'ينسخ كل شيء — الشكل والشعار وبيانات البنك والشروط والتصميم. غيّر فقط اللي يختلف.',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {copying && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="copy-name">{tr('Name of the copy', 'اسم النسخة')}</Label>
+                <Input id="copy-name" dir="auto" value={copying.name} onChange={(event) => setCopying({ ...copying, name: event.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>{tr('Use it for', 'استخدمها لـ')}</Label>
+                <Select value={copying.docType} onValueChange={(value) => setCopying({ ...copying, docType: value as TemplateDocumentType })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {copyTargets(docType).map((type) => {
+                      const meta = getDocumentTemplateType(type);
+                      return <SelectItem key={type} value={type}>{tr(meta.label, meta.labelAr)}</SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+                {copying.docType !== docType && (
+                  <p className="text-xs text-muted-foreground">
+                    {tr('The heading word changes with it (e.g. INVOICE → QUOTATION).', 'كلمة العنوان تتغير معها (مثلاً: فاتورة ← عرض سعر).')}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopying(null)}>{tr('Cancel', 'إلغاء')}</Button>
+            <Button onClick={handleCopy} disabled={saving || !copying?.name.trim()}>
+              <Copy className="me-2 h-4 w-4" />
+              {tr('Make the copy', 'إنشاء النسخة')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
