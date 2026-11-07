@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowLeft, Braces, CheckCircle2, Save } from 'lucide-react';
+import { ArrowLeft, Braces, CheckCircle2, Eye, PenLine, RotateCcw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -15,12 +15,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { DocRenderer } from '@/modules/finance/doc/doc-renderer';
-import { GENERIC_TOKEN_GROUPS, fieldLabel, localizedTokenGroups, templateFields } from '@/modules/finance/doc/tokens';
+import { GENERIC_TOKEN_GROUPS, fieldLabel, localizedTokenGroups, resolveToken, templateFields } from '@/modules/finance/doc/tokens';
+import type { InvoiceDoc, RichNode } from '@/modules/finance/doc/types';
+import { DocumentWriter } from '@/modules/documents/components/document-writer';
+import {
+  BODY_KEY, blocksAroundWording, blocksToBody, bodyFields, newFieldToken, parseBody, writableRange,
+} from '@/modules/documents/written-body';
 import { publicDocumentUrl } from '@/services/publicService';
 import { templateToDoc } from '@/modules/finance/doc/template-to-doc';
 import type { Client, Invoice, InvoiceTemplate } from '@/modules/finance/types';
@@ -31,10 +38,18 @@ import { getClients } from '@/services/financeService';
 const NOTES_KEY = 'document.notes';
 const NO_CLIENT = 'none';
 
+/** The template's wording as a body to write in, notes written in where they went. */
+function startingBody(design: InvoiceDoc, notes: string): RichNode | null {
+  const range = writableRange(design.body);
+  return range ? blocksToBody(design.body.slice(range.start, range.end), notes) : null;
+}
+
 /**
- * Write a document from a template. Every {{field.*}} variable in the template
- * gets a box to fill in, the notes may use any variable, and a draft can be
- * reopened and changed until it is finalized.
+ * Write a document from a template. The template's wording opens on a page you
+ * write on like in Word (spec 2026-11-07-document-writer-design); every
+ * {{field.*}} in it gets a box to fill in and fills itself in on the page. A
+ * template with no wording to write over keeps the fill-in boxes and notes. A
+ * draft can be reopened and changed until it is finalized.
  */
 export function DocumentComposer({
   template,
@@ -51,6 +66,7 @@ export function DocumentComposer({
   const { selectedCompany } = useCompany();
   const { language } = useI18n();
   const { toast } = useToast();
+  const confirm = useConfirm();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [title, setTitle] = React.useState(document?.title ?? template.name);
   const [clientId, setClientId] = React.useState(document?.recordType === 'client' ? document.recordId ?? '' : '');
@@ -66,6 +82,13 @@ export function DocumentComposer({
   const [saving, setSaving] = React.useState(false);
   const notesRef = React.useRef<HTMLTextAreaElement>(null);
   const notes = values[NOTES_KEY] ?? '';
+  // The text written on the page: the draft's own, or the template's wording to start from.
+  const [body, setBody] = React.useState<RichNode | null>(() => (
+    parseBody(document?.fieldValues[BODY_KEY])
+    ?? startingBody(template.doc || templateToDoc(template), values[NOTES_KEY] ?? '')
+  ));
+  const [writerKey, setWriterKey] = React.useState(0);
+  const writing = body !== null;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -86,14 +109,28 @@ export function DocumentComposer({
   }, [selectedCompany]);
 
   const doc = React.useMemo(() => template.doc || templateToDoc(template), [template]);
-  // A template may name its own boxes (ready-made ones do, in their language).
-  const labelOf = (token: string) => (doc as { fieldLabels?: Record<string, string> }).fieldLabels?.[token] ?? fieldLabel(token);
-  // Fields the template asks for, plus any the notes or an earlier save use.
+  const inBody = React.useMemo(() => bodyFields(body), [body]);
+  // A field added on the page keeps the name it was given; a template may name its own boxes.
+  const knownLabels = React.useMemo(() => new Map(
+    localizedTokenGroups(GENERIC_TOKEN_GROUPS, language).flatMap((group) => group.tokens.map((item) => [item.token, item.label] as const)),
+  ), [language]);
+  const labelOf = (token: string) => inBody.find((f) => f.token === token)?.label
+    ?? (doc as { fieldLabels?: Record<string, string> }).fieldLabels?.[token]
+    ?? knownLabels.get(token)
+    ?? fieldLabel(token);
+  // Fields the template asks for, plus any the notes or an earlier save use. On a
+  // written page, the ones in the text: deleting a field from the text removes its box.
   const fields = React.useMemo(() => {
+    if (writing) return [...new Set([...templateFields(blocksAroundWording(doc)), ...inBody.map((f) => f.token)])];
     const asked = templateFields(doc);
     const extra = [...templateFields(notes), ...Object.keys(values).filter((key) => key.startsWith('field.'))];
     return [...new Set([...asked, ...extra])];
-  }, [doc, notes, values]);
+  }, [doc, inBody, notes, values, writing]);
+  const bodyJson = React.useMemo(() => (body ? JSON.stringify(body) : undefined), [body]);
+  const printedValues = React.useMemo(
+    () => (bodyJson ? { ...values, [BODY_KEY]: bodyJson } : values),
+    [bodyJson, values],
+  );
 
   const selectedClient = React.useMemo(
     () => clients.find((client) => client.id === clientId),
@@ -119,6 +156,40 @@ export function DocumentComposer({
 
   const setValue = (key: string, value: string) => setValues((prev) => ({ ...prev, [key]: value }));
 
+  const docLocale = doc.direction === 'rtl' ? 'ar' : doc.direction === 'ltr' ? 'en' : (language === 'ar' ? 'ar' : 'en');
+  // What a field shows on the page: the same value the print shows.
+  const valueOf = (token: string) => resolveToken(token, {
+    invoice: previewInvoice,
+    client: selectedClient,
+    company: selectedCompany,
+    subtotal: 0,
+    taxAmount: 0,
+    total: 0,
+    formatMoney: String,
+    publicUrl: '',
+    fields: values,
+    locale: docLocale,
+  });
+  const focusField = (token: string) => {
+    const box = window.document.getElementById(`doc-${token}`);
+    if (box) {
+      box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      box.focus();
+    }
+  };
+  const newField = (name: string) => ({ token: newFieldToken(name, fields), label: name.trim() });
+  const resetWording = async () => {
+    const ok = await confirm({
+      title: tr('Go back to the template wording?', 'الرجوع إلى نص القالب؟'),
+      description: tr('Everything written on this page is replaced by the template’s text. Filled-in boxes are kept.', 'سيُستبدل كل ما كُتب في هذه الصفحة بنص القالب. تبقى الخانات المعبأة كما هي.'),
+      confirmText: tr('Replace the text', 'استبدال النص'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setBody(startingBody(doc, ''));
+    setWriterKey((key) => key + 1);
+  };
+
   const insertVariable = (token: string) => {
     const el = notesRef.current;
     const text = `{{${token}}}`;
@@ -143,9 +214,10 @@ export function DocumentComposer({
       return;
     }
     // Only keep values that are still in use, so a renamed field leaves no ghost.
-    const fieldValues = Object.fromEntries(
+    const fieldValues: Record<string, string> = Object.fromEntries(
       Object.entries(values).filter(([key]) => key === NOTES_KEY || fields.includes(key)),
     );
+    if (bodyJson) fieldValues[BODY_KEY] = bodyJson;
     setSaving(true);
     try {
       if (document) {
@@ -260,6 +332,11 @@ export function DocumentComposer({
             </fieldset>
           )}
 
+          {writing ? (
+            <p className="text-xs text-muted-foreground">
+              {tr('Write on the page as in Word. Fields such as the client’s name fill themselves in; click one to jump to its box.', 'اكتب في الصفحة كما في وورد. الحقول مثل اسم العميل تُملأ تلقائيًا؛ اضغط على أي حقل للانتقال إلى خانته.')}
+            </p>
+          ) : (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="doc-notes">{tr('Document notes', 'ملاحظات المستند')}</Label>
@@ -297,8 +374,54 @@ export function DocumentComposer({
               {tr('Type {{field.anything}} to add your own field to fill in.', 'اكتب {{field.anything}} لإضافة حقل خاص بك.')}
             </p>
           </div>
+          )}
         </div>
 
+        {writing && body ? (
+          <Tabs defaultValue="write" className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <TabsList>
+                <TabsTrigger value="write"><PenLine className="me-2 h-4 w-4" />{tr('Write', 'كتابة')}</TabsTrigger>
+                <TabsTrigger value="preview"><Eye className="me-2 h-4 w-4" />{tr('Print preview', 'معاينة الطباعة')}</TabsTrigger>
+              </TabsList>
+              <Button type="button" variant="ghost" size="sm" onClick={resetWording}>
+                <RotateCcw className="me-2 h-4 w-4" />{tr('Template wording', 'نص القالب')}
+              </Button>
+            </div>
+            <TabsContent value="write" className="mt-0">
+              <DocumentWriter
+                key={writerKey}
+                value={body}
+                onChange={setBody}
+                page={doc.page}
+                theme={doc.theme}
+                direction={docLocale === 'ar' ? 'rtl' : 'ltr'}
+                fields={{ valueOf, labelOf, onFieldClick: focusField }}
+                fieldGroups={variableGroups.map((group) => ({ ...group, tokens: group.tokens.filter((item) => item.token !== NOTES_KEY) }))}
+                onNewField={newField}
+                tr={tr}
+              />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {tr('The logo, letterhead and signatures are added around your text when printed — see the print preview.', 'الشعار والترويسة والتواقيع تُضاف حول النص عند الطباعة — شاهد معاينة الطباعة.')}
+              </p>
+            </TabsContent>
+            <TabsContent value="preview" className="mt-0">
+              <div className="overflow-auto rounded-lg border bg-muted/30 p-4">
+                <div className="mx-auto w-fit">
+                  <DocRenderer
+                    doc={doc}
+                    invoice={previewInvoice}
+                    client={selectedClient}
+                    company={selectedCompany}
+                    template={template}
+                    publicUrl={publicDocumentUrl(previewInvoice.id)}
+                    fields={printedValues}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        ) : (
         <div className="min-w-0 overflow-auto rounded-lg border bg-muted/30 p-4">
           <div className="mx-auto w-fit">
             <DocRenderer
@@ -312,6 +435,7 @@ export function DocumentComposer({
             />
           </div>
         </div>
+        )}
       </div>
     </div>
   );

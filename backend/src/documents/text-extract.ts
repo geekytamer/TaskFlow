@@ -157,6 +157,48 @@ export async function extractFileText(file: { fileName: string; mimeType?: strin
   }
 }
 
+// ── Documents written like in Word (spec 2026-11-07-document-writer-design) ──
+// Mirrors frontend/src/modules/documents/written-body.ts.
+
+interface WrittenNode { type: string; attrs?: Record<string, unknown>; content?: WrittenNode[]; text?: string }
+
+function writtenBody(raw: string | undefined): WrittenNode | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as WrittenNode;
+    return value && value.type === 'doc' && Array.isArray(value.content) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The longest run of top-level heading/text blocks: what the written body replaces. */
+function wordingRange(blocks: Array<Record<string, unknown>>): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  let start = -1;
+  blocks.forEach((block, index) => {
+    if (block?.type === 'heading' || block?.type === 'text') {
+      if (start < 0) start = index;
+      if (!best || index + 1 - start > best.end - best.start) best = { start, end: index + 1 };
+    } else {
+      start = -1;
+    }
+  });
+  return best;
+}
+
+function writtenText(body: WrittenNode, fill: (token: string) => string): string {
+  const walk = (node: WrittenNode): string => {
+    if (node.type === 'text') return node.text ?? '';
+    if (node.type === 'token') return fill(String(node.attrs?.token ?? ''));
+    if (node.type === 'hardBreak') return '\n';
+    const inner = (node.content ?? []).map(walk).join(node.type === 'tableRow' ? '\t' : '');
+    if (node.type === 'tableCell' || node.type === 'tableHeader') return inner.trim();
+    return ['paragraph', 'heading', 'listItem', 'tableRow'].includes(node.type) ? `${inner}\n` : inner;
+  };
+  return walk(body).replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** Text of a document made in the app: its blocks with the fields filled in. */
 export function documentText(doc: { title: string; docSnapshot?: unknown; templateSnapshot?: { doc?: unknown } }, tokens: Record<string, string>): Extracted {
   const out: string[] = [doc.title];
@@ -176,7 +218,19 @@ export function documentText(doc: { title: string; docSnapshot?: unknown; templa
   };
   // Older templates freeze their design in docSnapshot; typed ones inside the template snapshot.
   const design = (doc.docSnapshot ?? doc.templateSnapshot?.doc) as { body?: unknown } | undefined;
-  walk(design?.body);
+  const written = writtenBody(tokens['document.body']);
+  if (written && Array.isArray(design?.body)) {
+    // Written like in Word: the page's own text replaces the template's run of wording.
+    const blocks = design.body as Array<Record<string, unknown>>;
+    const range = wordingRange(blocks);
+    walk(range ? blocks.slice(0, range.start) : blocks);
+    out.push(writtenText(written, (token) => fill(`{{${token}}}`)));
+    if (range) walk(blocks.slice(range.end));
+  } else if (written) {
+    out.push(writtenText(written, (token) => fill(`{{${token}}}`)));
+  } else {
+    walk(design?.body);
+  }
   // A document with no design yet still carries what was typed into it.
   if (out.length === 1) for (const [k, v] of Object.entries(tokens)) if (k.startsWith('field.') || k === 'document.notes') out.push(v);
   return finish(out.filter((s) => s && s.trim()).join('\n'));
