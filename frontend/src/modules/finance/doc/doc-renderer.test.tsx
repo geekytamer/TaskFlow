@@ -114,3 +114,48 @@ test('letterhead renders as a fixed layer repeated by Chromium on every printed 
   assert.doesNotMatch(html, /background-repeat:\s*repeat-y/);
   assert.doesNotMatch(html, /calc\(100% \+/);
 });
+
+test('a document written like in Word prints its own text, fields filled in, never as HTML', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const body = {
+    type: 'doc',
+    content: [
+      { type: 'heading', attrs: { level: 1, textAlign: 'center' }, content: [{ type: 'text', text: 'My own MoU' }] },
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Between us and ' },
+        { type: 'token', attrs: { token: 'client.name' } },
+        { type: 'text', text: ' for ', marks: [{ type: 'bold' }] },
+        { type: 'token', attrs: { token: 'field.fee' } },
+        { type: 'text', text: '<img src=x onerror=alert(1)>' },
+      ] },
+      { type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First duty' }] }] }] },
+      { type: 'weirdNode', content: [{ type: 'text', text: 'dropped' }] },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    <DocRenderer
+      doc={{
+        version: 1,
+        page: { size: 'A4', orientation: 'portrait', margin: { top: 20, right: 20, bottom: 20, left: 20 } },
+        theme: { fontFamily: 'Arial', primaryColor: '#111827', accentColor: '#2563eb', textColor: '#111827' },
+        body: [
+          { id: 'logo', type: 'image', binding: 'logo' },
+          { id: 't', type: 'heading', level: 1, content: 'Template title' },
+          { id: 'p', type: 'text', content: 'Template wording' },
+          { id: 'sign', type: 'text', content: 'Signature line' },
+        ] as never,
+      }}
+      invoice={{ id: 'd1', invoiceNumber: 'D1', companyId: 'c1', clientId: 'cl', issueDate: new Date(), dueDate: new Date(), lineItems: [], total: 0, status: 'Draft', notes: '', currency: '', taxRate: 0 } as never}
+      client={{ id: 'cl', name: 'Sea Pearl' } as never}
+      publicUrl=""
+      fields={{ 'field.fee': '1,200 OMR', 'document.body': JSON.stringify(body) }}
+    />,
+  );
+  assert.match(html, /My own MoU/);
+  assert.match(html, /Between us and Sea Pearl<strong> for <\/strong>1,200 OMR/);
+  assert.match(html, /<ol[^>]*>.*First duty/);
+  assert.doesNotMatch(html, /Template wording|Template title|Signature line/, 'the whole run of wording is replaced');
+  assert.doesNotMatch(html, /<img src=x/, 'text that looks like HTML stays text');
+  assert.match(html, /&lt;img src=x/);
+  assert.doesNotMatch(html, /dropped/, 'unknown nodes are not drawn');
+});

@@ -139,6 +139,21 @@ export interface PageBreakBlock extends BaseBlock {
   type: 'pageBreak';
 }
 
+/** A node of written text (the editor's JSON: paragraph, heading, list, table, text, token…). */
+export interface RichNode {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: RichNode[];
+  text?: string;
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+}
+
+/** One paragraph (or heading, list, table) of a document written like in Word. */
+export interface RichTextBlock extends BaseBlock {
+  type: 'richText';
+  node: RichNode;
+}
+
 export type Block =
   | ContainerBlock
   | TextBlock
@@ -153,7 +168,8 @@ export type Block =
   | PaymentBlock
   | SignatureBlock
   | QrBlock
-  | PageBreakBlock;
+  | PageBreakBlock
+  | RichTextBlock;
 
 export interface DocPageSetup {
   size: 'A4' | 'Letter';

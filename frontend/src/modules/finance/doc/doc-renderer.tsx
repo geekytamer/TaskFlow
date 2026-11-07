@@ -19,7 +19,9 @@ import type {
   TextBlock,
   TotalsBlock,
 } from './types';
-import { resolveTokens, type DocDataContext } from './tokens';
+import { resolveToken, resolveTokens, type DocDataContext } from './tokens';
+import { RichNodeView } from './rich-text';
+import { BODY_KEY, withWrittenBody } from '@/modules/documents/written-body';
 import { docStrings, isRtlLocale, type DocStrings } from './strings';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
@@ -207,7 +209,7 @@ export function paginatePreviewBlocks(
 }
 
 export function DocRenderer({
-  doc,
+  doc: designDoc,
   invoice,
   client,
   company,
@@ -219,6 +221,9 @@ export function DocRenderer({
   onSelectBlock,
   onReorderBlock,
 }: DocRendererProps) {
+  // A document written like in Word prints its own wording in place of the template's.
+  const writtenBody = fields?.[BODY_KEY];
+  const doc = React.useMemo(() => withWrittenBody(designDoc, writtenBody), [designDoc, writtenBody]);
   // Only standard-rated lines carry VAT (the same rule the server totals and posts with).
   const vat = invoiceVat(invoice.lineItems, invoice.taxRate || 0);
   const subtotal = vat.net;
@@ -307,6 +312,12 @@ export function DocRenderer({
         const t = block as TextBlock;
         return <div key={block.id} style={{ whiteSpace: 'pre-line', ...base }}>{resolveTokens(t.content, ctx)}</div>;
       }
+      case 'richText':
+        return (
+          <div key={block.id} style={base}>
+            <RichNodeView node={block.node} resolve={(token) => resolveToken(token, ctx)} primaryColor={theme.primaryColor} />
+          </div>
+        );
       case 'heading': {
         const sizes = { 1: 28, 2: 20, 3: 16 } as const;
         return (

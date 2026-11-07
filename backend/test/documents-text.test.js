@@ -101,6 +101,27 @@ test('a generated document reads with its fields filled in', () => {
   assert.equal(out.text, 'MoU\nمذكرة تفاهم\nPurpose: joint campaigns\nSigned with Zubair Hotel');
 });
 
+test('a document written like in Word reads its own text in place of the template wording', () => {
+  const body = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Our own MoU' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'With ' }, { type: 'token', attrs: { token: 'client.name' } }, { type: 'hardBreak' }, { type: 'text', text: 'Fee: ' }, { type: 'token', attrs: { token: 'field.fee' } }] },
+    { type: 'table', content: [{ type: 'tableRow', content: [
+      { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Phase 1' }] }] },
+      { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'March' }] }] },
+    ] }] },
+  ] };
+  const doc = { title: 'MoU', templateSnapshot: { doc: { body: [
+    { type: 'image', binding: 'logo' },
+    { type: 'heading', content: 'Template title' },
+    { type: 'text', content: 'Template wording {{field.fee}}' },
+    { type: 'container', children: [{ type: 'text', content: 'Signed for {{company.name}}' }] },
+  ] } } };
+  const out = X.documentText(doc, { 'document.body': JSON.stringify(body), 'client.name': 'Zubair Hotel', 'field.fee': '900 OMR', 'company.name': 'Peak' });
+  assert.equal(out.text, 'MoU\nOur own MoU\nWith Zubair Hotel\nFee: 900 OMR\nPhase 1\tMarch\nSigned for Peak');
+  // A broken body falls back to the template's wording.
+  assert.match(X.documentText(doc, { 'document.body': '{oops', 'field.fee': '1' }).text, /Template wording 1/);
+});
+
 test('a snippet shows the words around the match, in the original spelling', () => {
   const text = `${'x '.repeat(80)}ويلتزم الطرفان بدفع الأتعاب خلال ثلاثين يوماً ${'y '.repeat(80)}`;
   const s = X.snippetOf(text, 'الاتعاب');
@@ -183,4 +204,29 @@ test('a generated document is searchable and readable with its fields', async ()
   const edited = await as(admin).put(`/documents/${made.body.id}`, { fieldValues: { 'field.purpose': 'winter tea campaign' } });
   assert.equal(edited.status, 200, JSON.stringify(edited.body));
   assert.ok((await as(admin).get(`/documents/${made.body.id}/text`)).body.text.includes('winter tea campaign'));
+});
+
+test('the text written on the page is saved, may be long, and must be editor JSON', async () => {
+  const { store, co, mk, as } = setup('legacy');
+  const admin = mk('Admin');
+  const template = store.createInvoiceTemplate({
+    companyId: co.id, name: 'MoU', docType: 'custom', layout: 'classic', isDefault: false, primaryColor: '#000', accentColor: '#000',
+    watermarkEnabled: false, showCompanyAddress: true, showTaxId: true,
+    doc: { version: 1, page: { size: 'A4', orientation: 'portrait', margin: {} }, theme: {}, body: [{ id: 'a', type: 'text', content: 'Template wording' }] },
+  });
+  const long = 'A clause about the harbour lease. '.repeat(1500);
+  const body = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: long }] }] });
+  assert.ok(body.length > 20000);
+  const made = await as(admin).post(`/companies/${co.id}/documents`, { templateId: template.id, title: 'Harbour', fieldValues: { 'document.body': body } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.fieldValues['document.body'], body);
+  const read = await as(admin).get(`/documents/${made.body.id}/text`);
+  assert.ok(read.body.text.includes('harbour lease') && !read.body.text.includes('Template wording'), read.body.text.slice(0, 200));
+  for (const bad of ['<p>html</p>', '{"type":"paragraph"}', '"doc"']) {
+    const refused = await as(admin).put(`/documents/${made.body.id}`, { fieldValues: { 'document.body': bad } });
+    assert.equal(refused.status, 400, bad);
+  }
+  const tooLong = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(400001) }] }] });
+  assert.equal((await as(admin).put(`/documents/${made.body.id}`, { fieldValues: { 'document.body': tooLong } })).status, 400);
+  assert.equal((await as(admin).put(`/documents/${made.body.id}`, { fieldValues: { 'field.other': 'y'.repeat(20001) } })).status, 400, 'other fields keep their limit');
 });
