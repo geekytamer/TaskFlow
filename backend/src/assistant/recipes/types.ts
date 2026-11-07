@@ -13,6 +13,8 @@ export interface RecipeContext {
   currency: string;
   /** The language the person wrote in; confirm-card summaries follow it. */
   lang: Lang;
+  /** What the person asked, in their words (checks what the model passes against it). */
+  request?: string;
   get<T = unknown>(path: string): Promise<T>;
   /** A change that waits for the person's confirmation; resolves to { pending, actionId, summary }. */
   propose(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body: unknown, summary: string): Promise<unknown>;

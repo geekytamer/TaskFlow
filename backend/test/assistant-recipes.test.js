@@ -81,7 +81,7 @@ test('myTasks: the person\'s open tasks by default; overdue and week filters', a
 
 test('createTasks: one proposal per task, done ones dated today, summary in the person\'s language', async () => {
   const { run, fx } = setup();
-  const out = await run("return await tf.createTasks([{ title: 'Visit the bank', status: 'Done' }, { title: 'Call Omar', dueDate: 'tomorrow', priority: 'High' }]);", fx.admin.id, 'سجل المهام');
+  const out = await run("return await tf.createTasks([{ title: 'زيارة البنك', status: 'Done' }, { title: 'الاتصال بعمر', dueDate: 'tomorrow', priority: 'High' }]);", fx.admin.id, 'سجل: زرت البنك، واتصل بعمر بكرة، أولوية عالية');
   assert.equal(out.proposals.length, 2);
   const [a, b] = out.proposals;
   assert.equal(a.body.status, 'Done');
@@ -90,6 +90,34 @@ test('createTasks: one proposal per task, done ones dated today, summary in the 
   assert.equal(b.body.dueDate, fx.tomorrow);
   assert.equal(b.body.priority, 'High');
   assert.match(a.summary, /تسجيل مهمة منجزة/);
+});
+
+test('createTasks checks what the model passes against what the person said (2026-11-07, Peak)', async () => {
+  const { run, fx } = setup();
+  // "سوي مهمه لبعرب يروح لحداد..." came back as an English title, given to the person, due today, High.
+  const asked = 'سوي مهمه لبسامنثا تروح للحداد عشان يفصل تعليق ملابس';
+  const translated = await run("return await tf.createTasks([{ title: 'Go to the tailor', assignTo: 'me' }]);", fx.admin.id, asked);
+  assert.equal(translated.proposals.length, 0);
+  assert.match(translated.error, /Arabic/);
+  const toSelf = await run("return await tf.createTasks([{ title: 'تروح للحداد عشان يفصل تعليق ملابس', assignTo: 'me', dueDate: 'today', priority: 'High' }]);", fx.admin.id, asked);
+  assert.equal(toSelf.proposals.length, 0);
+  assert.match(toSelf.error, /named Samantha.*assignTo: 'Samantha/);
+  // The name as typed, stray letter and all, finds her; no date or urgency was said, so none is set.
+  const right = await run("return await tf.createTasks([{ title: 'تروح للحداد عشان يفصل تعليق ملابس', assignTo: 'لبسامنثا', dueDate: 'today', priority: 'High' }]);", fx.admin.id, asked);
+  assert.equal(right.proposals.length, 1, JSON.stringify(right));
+  const [p] = right.proposals;
+  assert.deepEqual(p.body.assignedUserIds, [fx.samantha.id]);
+  assert.equal(p.body.dueDate, undefined);
+  assert.equal(p.body.priority, 'Medium');
+  assert.match(p.summary, /^إنشاء مهمة: تروح للحداد عشان يفصل تعليق ملابس لـ Samantha/);
+  // "For me" is for me, whoever else is named; a said date and urgency are kept.
+  const mine = await run("return await tf.createTasks([{ title: 'اتصل بسامنثا', dueDate: 'tomorrow', priority: 'Urgent' }]);", fx.admin.id, 'سوي لي مهمة اتصل بسامنثا بكرة ضروري');
+  assert.deepEqual(mine.proposals[0].body.assignedUserIds, [fx.admin.id]);
+  assert.equal(mine.proposals[0].body.dueDate, fx.tomorrow);
+  assert.equal(mine.proposals[0].body.priority, 'Urgent');
+  // Words that only sound like a name when a letter is dropped do not count ("عشان" is not Aisha).
+  const plain = await run("return await tf.createTasks([{ title: 'ترتيب المكتب عشان الزيارة' }]);", fx.admin.id, 'سوي مهمة ترتيب المكتب عشان الزيارة');
+  assert.deepEqual(plain.proposals[0].body.assignedUserIds, [fx.admin.id]);
 });
 
 test('updateTask and logTime find the task by title; assignTo finds the person by name', async () => {

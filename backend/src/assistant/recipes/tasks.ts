@@ -1,8 +1,33 @@
 import type { Recipe, RecipeContext } from './types';
-import { addDays, argsOf, dateArg, dayOf, memberId, oneOf, pickOne, say } from './util';
+import { addDays, argsOf, dateArg, dayOf, memberId, membersNamed, norm, oneOf, pickOne, saysSelf, say } from './util';
 
 const STATUSES = ['To Do', 'In Progress', 'Waiting', 'In Review', 'Done'] as const;
 const PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const;
+
+const ARABIC_LETTER = /[\u0600-\u06FF]/;
+/** Words that give a date: a small model fills in "today" when none was said. */
+const DATE_WORDS = /\d|today|tomorrow|tonight|yesterday|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday|by |before|until|due|deadline|next|اليوم|الليله|بكره|بكرا|باكر|غدا|امس|اسبوع|الاسبوع|شهر|الاحد|الاثنين|الثلاثاء|الاربعاء|الخميس|الجمعه|السبت|قبل|موعد|الجاي|القادم|نهايه|بعد/;
+/** Words that say how urgent: otherwise a new task is Medium. */
+const URGENT_WORDS = /urgent|asap|high|low|priority|important|critical|quick|عاجل|ضروري|مستعجل|مهم(?!ه)|اولويه|بسرعه|فورا|حالا|منخفض|عالي|بسيط/;
+
+/**
+ * What the model passed that the person did not ask for, against their own
+ * words: a title translated away from Arabic, a colleague named but the task
+ * given to the person. Returns the reason, so the model fixes it and tries again.
+ */
+async function notWhatWasAsked(ctx: RecipeContext, title: string, assignTo: unknown): Promise<string | undefined> {
+  const asked = ctx.request ?? '';
+  if (!asked) return undefined;
+  if (ctx.lang === 'ar' && !ARABIC_LETTER.test(title)) {
+    return `the person wrote in Arabic: the title is what the task is, in Arabic and in their own words (do not translate; leave out "make a task for <name>"). Got "${title}"`;
+  }
+  const toSelf = assignTo === undefined || assignTo === null || assignTo === '' || ['me', 'myself', 'انا', 'لي', 'نفسي'].includes(norm(assignTo));
+  if (toSelf && !saysSelf(asked)) {
+    const named = await membersNamed(ctx, asked);
+    if (named.length === 1) return `the person named ${named[0].name}: the task is for them. Pass assignTo: '${named[0].name}'`;
+  }
+  return undefined;
+}
 
 interface TaskRow { id: string; title: string; status: string; priority: string; dueDate?: string | null; assignedUserIds?: string[]; projectId?: string }
 
@@ -70,8 +95,13 @@ export const createTasks: Recipe = {
       const title = String(t.title ?? t.text ?? '').trim();
       if (!title) throw new Error('each task needs a title');
       const status = oneOf(t.status, STATUSES, 'status');
-      const dueDate = dateArg(ctx, t.dueDate ?? t.due, 'dueDate') ?? (status === 'Done' ? ctx.today : undefined);
-      const priority = oneOf(t.priority, PRIORITIES, 'priority') ?? 'Medium';
+      const wrong = await notWhatWasAsked(ctx, title, t.assignTo);
+      if (wrong) throw new Error(wrong);
+      const asked = norm(ctx.request ?? '');
+      // Only a date or an urgency the person gave: a small model adds "today" and High on its own.
+      const saidDate = !ctx.request || DATE_WORDS.test(asked);
+      const dueDate = (saidDate ? dateArg(ctx, t.dueDate ?? t.due, 'dueDate') : undefined) ?? (status === 'Done' ? ctx.today : undefined);
+      const priority = (!ctx.request || URGENT_WORDS.test(asked) ? oneOf(t.priority, PRIORITIES, 'priority') : undefined) ?? 'Medium';
       const assignee = t.assignTo ? await memberId(ctx, t.assignTo) : ctx.userId;
       const body = {
         title, companyId: ctx.companyId, priority, assignedUserIds: [assignee],
@@ -79,9 +109,11 @@ export const createTasks: Recipe = {
         ...(t.description ? { description: String(t.description) } : {}),
         ...(t.projectId ? { projectId: String(t.projectId) } : {}),
       };
+      // On the confirm button: whose task it is, when it is not the person's own.
+      const forWhom = assignee !== ctx.userId ? ctx.names.user(assignee) ?? (await membersNamed(ctx, String(t.assignTo ?? ''))).find((m) => m.id === assignee)?.name : undefined;
       const summary = status === 'Done'
         ? say(ctx, `Record the done task: ${title}`, `تسجيل مهمة منجزة: ${title}`)
-        : say(ctx, `Create the task: ${title}${dueDate ? `, due ${dueDate}` : ''}`, `إنشاء مهمة: ${title}${dueDate ? `، موعدها ${dueDate}` : ''}`);
+        : say(ctx, `Create the task: ${title}${forWhom ? ` for ${forWhom}` : ''}${dueDate ? `, due ${dueDate}` : ''}`, `إنشاء مهمة: ${title}${forWhom ? ` لـ ${forWhom}` : ''}${dueDate ? `، موعدها ${dueDate}` : ''}`);
       out.push(await ctx.propose('POST', '/tasks', body, summary));
     }
     return out;
