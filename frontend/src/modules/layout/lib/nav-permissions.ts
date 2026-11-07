@@ -6,7 +6,8 @@
  * palette, the section links and the page guards. A destination absent from
  * this map is open to every member: /tasks decides visibility per record (a
  * person always sees their own tasks), /inbox lists what each person may see (staff chats are for everyone),
- * /academy and /diagram are for everyone; /approvals lists what each person decides or asked
+ * /academy and /diagram are for everyone; /documents is too (without documents.view it is
+ * only the library of the person's own task and project files); /approvals lists what each person decides or asked
  * for (a Legal team member may be an Employee).
  */
 export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
@@ -15,7 +16,6 @@ export const NAV_PERMISSIONS: Readonly<Record<string, string>> = {
   // nothing for them; a role with Projects = None sees no project at all, so
   // the menu entry goes too (M-11).
   '/projects': 'projects.view',
-  '/documents': 'documents.view',
   '/sales': 'sales.view',
   '/purchases': 'purchasing.view',
   '/purchases/requisitions': 'purchasing.view',

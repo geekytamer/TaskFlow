@@ -1660,6 +1660,8 @@ export function createServer(options: CreateServerOptions = {}) {
     companyId: string,
     entityType: RecordEntityType,
     entityId: string,
+    /** The permission for records other than tasks and projects, where the route declares none of its own (per_record). */
+    key?: string,
   ) => {
     requireCompanyAccess(req, companyId);
     const recordModule = RECORD_ENTITY_MODULES[entityType];
@@ -1680,7 +1682,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireTaskViewAccess(req, task);
       return;
     }
-    requireCompanyRoles(req, companyId, companyManagementRoles);
+    requireCompanyRoles(req, companyId, companyManagementRoles, key);
   };
 
   const ensureUsersBelongToCompany = (userIds: string[], companyId: string, fieldName: string) => {
@@ -5922,7 +5924,8 @@ export function createServer(options: CreateServerOptions = {}) {
     handler((req, res) => {
       const attachment = store.getRecordAttachmentById(req.params.id);
       if (!attachment) throw new HttpError(404, 'Attachment not found.');
-      requireRecordSupportAccess(req, attachment.companyId, attachment.entityType, attachment.entityId);
+      // Whoever can see a task or project opens its files (as the library lists them); any other record's files need documents.view.
+      requireRecordSupportAccess(req, attachment.companyId, attachment.entityType, attachment.entityId, 'documents.view');
       const file = store.getRecordAttachmentContent(req.params.id);
       if (!file) throw new HttpError(404, 'This attachment has no stored file to download.');
       const disposition = req.query.download !== undefined ? 'attachment' : 'inline';

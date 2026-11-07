@@ -6,7 +6,7 @@ import { useI18n } from '@/context/i18n-context';
 import { DocumentsPage } from '@/modules/documents/components/documents-page';
 
 export default function DocumentsRoute() {
-  const { user, loading, allowed } = useAuthGuard('documents.view');
+  const { user, loading, allowed } = useAuthGuard(); // every member: employees get their own library (DocumentsPage)
   const { t } = useI18n();
 
   if (loading || !user) {

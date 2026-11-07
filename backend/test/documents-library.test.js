@@ -66,7 +66,7 @@ for (const engine of ['legacy', 'v2']) {
     assert.deepEqual(folders, ['Company papers']);
   });
 
-  test(`a private contact's file shows exactly to those who can open the contact; an employee has no library (${engine})`, async () => {
+  test(`a private contact's file shows exactly to those who can open the contact; an employee never sees it (${engine})`, async () => {
     const { store, co, mk, as, library } = setup(engine);
     const owner = mk('Manager');
     const other = mk('Manager');
@@ -78,7 +78,33 @@ for (const engine of ['legacy', 'v2']) {
     // The library never decides on its own: it follows the contact's rule.
     const opens = (await as(other).get(`/contacts/${secret.id}`)).status === 200;
     assert.equal((await library(other)).items.length, opens ? 1 : 0, 'same answer as opening the contact');
-    assert.equal((await as(employee).get(`/companies/${co.id}/library`)).status, 403);
+    assert.deepEqual((await library(employee)).items, [], 'a contact file is not an employee\'s');
+  });
+
+  test(`an employee's library is the files on the tasks and projects they can see, and each one opens (${engine})`, async () => {
+    const { store, co, mk, as, library } = setup(engine);
+    const admin = mk('Admin');
+    const employee = mk('Employee');
+    const content = store.createProject({ name: 'Content', description: '', color: '#000', companyId: co.id, visibility: 'Private', memberIds: [admin.id, employee.id] });
+    const mine = store.createTask({ title: 'Shoot reel', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: co.id, projectId: content.id, assignedUserIds: [employee.id] });
+    const secret = store.createProject({ name: 'Secret launch', description: '', color: '#000', companyId: co.id, visibility: 'Private', memberIds: [admin.id] });
+    const notMine = store.createTask({ title: 'Board pack', description: '', status: 'To Do', priority: 'Medium', tags: [], companyId: co.id, projectId: secret.id, assignedUserIds: [admin.id] });
+    const client = store.createContact({ companyId: co.id, kind: 'Organization', name: 'Zubair Hotel', roles: ['Client'] });
+    const up = (entity, id, fileName) => as(admin).post(`/companies/${co.id}/records/${entity}/${id}/attachments`, { fileName, mimeType: 'application/pdf', contentBase64: PDF });
+    const shot = await up('task', mine.id, 'shot list.pdf');
+    assert.equal(shot.status, 201, JSON.stringify(shot.body));
+    for (const [entity, id, name] of [['task', notMine.id, 'board.pdf'], ['project', secret.id, 'brief.pdf'], ['contact', client.id, 'contract.pdf'], ['company', co.id, 'register.pdf']]) {
+      assert.equal((await up(entity, id, name)).status, 201, name);
+    }
+    const tpl = store.createDocumentTemplate(co.id, { name: 'NDA', type: 'letter', dataSource: 'none' });
+    store.createDocument(co.id, { templateId: tpl.id, title: 'Salary letter', status: 'draft' });
+
+    assert.equal((await library(admin)).items.length, 6, 'management sees all of it');
+    const { items } = await library(employee);
+    assert.deepEqual(items.map((i) => [i.name, i.recordLabel, i.route]), [['shot list.pdf', 'Shoot reel', `/projects/${content.id}`]], 'only the file on their own task');
+    const opened = await as(employee).get(`/record-attachments/${shot.body.id}/content`);
+    assert.equal(opened.status, 200, 'what the library lists, the person can open');
+    assert.deepEqual((await library(employee, '?q=board')).items, [], 'search never reaches past the rule');
   });
 
   test(`a private project's file shows exactly to those who can open the project (${engine})`, async () => {

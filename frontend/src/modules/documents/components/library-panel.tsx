@@ -76,6 +76,9 @@ export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } =
   const canUpload = can('documents.create');
   const canEdit = can('documents.edit');
   const canDelete = can('documents.delete');
+  // Without documents.view the library is only the files on the person's tasks and projects (server rule).
+  const full = can('documents.view');
+  const sources = full ? SOURCES : SOURCES.filter((s) => s.value === 'task' || s.value === 'project');
   const companyId = selectedCompany?.id;
 
   const [q, setQ] = React.useState('');
@@ -185,7 +188,7 @@ export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } =
           <SelectTrigger className="w-48" aria-label={tr('From', 'المصدر')}><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{tr('From anywhere', 'من كل مكان')}</SelectItem>
-            {SOURCES.map((s) => <SelectItem key={s.value} value={s.value}>{tr(s.en, s.ar)}</SelectItem>)}
+            {sources.map((s) => <SelectItem key={s.value} value={s.value}>{tr(s.en, s.ar)}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={folder} onValueChange={setFolder}>
@@ -226,10 +229,15 @@ export function LibraryPanel({ onNewDocument }: { onNewDocument?: () => void } =
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             {filtered
               ? tr('Try another word or clear the filters.', 'جرّب كلمة أخرى أو امسح الفلاتر.')
-              : tr(
-                'Files attached to tasks, clients, invoices and projects show up here, along with documents you create. Upload company papers straight to the library.',
-                'الملفات المرفقة على المهام والعملاء والفواتير والمشاريع تظهر هنا، مع المستندات اللي تنشئها. ارفع أوراق الشركة مباشرة للمكتبة.',
-              )}
+              : full
+                ? tr(
+                  'Files attached to tasks, clients, invoices and projects show up here, along with documents you create. Upload company papers straight to the library.',
+                  'الملفات المرفقة على المهام والعملاء والفواتير والمشاريع تظهر هنا، مع المستندات اللي تنشئها. ارفع أوراق الشركة مباشرة للمكتبة.',
+                )
+                : tr(
+                  'Files attached to your tasks and projects show up here.',
+                  'الملفات المرفقة على مهامك ومشاريعك تظهر هنا.',
+                )}
           </p>
         </div>
       ) : (
