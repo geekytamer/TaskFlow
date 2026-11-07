@@ -169,7 +169,7 @@ test('createContact proposes with roles checked; pendingApprovals reads the pers
   assert.deepEqual(approvals.result, []);
 });
 
-test('findDocuments and readDocument: words inside a file find it; the text comes back in pages; employees get nothing', async () => {
+test('findDocuments and readDocument: words inside a file find it; the text comes back in pages; employees never see company papers', async () => {
   const { run, fx, store } = setup();
   const app = run.app;
   const contact = store.createContact({ companyId: '1', kind: 'Organization', name: 'Blue Dune Trading', roles: ['Client'] });
@@ -208,7 +208,9 @@ test('findDocuments and readDocument: words inside a file find it; the text come
   const arabic = await run("return (await tf.findDocuments('خدمات')).map((d) => d.name);");
   assert.deepEqual(arabic.result, ['Service agreement.txt']);
   const employee = await run("return await tf.findDocuments({ text: 'social media' });", fx.charlie.id);
-  assert.match(String(employee.error), /403/);
+  // Employees have a library now (2026-11-07), but only their task and project files: company papers never reach them.
+  assert.equal(employee.error, undefined, JSON.stringify(employee));
+  assert.deepEqual(employee.result, []);
   const none = await run('return await tf.readDocument({});');
   assert.match(String(none.error), /findDocuments/);
 });

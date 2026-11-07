@@ -81,6 +81,8 @@ test('legacy roles copy the gate matrix, except declarations marked legacyOverri
     // Approvals (2026-11-03): anyone can be on a step (a Legal team member may be an Employee).
     'GET /approvals/:docType/:docId',
     'GET /companies/:companyId/approvals',
+    // Library for everyone (2026-11-07): a task or project file opens for whoever sees the task or project, as it always did under legacy.
+    'GET /record-attachments/:id/content',
     'POST /approvals/:docType/:docId/decision',
     'POST /users',
     'PUT /companies/:companyId/approvals/rules',

@@ -9,6 +9,11 @@ import { type AuthedRequest, handler } from './shared';
  * Documents → Library (spec 2026-11-06-documents-hub-design): every attachment and
  * generated document of a company that the person could open from its own record,
  * in one list. Never more: each row passes its record's own visibility rule.
+ *
+ * Every member of the company opens it (2026-11-07). Without documents.view (an
+ * Employee today) it lists only the files on tasks and projects the person can
+ * see — the only files /record-attachments/:id/content opens for them — and no
+ * company papers or generated documents.
  */
 
 const MANAGEMENT: UserRole[] = ['Admin', 'Manager', 'Accountant'];
@@ -66,7 +71,7 @@ export interface LibraryItem {
 }
 
 export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
-  const { store, documentText, authMiddleware, requireCompanyRoles, allowsKey, canSee, canViewProject, canViewTask } = ctx;
+  const { store, documentText, authMiddleware, requireCompanyAccess, allowsKey, canSee, canViewProject, canViewTask } = ctx;
 
   /** The record behind an attachment, by entity type (undefined when gone or unknown). */
   const recordOf = (entityType: string, id: string): any => {
@@ -97,13 +102,15 @@ export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
   };
 
   /** Whether the person could open this record's attachments from the record itself. */
-  const mayOpen = (req: AuthedRequest, companyId: string, a: RecordAttachment, record: any): boolean => {
-    if (a.entityType === 'company') return a.entityId === companyId;
+  const mayOpen = (req: AuthedRequest, companyId: string, a: RecordAttachment, record: any, full: boolean): boolean => {
     const module = RECORD_ENTITY_MODULES[a.entityType];
     if (module && !store.isModuleEnabled(companyId, module)) return false;
+    if (a.entityType === 'task') return Boolean(record) && record.companyId === companyId && canViewTask(req, record);
+    if (a.entityType === 'project') return Boolean(record) && record.companyId === companyId && canViewProject(req, record);
+    // Everything else opens only with the management gate (requireRecordSupportAccess).
+    if (!full) return false;
     switch (a.entityType) {
-      case 'task': return Boolean(record) && record.companyId === companyId && canViewTask(req, record);
-      case 'project': return Boolean(record) && record.companyId === companyId && canViewProject(req, record);
+      case 'company': return a.entityId === companyId;
       case 'contact': case 'client': case 'supplier':
         if (store.getContactById(a.entityId)) return canSee(req, 'contacts', companyId, a.entityId);
         return allowsKey(req, companyId, 'contacts.view', MANAGEMENT);
@@ -120,7 +127,9 @@ export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler((req, res) => {
       const companyId = req.params.companyId;
-      requireCompanyRoles(req, companyId, MANAGEMENT);
+      // Any member; what each one sees is decided per row below.
+      requireCompanyAccess(req, companyId);
+      const full = allowsKey(req, companyId, 'documents.view', MANAGEMENT);
       const q = String(req.query.q ?? '').trim().toLowerCase();
       const source = String(req.query.source ?? '').trim();
       const folder = String(req.query.folder ?? '').trim();
@@ -128,7 +137,7 @@ export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
       const items: LibraryItem[] = [];
       for (const a of store.listCompanyAttachments(companyId)) {
         const record = a.entityType === 'company' ? undefined : recordOf(a.entityType, a.entityId);
-        if (!mayOpen(req, companyId, a, record)) continue;
+        if (!mayOpen(req, companyId, a, record, full)) continue;
         items.push({
           id: a.id,
           kind: 'attachment',
@@ -146,7 +155,7 @@ export function registerLibraryRoutes(app: Express, ctx: RouteContext): void {
           createdAt: a.createdAt,
         });
       }
-      for (const d of store.listDocuments(companyId)) {
+      for (const d of full ? store.listDocuments(companyId) : []) {
         items.push({
           id: d.id,
           kind: 'document',

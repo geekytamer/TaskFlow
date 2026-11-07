@@ -230,10 +230,10 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/documents/:id/text', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'GET', path: '/record-attachments/:id/text', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/records/:entityType/:entityId/attachments', permission: 'documents.view', legacyRoles: MGMT },
-  { method: 'GET', path: '/companies/:companyId/library', permission: 'documents.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/library', permission: 'per_record', note: 'any member; each file passes its record\'s own rule (tasks and projects for everyone; other records, company papers and generated documents only with documents.view)' },
   { method: 'PATCH', path: '/record-attachments/:id', permission: 'documents.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/records/:entityType/:entityId/attachments', permission: 'documents.create', legacyRoles: MGMT },
-  { method: 'GET', path: '/record-attachments/:id/content', permission: 'documents.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/record-attachments/:id/content', permission: 'per_record', legacyRoles: ALL, legacyOverride: true, note: 'the matrix reads the management gate at the end of requireRecordSupportAccess, but tasks and projects return before it. A task or project file: whoever can see the task or project (requireTaskViewAccess / requireProjectViewAccess); any other file: documents.view (requireRecordSupportAccess)' },
   { method: 'GET', path: '/companies/:companyId/records/:entityType/:entityId/timeline', permission: 'documents.view', legacyRoles: MGMT },
   { method: 'DELETE', path: '/record-attachments/:id', permission: 'documents.delete', legacyRoles: MGMT },
 
