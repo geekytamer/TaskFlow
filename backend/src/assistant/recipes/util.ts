@@ -139,14 +139,70 @@ export const co = (ctx: Pick<RecipeContext, 'companyId'>, rest: string): string 
 /** The member list, read once per recipe call (a batch of 25 tasks reads it once). */
 const membersOf = new WeakMap<RecipeContext, Promise<Array<{ id: string; name: string }>>>();
 
-export async function memberId(ctx: RecipeContext, ref: unknown): Promise<string> {
-  if (['me', 'myself', 'انا', 'لي', 'نفسي'].includes(norm(ref))) return ctx.userId;
+const SELF_WORDS = ['me', 'myself', 'انا', 'لي', 'نفسي'];
+
+const membersList = (ctx: RecipeContext): Promise<Array<{ id: string; name: string }>> => {
   let members = membersOf.get(ctx);
   if (!members) {
     members = ctx.get<Array<{ id: string; name: string }>>(co(ctx, '/members'));
     membersOf.set(ctx, members);
   }
-  return pickOne(await members, ref, (m) => m.name, 'person').id;
+  return members;
+};
+
+/** A word as typed, without the Arabic letters glued to its front (لِ، و، ب، ف، ال): "لبعرب" → "بعرب", "ليعرب" → "يعرب". */
+function bareWords(text: string): string[] {
+  const words = norm(text).split(/[\s\-_.,/:;!?،؟]+/).filter(Boolean);
+  const out = new Set<string>();
+  for (const w of words) {
+    out.add(w);
+    if (ARABIC.test(w)) {
+      const stripped = w.replace(/^(وال|بال|فال|لل|ال)/, '');
+      out.add(stripped);
+      if (stripped.length >= 4 && /^[ولبف]/.test(stripped)) out.add(stripped.slice(1));
+    }
+  }
+  return [...out].filter((w) => w.length >= 3);
+}
+
+/**
+ * Whether a typed word means a name word: the same, or (4+ letters) one letter
+ * off — "بعرب" for "يعرب", the next key on an Arabic keyboard — or the same name
+ * in the other script.
+ */
+function wordNames(typed: string, nameWord: string): boolean {
+  if (typed === nameWord) return true;
+  if (typed.length >= 4 && nameWord.length >= 4 && Math.abs(typed.length - nameWord.length) <= 1 && distance(typed, nameWord) <= 1) return true;
+  if (sameName(typed, nameWord)) return true;
+  // Typed in Arabic with a stray first letter, stored in English ("بعرب" for Yarub). Only the first
+  // letter: dropping any letter makes ordinary words sound like names ("عشان" → Aisha).
+  return ARABIC.test(typed) && !ARABIC.test(nameWord) && typed.length >= 4 && sameName(typed.slice(1), nameWord);
+}
+
+/** Colleagues the person names in their request (not themselves): first or any 3+ letter name word, typos of one letter allowed. */
+export async function membersNamed(ctx: RecipeContext, text: string): Promise<Array<{ id: string; name: string }>> {
+  const typed = bareWords(text);
+  if (!typed.length) return [];
+  return (await membersList(ctx)).filter((m) => m.id !== ctx.userId && norm(m.name).split(' ')
+    .map((w) => w.replace(/^(ال)/, ''))
+    .filter((w) => w.length >= 3 && !FILLER.has(w))
+    .some((w) => typed.some((t) => wordNames(t, w))));
+}
+
+/** Whether the person's words say the thing is for themselves ("for me", "لي", "نفسي"). */
+export const saysSelf = (text: string): boolean => norm(text).split(/[\s,.،]+/).some((w) => SELF_WORDS.includes(w));
+
+export async function memberId(ctx: RecipeContext, ref: unknown): Promise<string> {
+  if (SELF_WORDS.includes(norm(ref))) return ctx.userId;
+  const members = await membersList(ctx);
+  try {
+    return pickOne(members, ref, (m) => m.name, 'person').id;
+  } catch (error) {
+    // A name a letter off, or with "ل" in front ("لبعرب"): the one colleague it can mean.
+    const named = await membersNamed(ctx, String(ref ?? ''));
+    if (named.length === 1) return named[0].id;
+    throw error;
+  }
 }
 
 /** One of the allowed values, matched without case; undefined when not given. */

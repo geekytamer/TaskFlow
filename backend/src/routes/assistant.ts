@@ -411,7 +411,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
     // Reads a recipe makes are its own business: the model gets the recipe's return, not "GET … → shape" notes.
     let recipeDepth = 0;
     const recipeContext = (host: SandboxHost): RecipeContext => ({
-      companyId, userId: user.id, today, currency: lookups.currency, lang,
+      companyId, userId: user.id, today, currency: lookups.currency, lang, request,
       get: <T>(path: string) => host.call('GET', path, undefined, undefined) as Promise<T>,
       propose: (method, path, body, summary) => host.call(method, path, body, summary),
       names: { user: lookups.userName, client: lookups.clientName, project: lookups.projectName },
@@ -578,7 +578,7 @@ export function registerAssistantRoutes(app: Express, ctx: RouteContext, options
         if (outcome.ok && (outcome.value === null || outcome.value === undefined)) notes.push('The script returned nothing. Write top-level code (no wrapper function) and end with `return <value>`.');
         if (cards.length > cardsBefore) notes.push(`${cards.length - cardsBefore} record(s) shown to the person as cards; do not list them again in your answer.`);
         const fresh = proposed.slice(before).map((id) => store.getAssistantAction(id)?.summary).filter(Boolean);
-        if (fresh.length) notes.push(`NOT DONE YET — proposed for the person to confirm: ${fresh.join('; ')}. Tell them to confirm below; do not say it is done.`);
+        if (fresh.length) notes.push(`NOT DONE YET — proposed for the person to confirm: ${fresh.join('; ')}. Tell them to confirm below; do not say it is done.${lang === 'ar' ? ' Answer in Arabic.' : ''}`);
         return notes.length ? { ...outcome, logs: [...outcome.logs, ...notes] } : outcome;
       },
     };
