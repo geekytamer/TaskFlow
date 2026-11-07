@@ -2784,6 +2784,17 @@ export function createServer(options: CreateServerOptions = {}) {
       if (raw === null || raw === undefined) continue;
       if (typeof raw !== 'string' && typeof raw !== 'number') throw new HttpError(400, `Field ${key} must be text.`);
       const text = String(raw);
+      if (key === 'document.body') {
+        // The text written on the page like in Word: the editor's JSON, never HTML.
+        if (text.length > 400000) throw new HttpError(400, 'The document text is too long.');
+        let parsed: unknown;
+        try { parsed = JSON.parse(text); } catch { throw new HttpError(400, 'The document text could not be read.'); }
+        if (!parsed || typeof parsed !== 'object' || (parsed as { type?: unknown }).type !== 'doc' || !Array.isArray((parsed as { content?: unknown }).content)) {
+          throw new HttpError(400, 'The document text could not be read.');
+        }
+        out[key] = text;
+        continue;
+      }
       if (text.length > 20000) throw new HttpError(400, `Field ${key} is too long.`);
       out[key] = text;
     }
@@ -2874,6 +2885,8 @@ export function createServer(options: CreateServerOptions = {}) {
       ctx['company.vatNumber'] = company.vatNumber || company.taxNumber || '';
     }
     ctx['today'] = new Date().toLocaleDateString('en-GB');
+    ctx['document.date'] = new Date(doc.createdAt).toLocaleDateString('en-GB');
+    ctx['document.number'] = doc.title;
     const rid = doc.recordId;
     if (rid && doc.recordType === 'client') {
       const c: any = store.getClientById(rid);
