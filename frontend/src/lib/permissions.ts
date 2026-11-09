@@ -35,7 +35,7 @@ export interface MyPermissions {
 }
 
 /** The sensitive fields of the catalogue (backend authz/catalogue.ts SENSITIVE_FIELDS). */
-export const SENSITIVE_FIELDS = ['salary', 'personal_ids', 'bank_details', 'cost_prices', 'rate_cards', 'client_terms'] as const;
+export const SENSITIVE_FIELDS = ['salary', 'personal_ids', 'bank_details', 'cost_prices', 'rate_cards', 'client_terms', 'payout_details'] as const;
 export type SensitiveField = (typeof SENSITIVE_FIELDS)[number];
 
 /**

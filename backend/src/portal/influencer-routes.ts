@@ -41,7 +41,7 @@ export function registerInfluencerRoutes(router: Router, store: DataStore, compa
   router.post('/influencer/profile/change-requests', requireInfluencerSession, (req: SessionRequest, res: Response) => {
     const session = req.portal!;
     const contact = self(session);
-    const changes = parseChanges(asRecord(req.body, 'body'), contact.influencerAccounts ?? []);
+    const changes = parseChanges(asRecord(req.body, 'body'), contact.influencerAccounts ?? [], contact.payoutAccounts ?? []);
     const managerId = managerOf(store, session, contact);
     const created = store.transaction(() => {
       const request = store.influencer.addChangeRequest({ companyId, contactId: contact.id, portalUserId: session.portalUserId, changes });

@@ -143,6 +143,7 @@ import {
 import { validateInvoiceDoc } from './invoice-doc';
 import type { RouteContext } from './routes/context';
 import { type AuthedRequest, companyManagementRoles, handler } from './routes/shared';
+import { parsePayoutAccounts } from './payout-accounts';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerLiveRoutes } from './routes/live';
 import { createTeamChatRouter } from './teamchat/routes';
@@ -4104,6 +4105,23 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
+  // Where we pay a contact (influencer, vendor): the payout_details field, edited on its own.
+  app.put(
+    '/contacts/:id/payout-accounts',
+    authMiddleware,
+    handler((req, res) => {
+      const existing = store.getContactById(req.params.id);
+      if (!existing) throw new HttpError(404, 'Contact not found.');
+      requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', existing.companyId, existing.id, 'Contact not found.');
+      const body = asRecord(req.body, 'body');
+      const accounts = parsePayoutAccounts(body.payoutAccounts, existing.payoutAccounts ?? []);
+      requireFieldEdits(req, existing.companyId, 'contact', { payoutAccounts: accounts }, existing);
+      const updated = withActor(req, () => store.setContactPayoutAccounts(existing.id, accounts));
+      res.json(maskFor(req, existing.companyId, 'contact', updated));
+    }),
+  );
+
   app.post(
     '/contacts/:id/roles',
     authMiddleware,
@@ -4162,14 +4180,31 @@ export function createServer(options: CreateServerOptions = {}) {
             order.contactId === contact.id ||
             (linkedClientId && order.clientId === linkedClientId),
         );
-      const purchaseOrders = linkedSupplierId
-        ? (on('purchasing') ? store.listPurchaseOrders(companyId) : ([] as ReturnType<typeof store.listPurchaseOrders>))
-            .filter((po) => po.supplierId === linkedSupplierId)
+      const purchaseOrders = (on('purchasing') ? store.listPurchaseOrders(companyId) : ([] as ReturnType<typeof store.listPurchaseOrders>))
+        .filter((po) => po.supplierId === linkedSupplierId || (po as { contactId?: string }).contactId === contact.id);
+
+      // Work this contact is paid for: campaign deliverables they deliver (the
+      // vendor, else the influencer on it). Their bills are this contact's
+      // payouts even when the bill names no supplier (bills made before the
+      // supplier id was set on them).
+      const paidWork = on('campaigns') ? store.listPaidWorkOf(companyId, contact.id) : [];
+      const payoutBillIds = new Set(paidWork.map((d) => d.vendorBillId).filter((id): id is string => Boolean(id)));
+      const vendorBills = (on('vendor-bills') ? store.listVendorBills(companyId) : ([] as ReturnType<typeof store.listVendorBills>))
+        .filter((bill) => bill.supplierId === linkedSupplierId || payoutBillIds.has(bill.id));
+
+      // Campaigns: the client's own, and those this contact works on.
+      const workCampaignIds = new Set(paidWork.map((d) => d.campaignId));
+      const campaigns = on('campaigns')
+        ? store.listCrmCampaigns(companyId, true, viewerOf(req)).filter((cmp) => cmp.contactId === contact.id || workCampaignIds.has(cmp.id))
         : [];
-      const vendorBills = linkedSupplierId
-        ? (on('vendor-bills') ? store.listVendorBills(companyId) : ([] as ReturnType<typeof store.listVendorBills>))
-            .filter((bill) => bill.supplierId === linkedSupplierId)
-        : [];
+      const visibleCampaignIds = new Set(campaigns.map((cmp) => cmp.id));
+      // What we pay for each piece is the influencer's rate: the rate_cards field.
+      const showCost = seesField(req, companyId, 'rate_cards', { moduleLock: true });
+      const deliverables = paidWork
+        .filter((d) => visibleCampaignIds.has(d.campaignId))
+        .map((d) => ({ ...d, cost: showCost ? d.cost : undefined }));
+      const quotations = (on('sales') ? store.listQuotations(companyId) : ([] as ReturnType<typeof store.listQuotations>))
+        .filter((q) => q.contactId === contact.id || q.clientId === linkedClientId);
       // Opportunities and projects: only those the person may see (authz/visible.ts).
       const opportunities = (on('crm') ? store.listOpportunities(companyId, viewerOf(req)) : ([] as ReturnType<typeof store.listOpportunities>))
         .filter((opp) => opp.contactId === contact.id);
@@ -4196,6 +4231,10 @@ export function createServer(options: CreateServerOptions = {}) {
           (sum, bill) => sum + (bill.outstandingAmount || 0),
           0,
         ),
+        vendorBillPaid: vendorBills.reduce((sum, bill) => sum + (bill.paidAmount || 0), 0),
+        campaignCount: campaigns.length,
+        deliverableCount: deliverables.length,
+        quotationCount: quotations.length,
         opportunityCount: opportunities.length,
         projectCount: projects.length,
       };
@@ -4209,6 +4248,13 @@ export function createServer(options: CreateServerOptions = {}) {
         vendorBills: vendorBills.slice(0, 50),
         opportunities: opportunities.slice(0, 50),
         projects: projects.slice(0, 50),
+        campaigns: campaigns.slice(0, 50).map((cmp) => ({
+          id: cmp.id, name: cmp.name, status: cmp.status, startDate: cmp.startDate, endDate: cmp.endDate,
+          // The client's own campaign, or one the contact works on.
+          relation: cmp.contactId === contact.id ? 'client' : 'work',
+        })),
+        deliverables: deliverables.slice(0, 50),
+        quotations: quotations.slice(0, 50),
       });
     }),
   );

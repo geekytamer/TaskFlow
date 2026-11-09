@@ -16,11 +16,23 @@ const fieldLabel = (tr: Tr, key: string) => ({
   languages: tr('Languages', 'اللغات'),
   rateCardAmount: tr('Rate card', 'الأسعار'),
   accounts: tr('Accounts', 'الحسابات'),
+  payoutAccounts: tr('Payment details', 'بيانات الدفع'),
 } as Record<string, string>)[key] ?? key;
 
 /** Old value next to the requested one, so staff see exactly what would change. */
-function describe(contact: Contact, key: string, value: unknown): { before: string; after: string } {
+function describe(contact: Contact, key: string, value: unknown, tr: Tr): { before: string; after: string } {
   const show = (v: unknown) => (v === undefined || v === null || v === '' ? '-' : Array.isArray(v) ? v.join(', ') : String(v));
+  if (key === 'payoutAccounts') {
+    // The full number, so staff can check it against what the influencer sent them.
+    const methods: Record<string, string> = {
+      'Bank transfer': tr('Bank transfer', 'تحويل بنكي'), Cash: tr('Cash', 'نقداً'), Wallet: tr('Wallet', 'محفظة إلكترونية'), Other: tr('Other', 'أخرى'),
+    };
+    const line = (a: Record<string, unknown>) =>
+      [methods[String(a.method)] ?? a.method, a.bankName, a.accountHolder, a.iban ?? a.accountNumber ?? a.walletNumber].filter(Boolean).join(' · ');
+    const list = (value as Array<Record<string, unknown>>).map(line);
+    const current = (contact.payoutAccounts ?? []).map((a) => line(a as unknown as Record<string, unknown>));
+    return { before: current.join(' | ') || '-', after: list.join(' | ') || '-' };
+  }
   if (key === 'accounts') {
     const list = (value as Array<Record<string, unknown>>).map((a) => `${a.platform} ${a.handle ?? ''} ${a.followers != null ? `(${a.followers})` : ''}`.trim());
     const current = (contact.influencerAccounts ?? []).map((a) => `${a.platform} ${a.handle ?? ''} ${a.followers != null ? `(${a.followers})` : ''}`.trim());
@@ -77,7 +89,7 @@ export function ChangeRequestsSection({ contact, onApplied }: { contact: Contact
       </div>
       <dl className="space-y-2 text-sm">
         {Object.entries(pending.changes).map(([key, value]) => {
-          const { before, after } = describe(contact, key, value);
+          const { before, after } = describe(contact, key, value, tr);
           return (
             <div key={key} className="grid gap-1 sm:grid-cols-[110px_1fr]">
               <dt className="text-muted-foreground">{fieldLabel(tr, key)}</dt>

@@ -40,7 +40,8 @@
   "contacts:create": [
     "POST /companies/:companyId/intercompany/partners",
     "PUT /clients/:id",
-    "PUT /contacts/:id"
+    "PUT /contacts/:id",
+    "PUT /contacts/:id/payout-accounts"
   ],
   "contacts:suppliers.read": [
     "GET /companies/:companyId/clients",
@@ -53,7 +54,8 @@
     "POST /companies/:companyId/intercompany/partners",
     "POST /companies/:companyId/suppliers",
     "POST /contacts/:id/activities",
-    "POST /contacts/:id/roles"
+    "POST /contacts/:id/roles",
+    "PUT /contacts/:id/payout-accounts"
   ],
   "crm:contributions.create": [
     "DELETE /contributions/:id",

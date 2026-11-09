@@ -12,12 +12,29 @@ export interface Account {
   engagementRate: number | null;
 }
 
+export type PayoutMethod = 'Bank transfer' | 'Cash' | 'Wallet' | 'Other';
+
+/** Where the agency pays this influencer (their own record). */
+export interface PayoutAccount {
+  id: string;
+  method: PayoutMethod;
+  accountHolder?: string;
+  bankName?: string;
+  accountNumber?: string;
+  iban?: string;
+  swift?: string;
+  currency?: string;
+  walletNumber?: string;
+  isDefault?: boolean;
+}
+
 export interface ProfileChanges {
   niche?: string;
   location?: string;
   languages?: string[];
   rateCardAmount?: number;
   accounts?: Array<Partial<Account> & { platform: string }>;
+  payoutAccounts?: Array<Partial<PayoutAccount>>;
 }
 
 export interface Profile {
@@ -28,6 +45,8 @@ export interface Profile {
   availability: Availability | null;
   accounts: Account[];
   rateCard: { amount: number | null; currency: string };
+  /** Older servers leave it out. */
+  payoutAccounts?: PayoutAccount[];
   pendingChange: { id: string; changes: ProfileChanges; createdAt: string } | null;
   lastDecision: { status: 'approved' | 'rejected'; note: string | null; at: string | null } | null;
 }

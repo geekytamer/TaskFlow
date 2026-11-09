@@ -69,10 +69,10 @@ test('scoped actions live only on areas that declare scopes', () => {
   }
 });
 
-test('sensitive fields are exactly the six from the spec', () => {
+test('sensitive fields are the six from the spec plus payout details', () => {
   assert.deepEqual(
     SENSITIVE_FIELDS.map((f) => f.key).sort(),
-    ['bank_details', 'client_terms', 'cost_prices', 'personal_ids', 'rate_cards', 'salary'],
+    ['bank_details', 'client_terms', 'cost_prices', 'payout_details', 'personal_ids', 'rate_cards', 'salary'],
   );
 });
 
@@ -174,7 +174,7 @@ const RULE_MAP = [
 ];
 const FIELD_RULE_MAP = [
   ['PAYROLL_PAY_READ', ['salary', 'personal_ids', 'bank_details']],
-  ['CONTACTS_PRICING_READ', ['rate_cards', 'client_terms']],
+  ['CONTACTS_PRICING_READ', ['rate_cards', 'client_terms', 'payout_details']],
 ];
 const ROLE_OF = { admin: 'Admin', manager: 'Manager', accountant: 'Accountant', employee: 'Employee' };
 

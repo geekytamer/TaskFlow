@@ -58,7 +58,7 @@ export const RECORD_RULES = {
   CONTACTS_PRICING_READ: {
     module: 'contacts', action: 'pricing.read', roles: MANAGEMENT,
     description: 'See commercial pricing such as rate cards.',
-    v2: { fields: ['rate_cards', 'client_terms'] },
+    v2: { fields: ['rate_cards', 'client_terms', 'payout_details'] },
   },
   CONTACTS_ALL_WRITE: {
     module: 'contacts', action: 'all.write', roles: MANAGEMENT,

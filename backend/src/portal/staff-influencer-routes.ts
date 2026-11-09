@@ -141,7 +141,7 @@ export function registerStaffInfluencerRoutes(
     if (status === 'approved') fields.requireFieldEdits(req, companyId, 'influencer_change', request.changes as Record<string, unknown>, contact);
     const ok = store.transaction(() => {
       if (!store.influencer.decideChangeRequest(request.id, { status, note, userId })) return false;
-      if (status === 'approved') applyChanges(store, contact, request.changes);
+      if (status === 'approved') store.runAsActor({ userId, name: req.user!.name }, () => applyChanges(store, contact, request.changes));
       store.listFollowupEntities(companyId, { status: 'active', entityType: 'contact', entityId: contact.id })
         .filter((f) => f.sourceTrigger === CHANGE_REVIEW_TRIGGER && f.sourceId === request.id)
         .forEach((f) => store.completeFollowup(f.id, { outcome: 'done', completedByUserId: userId }));
