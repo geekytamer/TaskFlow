@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Combobox } from '@/components/ui/combobox';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
+import { isCompanyMember } from '@/lib/company-membership';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
 import {
@@ -107,7 +108,7 @@ export function AdminPage() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const { amount } = useCompanyCurrency();
-  const { setSelectedCompany, companies } = useCompany();
+  const { setSelectedCompany, companies, currentUser } = useCompany();
 
   const [overview, setOverview] = React.useState<AdminOverview | null>(null);
   const [adminCompanies, setAdminCompanies] = React.useState<AdminCompanyRow[]>([]);
@@ -167,6 +168,16 @@ export function AdminPage() {
   React.useEffect(() => { if (!loading) reloadActivity(); }, [reloadActivity, loading]);
 
   const handleHopIntoCompany = (companyId: string) => {
+    // The server only lets members in; outside their own companies a super
+    // admin logs in as one of the company's users instead (Users tab).
+    if (!isCompanyMember(currentUser, companyId)) {
+      toast({
+        variant: 'destructive',
+        title: tr('You are not a member of this company', 'لست عضوًا في هذه الشركة'),
+        description: tr('Add yourself to it, or log in as one of its users from the Users tab.', 'أضف نفسك إليها، أو ادخل باسم أحد مستخدميها من تبويب المستخدمين.'),
+      });
+      return;
+    }
     const target = companies.find((c) => c.id === companyId);
     if (target) {
       setSelectedCompany(target);
