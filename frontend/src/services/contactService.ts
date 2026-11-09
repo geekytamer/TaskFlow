@@ -21,6 +21,24 @@ export interface InfluencerAccount {
   syncedAt?: string;
 }
 
+export type PayoutMethod = 'Bank transfer' | 'Cash' | 'Wallet' | 'Other';
+export const payoutMethods: PayoutMethod[] = ['Bank transfer', 'Cash', 'Wallet', 'Other'];
+
+/** One way to pay a contact (backend types.ts PayoutAccount). */
+export interface PayoutAccount {
+  id: string;
+  method: PayoutMethod;
+  accountHolder?: string;
+  bankName?: string;
+  accountNumber?: string;
+  iban?: string;
+  swift?: string;
+  currency?: string;
+  walletNumber?: string;
+  notes?: string;
+  isDefault?: boolean;
+}
+
 export interface Contact {
   id: string;
   companyId: string;
@@ -47,6 +65,8 @@ export interface Contact {
   languages?: string[];
   availabilityStatus?: string;
   influencerAccounts?: InfluencerAccount[];
+  /** Where we pay the contact; absent when the person's role hides payment details. */
+  payoutAccounts?: PayoutAccount[];
   // CRM fields
   leadStatus?: 'New' | 'Qualified' | 'Follow-up' | 'Proposal' | 'Won' | 'Lost' | 'Archived';
   leadSource?: 'Instagram' | 'TikTok' | 'WhatsApp' | 'Referral' | 'Website' | 'Campaign' | 'Former Client' | 'Other';
@@ -87,6 +107,11 @@ export interface ContactSummary {
     vendorBillOutstanding: number;
     opportunityCount: number;
     projectCount: number;
+    /** Older servers leave these out. */
+    vendorBillPaid?: number;
+    campaignCount?: number;
+    deliverableCount?: number;
+    quotationCount?: number;
   };
   invoices: any[];
   salesOrders: any[];
@@ -94,6 +119,10 @@ export interface ContactSummary {
   vendorBills: any[];
   opportunities: any[];
   projects: any[];
+  campaigns?: Array<{ id: string; name: string; status: string; startDate?: string; endDate?: string; relation: 'client' | 'work' }>;
+  /** Campaign pieces the contact is paid for; `cost` absent without rate cards. */
+  deliverables?: Array<{ id: string; campaignId: string; campaignName: string; title: string; platform: string | null; status: string; dueDate: string | null; cost?: number | null; vendorBillId: string | null }>;
+  quotations?: any[];
 }
 
 export async function getContactSummary(id: string): Promise<ContactSummary> {
@@ -158,6 +187,15 @@ export async function updateContact(id: string, updates: Partial<Omit<Contact, '
   const data = await apiFetch<any>(`/contacts/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
+  });
+  return decodeContact(data);
+}
+
+/** Replaces where we pay a contact (management, with the payout_details field). */
+export async function setPayoutAccounts(id: string, payoutAccounts: Array<Partial<PayoutAccount>>): Promise<Contact> {
+  const data = await apiFetch<any>(`/contacts/${id}/payout-accounts`, {
+    method: 'PUT',
+    body: JSON.stringify({ payoutAccounts }),
   });
   return decodeContact(data);
 }

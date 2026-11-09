@@ -27,7 +27,7 @@
 import { SENSITIVE_FIELDS } from './catalogue';
 import type { Effective } from './evaluate';
 
-export type SensitiveField = 'salary' | 'personal_ids' | 'bank_details' | 'cost_prices' | 'rate_cards' | 'client_terms';
+export type SensitiveField = 'salary' | 'personal_ids' | 'bank_details' | 'cost_prices' | 'rate_cards' | 'client_terms' | 'payout_details';
 
 /** Entity → property → the sensitive field that hides it. */
 export const FIELD_MAP = {
@@ -41,10 +41,10 @@ export const FIELD_MAP = {
   payslip: { basic: 'salary', allowances: 'salary', deductions: 'salary', net: 'salary' },
   /** One employee's line of the end-of-service gratuity report. */
   gratuity_line: { monthlyWage: 'salary', dailyWage: 'salary', entitlement: 'salary' },
-  /** CRM contact: an influencer's rate card. */
-  contact: { rateCardAmount: 'rate_cards' },
+  /** CRM contact: an influencer's rate card; where we pay the contact. */
+  contact: { rateCardAmount: 'rate_cards', payoutAccounts: 'payout_details' },
   /** An influencer's requested profile change (its `changes` object). */
-  influencer_change: { rateCardAmount: 'rate_cards' },
+  influencer_change: { rateCardAmount: 'rate_cards', payoutAccounts: 'payout_details' },
   /** An influencer's portal price range around the client price. */
   price_range: { belowPercent: 'rate_cards', abovePercent: 'rate_cards' },
   /** A client's portal pricing profile. */
@@ -86,6 +86,7 @@ export const FIELD_MODULES: Readonly<Record<SensitiveField, string | null>> = {
   bank_details: 'payroll',
   rate_cards: 'contacts',
   client_terms: 'contacts',
+  payout_details: 'contacts',
   cost_prices: null,
 };
 

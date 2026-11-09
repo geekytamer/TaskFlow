@@ -431,6 +431,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/contacts', permission: 'contacts.create', legacyRoles: ALL },
   { method: 'GET', path: '/contacts/:id', permission: 'contacts.view_details', legacyRoles: MGMT },
   { method: 'PUT', path: '/contacts/:id', permission: 'contacts.manage', legacyRoles: MGMT },
+  { method: 'PUT', path: '/contacts/:id/payout-accounts', permission: 'contacts.manage', legacyRoles: MGMT },
   { method: 'POST', path: '/contacts/:id/roles', permission: 'contacts.manage', legacyRoles: MGMT },
   { method: 'GET', path: '/contacts/:id/summary', permission: 'contacts.view', legacyRoles: ALL },
   { method: 'DELETE', path: '/contacts/:id/roles/:role', permission: 'contacts.delete', legacyRoles: MGMT },

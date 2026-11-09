@@ -200,6 +200,6 @@ export const OLD_RULE_SCOPES: Readonly<Record<string, { readonly keys: readonly 
 
 /** Record rules that became sensitive-field switches (view and edit) rather than actions. */
 export const OLD_TO_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  'contacts:pricing.read': ['rate_cards', 'client_terms'], // CONTACTS_PRICING_READ
+  'contacts:pricing.read': ['rate_cards', 'client_terms', 'payout_details'], // CONTACTS_PRICING_READ
   'payroll:pay.read': ['salary', 'personal_ids', 'bank_details'], // PAYROLL_PAY_READ
 };

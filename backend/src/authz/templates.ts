@@ -221,6 +221,7 @@ export const FIELD_HOLDERS: Readonly<Record<string, readonly [view: Row, edit: R
   cost_prices: [ALL, ALL], // not restricted by field today: route gates alone decide
   rate_cards: [MGMT, MGMT], // CONTACTS_PRICING_READ; edited through PUT /contacts/:id (management)
   client_terms: [MGMT, MGMT], // CONTACTS_PRICING_READ
+  payout_details: [MGMT, MGMT], // edited through PUT /contacts/:id/payout-accounts (management)
 };
 
 const ROLE_INDEX: Record<LegacyRole, number> = { admin: 0, manager: 1, accountant: 2, employee: 3 };

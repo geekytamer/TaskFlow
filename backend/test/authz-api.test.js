@@ -230,7 +230,7 @@ for (const engine of ['legacy', 'shadow', 'v2']) {
     assert.deepEqual(sales.levels.full, sales.actions.map((a) => a.key));
     assert.ok(sales.levels.edit.includes('sales.create') && !sales.levels.edit.includes('sales.delete'));
     assert.ok(sales.label.en && sales.label.ar);
-    assert.equal(cat.body.fields.length, 6);
+    assert.equal(cat.body.fields.length, 7);
     assert.deepEqual(cat.body.templates.map((t) => t.key), ['owner', 'admin', 'manager', 'accountant', 'employee']);
     assert.ok(Array.isArray(cat.body.modules) && Array.isArray(cat.body.alwaysOnModules), 'legacy catalogue kept for today\'s screens');
   });

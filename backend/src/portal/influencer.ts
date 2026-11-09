@@ -17,6 +17,8 @@ import type { ChangeRequest, ProfileChanges, Submission } from './influencer-sto
 import { waitingFor } from './review-flow';
 import { resultsDto } from '../social/results';
 import { iso } from './common';
+import { parsePayoutAccounts } from '../payout-accounts';
+import type { PayoutAccount } from '../types';
 
 export const AVAILABILITY = ['Available', 'Partially Available', 'Unavailable'] as const;
 const MAX_ACCOUNTS = 10;
@@ -67,6 +69,8 @@ export function toProfileDto(store: DataStore, contact: Contact, currency: strin
     availability: contact.availabilityStatus ?? null,
     accounts: (contact.influencerAccounts ?? []).map(accountDto),
     rateCard: { amount: contact.rateCardAmount ?? null, currency },
+    /** Their own payment details: an influencer always sees what we have on file to pay them. */
+    payoutAccounts: contact.payoutAccounts ?? [],
     pendingChange: pending ? changeDto(pending) : null,
     lastDecision: decided ? { status: decided.status, note: decided.note, at: decided.reviewedAt } : null,
   };
@@ -84,8 +88,8 @@ const nonNegative = (value: unknown, field: string, max = Number.MAX_SAFE_INTEGE
 };
 
 /** Only the fields an influencer may ask to change; anything else is refused. */
-export function parseChanges(body: Record<string, unknown>, existing: InfluencerAccount[]): ProfileChanges {
-  const allowed = new Set(['niche', 'location', 'languages', 'rateCardAmount', 'accounts']);
+export function parseChanges(body: Record<string, unknown>, existing: InfluencerAccount[], existingPayout: PayoutAccount[] = []): ProfileChanges {
+  const allowed = new Set(['niche', 'location', 'languages', 'rateCardAmount', 'accounts', 'payoutAccounts']);
   const unknown = Object.keys(body).filter((k) => !allowed.has(k));
   if (unknown.length) throw new HttpError(400, `These fields cannot be changed here: ${unknown.join(', ')}.`);
   const changes: ProfileChanges = {};
@@ -120,6 +124,7 @@ export function parseChanges(body: Record<string, unknown>, existing: Influencer
       };
     });
   }
+  if (body.payoutAccounts !== undefined) changes.payoutAccounts = parsePayoutAccounts(body.payoutAccounts, existingPayout);
   if (Object.keys(changes).length === 0) throw new HttpError(400, 'Nothing to change.');
   return changes;
 }
@@ -145,7 +150,9 @@ export function applyChanges(store: DataStore, contact: Contact, changes: Profil
     }
     updates.influencerAccounts = merged;
   }
-  store.updateContact(contact.id, updates);
+  if (Object.keys(updates).length > 0) store.updateContact(contact.id, updates);
+  // Recorded in the activity log with the last four characters only.
+  if (changes.payoutAccounts !== undefined) store.setContactPayoutAccounts(contact.id, changes.payoutAccounts);
 }
 
 /** Who a deliverable pays: the same rule vendor bill generation uses. */

@@ -387,6 +387,7 @@ export const SENSITIVE_FIELDS: readonly SensitiveFieldDef[] = [
   { key: 'bank_details', area: 'payroll', label: l('Bank details (IBAN)', 'البيانات المصرفية (الآيبان)') },
   { key: 'cost_prices', area: 'inventory', label: l('Cost prices and margins', 'أسعار التكلفة والهوامش') },
   { key: 'rate_cards', area: 'influencers', label: l('Influencer rate cards', 'أسعار المؤثرين') },
+  { key: 'payout_details', area: 'contacts', label: l('Payment details of contacts (bank accounts, IBAN)', 'بيانات الدفع لجهات الاتصال (الحسابات البنكية والآيبان)') },
   { key: 'client_terms', area: 'contacts', label: l('Client pricing, discounts and credit limits', 'تسعير العملاء والخصومات وحدود الائتمان') },
 ];
 

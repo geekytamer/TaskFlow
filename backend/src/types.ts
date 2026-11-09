@@ -1382,9 +1382,31 @@ export interface Contact {
   availabilityStatus?: string;
   // Per-platform social accounts for an influencer contact.
   influencerAccounts?: InfluencerAccount[];
+  /** Where we pay this contact (an influencer, a vendor): the payout_details field. */
+  payoutAccounts?: PayoutAccount[];
   customFields?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type PayoutMethod = 'Bank transfer' | 'Cash' | 'Wallet' | 'Other';
+export const payoutMethods: PayoutMethod[] = ['Bank transfer', 'Cash', 'Wallet', 'Other'];
+
+/** One way to pay a contact. A bank transfer needs an account number or an IBAN. */
+export interface PayoutAccount {
+  id: string;
+  method: PayoutMethod;
+  accountHolder?: string;
+  bankName?: string;
+  accountNumber?: string;
+  iban?: string;
+  swift?: string;
+  currency?: string;
+  /** Wallet or phone number, for a wallet payment. */
+  walletNumber?: string;
+  notes?: string;
+  /** The account a payment goes to unless someone picks another. */
+  isDefault?: boolean;
 }
 
 export type InfluencerPlatform = 'Instagram' | 'TikTok' | 'Snapchat' | 'Facebook' | 'YouTube' | 'X' | 'Other';

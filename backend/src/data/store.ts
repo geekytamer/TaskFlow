@@ -248,6 +248,7 @@ import {
   CustomFieldType,
   customFieldTypes,
   InfluencerAccount,
+  PayoutAccount,
   Notification,
   NotificationType,
   NotificationPrefs,
@@ -5929,6 +5930,22 @@ export class DataStore {
         },
       },
       {
+        // Payment details of contacts (influencers, vendors): where we pay them,
+        // behind the payout_details field. Roles get it as they hold rate cards.
+        id: '168_contact_payout_accounts',
+        run: () => {
+          const cols = (this.db.prepare('PRAGMA table_info(contacts)').all() as any[]).map((c) => c.name);
+          if (!cols.includes('payoutAccounts')) this.db.exec('ALTER TABLE contacts ADD COLUMN payoutAccounts TEXT;');
+          const hasRoleFields = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='role_fields'").get();
+          if (hasRoleFields) {
+            this.db.exec(`
+              INSERT OR IGNORE INTO role_fields (groupId, field, canView, canEdit)
+              SELECT groupId, 'payout_details', canView, canEdit FROM role_fields WHERE field = 'rate_cards';
+            `);
+          }
+        },
+      },
+      {
         // Documents → the assistant reads documents (spec 2026-11-06-documents-hub-design,
         // stage 4): each file's and generated document's text, and a word index over it.
         id: '167_document_texts',
@@ -9233,6 +9250,55 @@ export class DataStore {
    * single-platform record, its followers and engagement). Other platforms and
    * fields are left alone; nothing else on the contact changes.
    */
+  /**
+   * Campaign deliverables a contact is paid for (the vendor on it, else the
+   * influencer on it), newest first, with their campaign's name. Cancelled
+   * pieces are left out.
+   */
+  listPaidWorkOf(companyId: string, contactId: string): Array<{
+    id: string; campaignId: string; campaignName: string; title: string; platform: string | null;
+    status: string; dueDate: string | null; cost: number | null; vendorBillId: string | null;
+  }> {
+    return this.db.prepare(
+      `SELECT d.id, d.campaignId, c.name AS campaignName, d.title, d.platform, d.status, d.dueDate, d.cost, d.vendorBillId
+       FROM campaign_deliverables d JOIN crm_campaigns c ON c.id = d.campaignId
+       WHERE d.companyId = ? AND COALESCE(d.vendorContactId, d.contactId) = ? AND d.status != 'Cancelled'
+       ORDER BY COALESCE(d.dueDate, d.createdAt) DESC`,
+    ).all(companyId, contactId) as any[];
+  }
+
+  /**
+   * Replaces where we pay a contact. Records who changed it, with only the last
+   * four characters of each account: a changed IBAN is a known fraud, so the
+   * change is visible, but the numbers stay out of the activity log.
+   */
+  setContactPayoutAccounts(contactId: string, accounts: PayoutAccount[]): Contact {
+    const existing = this.getContactById(contactId);
+    if (!existing) throw new Error(`Contact ${contactId} not found`);
+    const at = new Date().toISOString();
+    this.db.prepare('UPDATE contacts SET payoutAccounts = ?, updatedAt = ? WHERE id = ?')
+      .run(accounts.length ? JSON.stringify(accounts) : null, at, contactId);
+    const tail = (a: PayoutAccount) => {
+      const ref = (a.iban || a.accountNumber || a.walletNumber || '').replace(/\s+/g, '');
+      return [a.method, a.bankName, ref ? `…${ref.slice(-4)}` : ''].filter(Boolean).join(' ');
+    };
+    const before = (existing.payoutAccounts ?? []).map(tail).join(', ') || 'none';
+    const after = accounts.map(tail).join(', ') || 'none';
+    if (before !== after || JSON.stringify(existing.payoutAccounts ?? []) !== JSON.stringify(accounts)) {
+      const actor = this.currentActor;
+      this.createActivityEvent({
+        companyId: existing.companyId,
+        actorUserId: actor?.userId,
+        actorName: actor?.name,
+        entityType: 'contact',
+        entityId: contactId,
+        action: 'payout_accounts_changed',
+        summary: `Payment details changed: ${before} → ${after}`,
+      });
+    }
+    return this.getContactById(contactId)!;
+  }
+
   syncInfluencerInstagram(contactId: string, username: string, figures: { followers: number; engagementRate: number | null }, at: string): void {
     const row = this.db.prepare('SELECT influencerAccounts, influencerPlatform, influencerHandle FROM contacts WHERE id = ?').get(contactId) as
       | { influencerAccounts: string | null; influencerPlatform: string | null; influencerHandle: string | null } | undefined;
@@ -11421,6 +11487,7 @@ export class DataStore {
 	      languages: row.languages ? this.parseJson<string[]>(row.languages) : undefined,
 	      availabilityStatus: row.availabilityStatus ?? undefined,
 	      influencerAccounts: row.influencerAccounts ? this.parseJson<InfluencerAccount[]>(row.influencerAccounts) : undefined,
+	      payoutAccounts: row.payoutAccounts ? this.parseJson<PayoutAccount[]>(row.payoutAccounts) ?? undefined : undefined,
 	      visibility: (row.visibility as 'Public' | 'Private') ?? 'Public',
 	      customFields: row.customFields ? this.parseJson<Record<string, unknown>>(row.customFields) ?? undefined : undefined,
 	      createdAt: new Date(row.createdAt),
@@ -12469,7 +12536,8 @@ export class DataStore {
 		      const bill = this.createVendorBill({
 		        companyId,
 		        vendorName: contact.name,
-		        supplierId: contact.supplierId ?? undefined,
+		        // Contact-backed supplier: its own id when no supplier record is linked (getSupplierById).
+		        supplierId: contact.supplierId ?? contact.id,
 		        campaignId,
 		        issueDate: now,
 		        dueDate,
@@ -18684,7 +18752,8 @@ export class DataStore {
           sourceContext: campaign.name,
           vendorName: vendor.name,
           vendorContactId: vendor.id,
-          supplierId: vendor.supplierId ?? undefined,
+          // Contact-backed supplier: its own id when no supplier record is linked (getSupplierById).
+          supplierId: vendor.supplierId ?? vendor.id,
           amount: cost,
           currency,
           // Our cost, never the price charged to the client.

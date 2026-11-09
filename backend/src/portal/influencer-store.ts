@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
 import { isUniqueViolation } from './common';
+import type { PayoutAccount } from '../types';
 
 export interface CampaignBrief {
   campaignId: string;
@@ -23,6 +24,8 @@ export interface ProfileChanges {
   languages?: string[];
   rateCardAmount?: number;
   accounts?: Array<{ id?: string; platform: string; handle?: string; url?: string; followers?: number; engagementRate?: number }>;
+  /** Where they want to be paid: the whole list, replacing the current one on approval. */
+  payoutAccounts?: PayoutAccount[];
 }
 
 export interface ChangeRequest {
