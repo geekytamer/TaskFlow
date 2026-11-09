@@ -1,4 +1,5 @@
 import { canAccessCompany, HttpError } from '../http';
+import { resolveNames, scriptSide } from '../names';
 import { DocumentTextStore } from '../documents/text-store';
 import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import { taskWeek, weekStartOf } from '../tasks/task-week';
@@ -5979,6 +5980,27 @@ export class DataStore {
           if (!columns.includes('language')) this.db.exec('ALTER TABLE quotations ADD COLUMN language TEXT;');
         },
       },
+      {
+        // Two-language names (spec 2026-11-10-bilingual-names-design): items and
+        // services, contacts, clients get nameAr / nameEn, filled from `name` by its
+        // letters, so nothing typed so far is lost.
+        id: '170_bilingual_names',
+        run: () => {
+          for (const table of ['inventory_items', 'contacts', 'clients']) {
+            const columns = (this.db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map((c) => c.name);
+            if (!columns.includes('nameAr')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN nameAr TEXT;`);
+            if (!columns.includes('nameEn')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN nameEn TEXT;`);
+            const rows = this.db.prepare(`SELECT id, name FROM ${table} WHERE nameAr IS NULL AND nameEn IS NULL`).all() as Array<{ id: string; name: string | null }>;
+            const toAr = this.db.prepare(`UPDATE ${table} SET nameAr = ? WHERE id = ?`);
+            const toEn = this.db.prepare(`UPDATE ${table} SET nameEn = ? WHERE id = ?`);
+            for (const row of rows) {
+              const name = (row.name ?? '').trim();
+              if (!name) continue;
+              (scriptSide(name) === 'ar' ? toAr : toEn).run(name, row.id);
+            }
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -9141,7 +9163,9 @@ export class DataStore {
   createContact(input: {
     companyId: string;
     kind?: 'Organization' | 'Person';
-    name: string;
+    name?: string;
+    nameAr?: string;
+    nameEn?: string;
     legalName?: string;
     contactPerson?: string;
     email?: string;
@@ -9176,6 +9200,7 @@ export class DataStore {
 		  }): Contact {
     const id = uuid();
     const now = new Date().toISOString();
+    const names = resolveNames(input);
     const customFields = this.normalizeCustomFields(input.companyId, 'contact', input.customFields);
 	  this.db.prepare(
 		      `INSERT INTO contacts (id, companyId, kind, name, legalName, contactPerson, email, phone, address, taxNumber, tags, notes, clientId, supplierId,
@@ -9190,7 +9215,7 @@ export class DataStore {
       id,
       companyId: input.companyId,
       kind: input.kind ?? 'Organization',
-      name: input.name,
+      name: names.name,
       legalName: input.legalName ?? null,
       contactPerson: input.contactPerson ?? null,
       email: input.email ?? null,
@@ -9222,6 +9247,7 @@ export class DataStore {
 		      customFields: customFields ? JSON.stringify(customFields) : null,
 		      now,
 	    });
+    this.db.prepare('UPDATE contacts SET nameAr = ?, nameEn = ? WHERE id = ?').run(names.nameAr ?? null, names.nameEn ?? null, id);
 
     if (input.roles?.length) {
       for (const role of input.roles) {
@@ -9338,8 +9364,9 @@ export class DataStore {
     const existing = this.getContactById(id);
     if (!existing) throw new Error(`Contact ${id} not found`);
     const now = new Date().toISOString();
+    const names = resolveNames(updates, existing);
     this.db.prepare(
-      `UPDATE contacts SET kind=@kind, name=@name, legalName=@legalName, contactPerson=@contactPerson,
+      `UPDATE contacts SET kind=@kind, name=@name, nameAr=@nameAr, nameEn=@nameEn, legalName=@legalName, contactPerson=@contactPerson,
        email=@email, phone=@phone, address=@address, taxNumber=@taxNumber, tags=@tags, notes=@notes,
 	       leadStatus=@leadStatus, leadSource=@leadSource, priority=@priority,
 	       ownerUserId=@ownerUserId, ownerName=@ownerName,
@@ -9355,7 +9382,9 @@ export class DataStore {
     ).run({
       id,
       kind: updates.kind ?? existing.kind,
-      name: updates.name ?? existing.name,
+      name: names.name,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       legalName: updates.legalName ?? existing.legalName ?? null,
       contactPerson: updates.contactPerson ?? existing.contactPerson ?? null,
       email: updates.email ?? existing.email ?? null,
@@ -9404,13 +9433,19 @@ export class DataStore {
         companyId: existing.companyId,
         userIds: [newOwner],
         type: 'lead_assigned',
-        title: `Assigned to you: ${updates.name ?? existing.name}`,
+        title: `Assigned to you: ${names.name}`,
         body: 'You are now the owner of this contact.',
-        data: { tKey: 'notif.leadAssigned.t', bKey: 'notif.leadAssigned.b', name: updates.name ?? existing.name },
+        data: { tKey: 'notif.leadAssigned.t', bKey: 'notif.leadAssigned.b', name: names.name },
         link: `/contacts/${id}`,
         entityType: 'contact',
         entityId: id,
       });
+    }
+    // The client row made from this contact keeps its name: a rename used to
+    // leave the old name on that copy.
+    if (existing.clientId && (names.name !== existing.name || names.nameAr !== existing.nameAr || names.nameEn !== existing.nameEn)) {
+      this.db.prepare('UPDATE clients SET name = ?, nameAr = ?, nameEn = ? WHERE id = ?')
+        .run(names.name, names.nameAr ?? null, names.nameEn ?? null, existing.clientId);
     }
     const refreshed = this.getContactById(id)!;
     // Keep the first-class follow_ups table in sync when a manual next-follow-up
@@ -9881,7 +9916,7 @@ export class DataStore {
    * stock ledger always explains them.
    */
   updateInventoryItem(id: string, updates: {
-    sku?: string; barcode?: string | null; name?: string; category?: string; unit?: string; vatApplicable?: boolean;
+    sku?: string; barcode?: string | null; name?: string; nameAr?: string | null; nameEn?: string | null; category?: string; unit?: string; vatApplicable?: boolean;
     tracksInventory?: boolean; requiresQc?: boolean; reorderPoint?: number; salePrice?: number | null; preferredVendor?: string | null;
     preferredSupplierId?: string | null; location?: string | null; customFields?: Record<string, unknown>;
   }): InventoryItem | undefined {
@@ -9896,15 +9931,18 @@ export class DataStore {
       throw new Error('Write the stock off before you stop tracking this item.');
     }
     const pick = <K extends keyof typeof updates>(key: K, fallback: unknown) => (updates[key] === undefined ? fallback : updates[key]);
+    const names = resolveNames(updates, existing);
     this.db.prepare(
-      `UPDATE inventory_items SET sku=@sku, barcode=@barcode, name=@name, category=@category, unit=@unit, vatApplicable=@vatApplicable,
+      `UPDATE inventory_items SET sku=@sku, barcode=@barcode, name=@name, nameAr=@nameAr, nameEn=@nameEn, category=@category, unit=@unit, vatApplicable=@vatApplicable,
          tracksInventory=@tracksInventory, requiresQc=@requiresQc, reorderPoint=@reorderPoint, salePrice=@salePrice, preferredVendor=@preferredVendor,
          preferredSupplierId=@preferredSupplierId, location=@location, customFields=@customFields WHERE id=@id`,
     ).run({
       id,
       sku,
       barcode: pick('barcode', existing.barcode ?? null),
-      name: (updates.name ?? existing.name).trim(),
+      name: names.name,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       category: (updates.category ?? existing.category).trim(),
       unit: (updates.unit ?? existing.unit).trim(),
       vatApplicable: (updates.vatApplicable ?? existing.vatApplicable) ? 1 : 0,
@@ -11468,6 +11506,8 @@ export class DataStore {
       companyId: row.companyId,
       kind: row.kind as 'Organization' | 'Person',
       name: row.name,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       legalName: row.legalName ?? undefined,
       contactPerson: row.contactPerson ?? undefined,
       email: row.email ?? undefined,
@@ -14097,6 +14137,8 @@ export class DataStore {
 	        return {
 	          ...this.decodeClient(row),
 	          name: c.name,
+	          nameAr: c.nameAr,
+	          nameEn: c.nameEn,
 	          email: c.email || row.email,
 	          address: c.address || row.address,
 	          contactName: c.contactPerson ?? row.contactName ?? undefined,
@@ -14110,6 +14152,8 @@ export class DataStore {
       id: c.clientId || c.id,
       reference: c.clientId || c.id,
       name: c.name,
+      nameAr: c.nameAr,
+      nameEn: c.nameEn,
       email: c.email || '',
       address: c.address || '',
       companyId: c.companyId,
@@ -14721,6 +14765,7 @@ export class DataStore {
         "INSERT INTO clients (id, reference, name, email, address, companyId, contactName, phone, vatNumber, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')",
       ).run(id, this.nextClientReference(contact.companyId), contact.name, contact.email ?? '', contact.address ?? '', contact.companyId, contact.contactPerson ?? null, contact.phone ?? null, contact.taxNumber ?? null);
     }
+    this.db.prepare('UPDATE clients SET nameAr = ?, nameEn = ? WHERE id = ?').run(contact.nameAr ?? null, contact.nameEn ?? null, id);
     if (!contact.clientId) this.db.prepare('UPDATE contacts SET clientId = ? WHERE id = ?').run(id, contact.id);
     return id;
   }
@@ -14754,8 +14799,10 @@ export class DataStore {
   }
 
   createClient(client: CreateClientInput): Client {
+    const names = resolveNames(client);
     const newClient: Client = {
       ...client,
+      ...names,
       id: uuid(),
       reference: this.nextClientReference(client.companyId),
       contactName: client.contactName ?? undefined,
@@ -14772,10 +14819,12 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO clients (id, reference, name, email, address, companyId, contactName, phone, vatNumber, creditLimit, creditNumber, paymentMethod, status, notes) VALUES (@id, @reference, @name, @email, @address, @companyId, @contactName, @phone, @vatNumber, @creditLimit, @creditNumber, @paymentMethod, @status, @notes)',
+        'INSERT INTO clients (id, reference, name, nameAr, nameEn, email, address, companyId, contactName, phone, vatNumber, creditLimit, creditNumber, paymentMethod, status, notes) VALUES (@id, @reference, @name, @nameAr, @nameEn, @email, @address, @companyId, @contactName, @phone, @vatNumber, @creditLimit, @creditNumber, @paymentMethod, @status, @notes)',
       )
       .run({
         ...newClient,
+        nameAr: newClient.nameAr ?? null,
+        nameEn: newClient.nameEn ?? null,
         contactName: newClient.contactName ?? null,
         phone: newClient.phone ?? null,
         vatNumber: newClient.vatNumber ?? null,
@@ -14797,6 +14846,8 @@ export class DataStore {
 	      companyId: newClient.companyId,
 	      kind: 'Organization',
 	      name: newClient.name,
+	      nameAr: newClient.nameAr,
+	      nameEn: newClient.nameEn,
 	      email: newClient.email,
 	      address: newClient.address,
 	      contactPerson: newClient.contactName,
@@ -14812,9 +14863,12 @@ export class DataStore {
   updateClient(id: string, updates: Partial<Omit<Client, 'id'>>) {
     const existing = this.db.prepare('SELECT * FROM clients WHERE id = ?').get(id) as any;
     if (!existing) return undefined;
+    const names = resolveNames(updates, { name: existing.name, nameAr: existing.nameAr ?? undefined, nameEn: existing.nameEn ?? undefined });
     const updated = {
       ...existing,
-      name: updates.name ?? existing.name,
+      name: names.name,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       email: updates.email ?? existing.email,
       address: updates.address ?? existing.address,
       companyId: updates.companyId ?? existing.companyId,
@@ -14830,9 +14884,12 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'UPDATE clients SET name=@name, email=@email, address=@address, companyId=@companyId, contactName=@contactName, phone=@phone, vatNumber=@vatNumber, creditLimit=@creditLimit, creditNumber=@creditNumber, paymentMethod=@paymentMethod, status=@status, notes=@notes WHERE id=@id',
+        'UPDATE clients SET name=@name, nameAr=@nameAr, nameEn=@nameEn, email=@email, address=@address, companyId=@companyId, contactName=@contactName, phone=@phone, vatNumber=@vatNumber, creditLimit=@creditLimit, creditNumber=@creditNumber, paymentMethod=@paymentMethod, status=@status, notes=@notes WHERE id=@id',
       )
       .run(updated);
+    // The contact this client is shown through carries the same names.
+    this.db.prepare('UPDATE contacts SET name = ?, nameAr = ?, nameEn = ? WHERE clientId = ?')
+      .run(names.name, names.nameAr ?? null, names.nameEn ?? null, id);
     const result = this.decodeClient(updated);
     this.createActivityEvent({
       companyId: result.companyId,
@@ -15196,8 +15253,10 @@ export class DataStore {
 
   createInventoryItem(input: CreateInventoryItemInput): InventoryItem {
     const tracksInventory = input.tracksInventory ?? true;
+    const names = resolveNames(input);
     const item: InventoryItem = {
       ...input,
+      ...names,
       id: uuid(),
       sku: this.nextInventorySku(input.companyId),
       barcode: input.barcode ?? undefined,
@@ -15215,10 +15274,12 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO inventory_items (id, companyId, sku, barcode, name, category, unit, vatApplicable, tracksInventory, onHand, reorderPoint, unitCost, salePrice, preferredVendor, preferredSupplierId, location, customFields) VALUES (@id, @companyId, @sku, @barcode, @name, @category, @unit, @vatApplicable, @tracksInventory, @onHand, @reorderPoint, @unitCost, @salePrice, @preferredVendor, @preferredSupplierId, @location, @customFields)',
+        'INSERT INTO inventory_items (id, companyId, sku, barcode, name, nameAr, nameEn, category, unit, vatApplicable, tracksInventory, onHand, reorderPoint, unitCost, salePrice, preferredVendor, preferredSupplierId, location, customFields) VALUES (@id, @companyId, @sku, @barcode, @name, @nameAr, @nameEn, @category, @unit, @vatApplicable, @tracksInventory, @onHand, @reorderPoint, @unitCost, @salePrice, @preferredVendor, @preferredSupplierId, @location, @customFields)',
       )
       .run({
         ...item,
+        nameAr: item.nameAr ?? null,
+        nameEn: item.nameEn ?? null,
         barcode: item.barcode ?? null,
         vatApplicable: item.vatApplicable ? 1 : 0,
         tracksInventory: item.tracksInventory ? 1 : 0,
@@ -19705,6 +19766,14 @@ export class DataStore {
     };
   }
 
+  /** A line's name in each language, as picked from an item; trimmed, or left out. */
+  private lineNames(item: any): { descriptionAr?: string; descriptionEn?: string } {
+    const side = (v: unknown) => (typeof v === 'string' && v.trim() ? v.replace(/\s+/g, ' ').trim().slice(0, 500) : undefined);
+    const descriptionAr = side(item?.descriptionAr);
+    const descriptionEn = side(item?.descriptionEn);
+    return { ...(descriptionAr ? { descriptionAr } : {}), ...(descriptionEn ? { descriptionEn } : {}) };
+  }
+
   private normalizeInvoiceLineItems(rawItems: any[]): Invoice['lineItems'] {
     return (Array.isArray(rawItems) ? rawItems : [])
       .map((item) => {
@@ -19725,6 +19794,7 @@ export class DataStore {
               : 'Manual',
           sku: item?.sku ? String(item.sku) : undefined,
           description: String(item?.description || ''),
+          ...this.lineNames(item),
           quantity: Number.isFinite(quantity) ? quantity : 1,
           unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
           amount: Number.isFinite(amount) ? amount : 0,
@@ -19761,6 +19831,7 @@ export class DataStore {
           inventoryItemId: item?.inventoryItemId ? String(item.inventoryItemId) : undefined,
           sku: item?.sku ? String(item.sku) : undefined,
           description: String(item?.description || ''),
+          ...this.lineNames(item),
           quantity: Number.isFinite(quantity) ? quantity : 0,
           unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
           lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
@@ -23886,6 +23957,8 @@ export class DataStore {
       sku: row.sku,
       barcode: row.barcode ?? undefined,
       name: row.name,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       category: row.category,
       unit: row.unit,
       vatApplicable: row.vatApplicable === null || row.vatApplicable === undefined ? true : Boolean(row.vatApplicable),
@@ -23926,6 +23999,8 @@ export class DataStore {
       id: row.id,
       reference: row.reference,
       name: row.name,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       email: row.email,
       address: row.address,
       companyId: row.companyId,

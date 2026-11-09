@@ -324,6 +324,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PATCH /quotations/:id/status': { module: 'sales', action: 'write' },
   'PATCH /deliveries/:id/status': { module: 'sales', action: 'write' },
   'GET /companies/:companyId/search': { module: 'dashboard', action: 'read' },
+  'POST /companies/:companyId/name-suggestion': { module: 'dashboard', action: 'read' },
   'GET /companies/:companyId/dashboard': { module: 'dashboard', action: 'read' },
   'GET /companies/:companyId/dashboard/insights': { module: 'dashboard', action: 'read' },
   'POST /customer-returns/:id/cancel': { module: 'sales', action: 'cancel' },

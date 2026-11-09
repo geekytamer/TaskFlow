@@ -316,6 +316,9 @@ export interface Client {
   id: string;
   reference: string;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   email: string;
   address: string;
   companyId: string;
@@ -354,6 +357,9 @@ export interface InventoryItem {
   /** Batches arrive in quarantine and need a passed inspection before they can ship. */
   requiresQc?: boolean;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   category: string;
   unit: string;
   vatApplicable: boolean;
@@ -718,6 +724,9 @@ export interface InvoiceLineItem {
   itemType: InvoiceLineItemType;
   sku?: string;
   description: string;
+  /** The picked item's name in each language; a document prints its own. */
+  descriptionAr?: string;
+  descriptionEn?: string;
   quantity: number;
   unitPrice: number;
   /** Optional per-line discount; percent (0–100) or fixed amount off the gross. */
@@ -792,6 +801,9 @@ export interface SalesOrderLineItem {
   inventoryItemId?: string;
   sku?: string;
   description: string;
+  /** The picked item's name in each language; a document prints its own. Absent on hand-written lines. */
+  descriptionAr?: string;
+  descriptionEn?: string;
   quantity: number;
   unitPrice: number;
   discount?: number;
@@ -1354,6 +1366,9 @@ export interface Contact {
   companyId: string;
   kind: ContactKind;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   legalName?: string;
   contactPerson?: string;
   email?: string;

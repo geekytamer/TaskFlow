@@ -1,5 +1,6 @@
 'use client';
 
+import { getCurrentLocale } from '@/lib/locale';
 import { invoiceVat } from '@/lib/vat';
 import * as React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -732,7 +733,10 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
       case 'description': {
         // A line that does not carry the standard VAT says so on the document.
         const note = line.vatTreatment === 'zero' ? s?.vatZero : line.vatTreatment === 'exempt' ? s?.vatExempt : line.vatTreatment === 'out_of_scope' ? s?.vatOutOfScope : undefined;
-        return note ? <>{line.description} <span style={{ color: '#64748b', fontSize: 12 }}>({note})</span></> : line.description;
+        // A line picked from an item prints its name in the document's language.
+        const arabic = (ctx.locale ?? getCurrentLocale()).toLowerCase().startsWith('ar');
+        const text = (arabic ? line.descriptionAr : line.descriptionEn) || line.description;
+        return note ? <>{text} <span style={{ color: '#64748b', fontSize: 12 }}>({note})</span></> : text;
       }
       case 'quantity': return line.quantity;
       case 'unitPrice': return money(line.unitPrice);

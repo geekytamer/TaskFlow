@@ -137,7 +137,7 @@ export function CommandPalette() {
     if (!open || !selectedCompany?.id || query.trim().length < 2) { setResults([]); return; }
     let live = true;
     const timer = window.setTimeout(() => {
-      searchCompany(selectedCompany.id, query.trim()).then((r) => { if (live) setResults(r); }).catch(() => { if (live) setResults([]); });
+      searchCompany(selectedCompany.id, query.trim(), language).then((r) => { if (live) setResults(r); }).catch(() => { if (live) setResults([]); });
     }, 200);
     return () => { live = false; window.clearTimeout(timer); };
   }, [open, query, selectedCompany?.id]);

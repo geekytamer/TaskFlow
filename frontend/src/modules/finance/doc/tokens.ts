@@ -2,6 +2,9 @@ import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice } from '../types';
 import { getCurrentLocale } from '@/lib/locale';
 import { localizeStatus } from './strings';
+import { displayName } from '@/lib/display-name';
+
+const isArabic = (locale: string) => locale.toLowerCase().startsWith('ar');
 
 export interface DocDataContext {
   invoice: Invoice;
@@ -144,7 +147,8 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
       // pass only, so a note can never expand itself.
       return (invoice.notes || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, inner) =>
         /^(document|invoice)\.notes$/.test(String(inner)) ? '' : resolveToken(String(inner), ctx));
-    case 'client.name': return client?.name || '';
+    // A two-language client prints in the document's language (spec 2026-11-10).
+    case 'client.name': return client ? displayName(client, isArabic(ctx.locale ?? getCurrentLocale()) ? 'ar' : 'en') : '';
     case 'client.address': return client?.address || '';
     case 'client.email': return client?.email || '';
     case 'company.name': return company?.name || '';

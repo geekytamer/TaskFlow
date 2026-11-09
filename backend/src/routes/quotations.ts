@@ -239,6 +239,8 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
             itemType: 'Manual',
             sku: item.sku,
             description: item.description,
+            descriptionAr: item.descriptionAr,
+            descriptionEn: item.descriptionEn,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             discount: item.discount,

@@ -1,6 +1,6 @@
 import type { Express } from 'express';
 import type { InventoryItem, UserRole } from '../types';
-import { asRecord, optionalNumber, optionalString, requiredString } from '../validation';
+import { asRecord, nameOf, optionalNumber, optionalString, parseNameSides, requiredString } from '../validation';
 import type { RouteContext } from './context';
 import { HttpError } from '../http';
 import { type AuthedRequest, handler } from './shared';
@@ -64,11 +64,12 @@ export function registerServiceRoutes(app: Express, ctx: RouteContext): void {
       const companyId = req.params.companyId;
       requireCompanyRoles(req, companyId, MANAGEMENT);
       const body = asRecord(req.body, 'body');
-      const name = requiredString(body.name, 'name', { min: 1 }).trim().replace(/\s+/g, ' ').slice(0, 200);
+      const name = requiredString(nameOf(body), 'name', { min: 1 }).trim().replace(/\s+/g, ' ').slice(0, 200);
       if (!name) throw new HttpError(400, 'Enter a name for the service.');
       const item = withActor(req, () => store.createInventoryItem({
         companyId,
         name,
+        ...parseNameSides(body),
         category: text(body.category, 'Category', 80) ?? 'Services',
         unit: text(body.unit, 'Unit', 40) ?? 'service',
         vatApplicable: body.vatApplicable === undefined ? true : Boolean(body.vatApplicable),
@@ -90,6 +91,7 @@ export function registerServiceRoutes(app: Express, ctx: RouteContext): void {
       const body = asRecord(req.body, 'body');
       const updated = withActor(req, () => store.updateInventoryItem(existing.id, {
         name: body.name === undefined ? undefined : text(body.name, 'Name', 200),
+        ...parseNameSides(body),
         category: text(body.category, 'Category', 80),
         unit: text(body.unit, 'Unit', 40),
         vatApplicable: body.vatApplicable === undefined ? undefined : Boolean(body.vatApplicable),
