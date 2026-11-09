@@ -665,14 +665,15 @@ export async function completeFollowup(
   return { completed: decodeFollowup(data.completed), next: data.next ? decodeFollowup(data.next) : null };
 }
 
+/** CRM fields of a contact. null clears a field; leaving it out keeps it. */
 export async function patchContactCrm(contactId: string, updates: {
-  leadStatus?: LeadStatus;
-  leadSource?: LeadSource;
-  priority?: ContactPriority;
-  ownerUserId?: string;
-  ownerName?: string;
+  leadStatus?: LeadStatus | null;
+  leadSource?: LeadSource | null;
+  priority?: ContactPriority | null;
+  ownerUserId?: string | null;
+  ownerName?: string | null;
   nextFollowupDate?: Date | null;
-  nextFollowupNote?: string;
+  nextFollowupNote?: string | null;
   visibility?: 'Public' | 'Private';
 }): Promise<Contact> {
   const body = {
@@ -684,7 +685,13 @@ export async function patchContactCrm(contactId: string, updates: {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
-  return { ...data, createdAt: new Date(data.createdAt), updatedAt: new Date(data.updatedAt) };
+  return {
+    ...data,
+    createdAt: new Date(data.createdAt),
+    updatedAt: new Date(data.updatedAt),
+    nextFollowupDate: data.nextFollowupDate ? new Date(data.nextFollowupDate) : undefined,
+    convertedToClientAt: data.convertedToClientAt ? new Date(data.convertedToClientAt) : undefined,
+  };
 }
 
 export async function getOpportunities(companyId: string): Promise<Opportunity[]> {

@@ -292,9 +292,14 @@ type UpdateEmployeeInput = Partial<Omit<Employee, 'id' | 'companyId' | 'createdA
   hireDate?: Date | string;
   endDate?: Date | string;
 };
+/** Text fields of a contact a form may empty: null clears, undefined leaves alone. */
+type ClearableContactText = 'legalName' | 'contactPerson' | 'email' | 'phone' | 'address' | 'taxNumber' | 'notes'
+  | 'leadStatus' | 'leadSource' | 'priority' | 'ownerUserId' | 'ownerName' | 'nextFollowupNote'
+  | 'influencerPlatform' | 'influencerHandle' | 'influencerNiche' | 'followerCount' | 'engagementRate' | 'rateCardAmount'
+  | 'location' | 'availabilityStatus';
 type UpdateContactInput = Partial<
-  Omit<Contact, 'id' | 'companyId' | 'createdAt' | 'nextFollowupDate' | 'convertedToClientAt'>
-> & {
+  Omit<Contact, 'id' | 'companyId' | 'createdAt' | 'nextFollowupDate' | 'convertedToClientAt' | ClearableContactText>
+> & { [K in ClearableContactText]?: Contact[K] | null } & {
   nextFollowupDate?: Date | null;
   convertedToClientAt?: Date | null;
 };
@@ -9385,14 +9390,14 @@ export class DataStore {
       name: names.name,
       nameAr: names.nameAr ?? null,
       nameEn: names.nameEn ?? null,
-      legalName: updates.legalName ?? existing.legalName ?? null,
-      contactPerson: updates.contactPerson ?? existing.contactPerson ?? null,
-      email: updates.email ?? existing.email ?? null,
-      phone: updates.phone ?? existing.phone ?? null,
-      address: updates.address ?? existing.address ?? null,
-      taxNumber: updates.taxNumber ?? existing.taxNumber ?? null,
+      legalName: updates.legalName !== undefined ? (updates.legalName ?? null) : (existing.legalName ?? null),
+      contactPerson: updates.contactPerson !== undefined ? (updates.contactPerson ?? null) : (existing.contactPerson ?? null),
+      email: updates.email !== undefined ? (updates.email ?? null) : (existing.email ?? null),
+      phone: updates.phone !== undefined ? (updates.phone ?? null) : (existing.phone ?? null),
+      address: updates.address !== undefined ? (updates.address ?? null) : (existing.address ?? null),
+      taxNumber: updates.taxNumber !== undefined ? (updates.taxNumber ?? null) : (existing.taxNumber ?? null),
       tags: updates.tags !== undefined ? JSON.stringify(updates.tags) : (existing.tags ? JSON.stringify(existing.tags) : null),
-      notes: updates.notes ?? existing.notes ?? null,
+      notes: updates.notes !== undefined ? (updates.notes ?? null) : (existing.notes ?? null),
       leadStatus: updates.leadStatus !== undefined ? (updates.leadStatus ?? null) : (existing.leadStatus ?? null),
       leadSource: updates.leadSource !== undefined ? (updates.leadSource ?? null) : (existing.leadSource ?? null),
       priority: updates.priority !== undefined ? (updates.priority ?? null) : (existing.priority ?? null),
@@ -9534,24 +9539,43 @@ export class DataStore {
     }
   }
 
+  /**
+   * What still uses a contact, by kind (`key`) with how many: a contact in
+   * use cannot be deleted. Payout bills name the contact as their supplier;
+   * projects name it as their client.
+   */
+  private static readonly CONTACT_REFERENCES: ReadonlyArray<{ key: string; table: string; column: string; label: string }> = [
+    { key: 'invoices', table: 'invoices', column: 'contactId', label: 'invoice(s)' },
+    { key: 'vendor_bills', table: 'vendor_bills', column: 'supplierId', label: 'vendor bill(s)' },
+    { key: 'projects', table: 'projects', column: 'clientId', label: 'project(s)' },
+    { key: 'opportunities', table: 'opportunities', column: 'contactId', label: 'opportunity record(s)' },
+    { key: 'proposals', table: 'crm_proposals', column: 'contactId', label: 'proposal(s)' },
+    { key: 'campaign_assignments', table: 'campaign_assignments', column: 'contactId', label: 'campaign assignment(s)' },
+    { key: 'campaign_deliverables', table: 'campaign_deliverables', column: 'vendorContactId', label: 'campaign deliverable(s)' },
+    { key: 'campaign_expenses', table: 'campaign_expenses', column: 'contactId', label: 'campaign expense(s)' },
+    { key: 'campaign_deliverables', table: 'campaign_deliverables', column: 'contactId', label: 'campaign deliverable(s)' },
+    { key: 'quotations', table: 'quotations', column: 'contactId', label: 'quotation(s)' },
+    { key: 'sales_orders', table: 'sales_orders', column: 'contactId', label: 'sales order(s)' },
+    { key: 'purchase_orders', table: 'purchase_orders', column: 'contactId', label: 'purchase order(s)' },
+    { key: 'campaigns', table: 'crm_campaigns', column: 'contactId', label: 'campaign(s)' },
+    { key: 'commissions', table: 'commissions', column: 'contactId', label: 'commission(s)' },
+    { key: 'vendor_requests', table: 'vendor_requests', column: 'contactId', label: 'vendor request(s)' },
+    { key: 'portal_users', table: 'portal_users', column: 'contactId', label: 'portal login(s)' },
+  ];
+
+  contactReferences(id: string): Array<{ key: string; count: number }> {
+    const counts = new Map<string, number>();
+    for (const ref of DataStore.CONTACT_REFERENCES) {
+      const row = this.db.prepare(`SELECT COUNT(*) AS n FROM ${ref.table} WHERE ${ref.column} = ?`).get(id) as { n: number } | undefined;
+      const n = Number(row?.n || 0);
+      if (n > 0) counts.set(ref.key, (counts.get(ref.key) ?? 0) + n);
+    }
+    return [...counts].map(([key, count]) => ({ key, count }));
+  }
+
   deleteContact(id: string): void {
     this.assertNotReferenced(
-      [
-        { table: 'invoices', column: 'contactId', label: 'invoice(s)' },
-        { table: 'opportunities', column: 'contactId', label: 'opportunity record(s)' },
-        { table: 'crm_proposals', column: 'contactId', label: 'proposal(s)' },
-        { table: 'campaign_assignments', column: 'contactId', label: 'campaign assignment(s)' },
-        { table: 'campaign_deliverables', column: 'vendorContactId', label: 'campaign deliverable(s)' },
-        { table: 'campaign_expenses', column: 'contactId', label: 'campaign expense(s)' },
-        { table: 'campaign_deliverables', column: 'contactId', label: 'campaign deliverable(s)' },
-        { table: 'quotations', column: 'contactId', label: 'quotation(s)' },
-        { table: 'sales_orders', column: 'contactId', label: 'sales order(s)' },
-        { table: 'purchase_orders', column: 'contactId', label: 'purchase order(s)' },
-        { table: 'crm_campaigns', column: 'contactId', label: 'campaign(s)' },
-        { table: 'commissions', column: 'contactId', label: 'commission(s)' },
-        { table: 'vendor_requests', column: 'contactId', label: 'vendor request(s)' },
-        { table: 'portal_users', column: 'contactId', label: 'portal login(s)' },
-      ],
+      DataStore.CONTACT_REFERENCES.map(({ table, column, label }) => ({ table, column, label })),
       id,
       'contact',
     );

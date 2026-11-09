@@ -94,6 +94,7 @@ import {
   type ContactForm,
 } from './contact-form-fields';
 import { useLiveRefresh } from '@/lib/live';
+import { contactInUse, describeBlockers } from '../lib/contact-in-use';
 
 const LEAD_STATUS_COLORS: Record<LeadStatus, string> = {
   New: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300',
@@ -205,6 +206,10 @@ export function ContactsPage() {
     return () => { cancelled = true; };
   }, [createTarget.target]);
 
+  // Management changes: the contact itself (PUT), its roles, its influencer profile, logged activities.
+  const canManage = can('contacts.manage');
+  const canEditInfluencer = (c: Contact) => canManage && ((c.roles ?? []) as ContactRoleType[]).includes('Influencer');
+
   const openCrmPanel = async (c: Contact) => {
     setCrmContact(c);
     setCrmForm({
@@ -225,10 +230,14 @@ export function ContactsPage() {
       availabilityStatus: c.availabilityStatus ?? '',
     });
     setAccounts(c.influencerAccounts ?? []);
+    setCrmActivities([]);
+    // The activity history is for management; others simply see none.
+    if (!canManage) return;
     setCrmLoading(true);
     try {
-      const activities = await getContactActivities(c.id, 30);
-      setCrmActivities(activities);
+      setCrmActivities(await getContactActivities(c.id, 30));
+    } catch {
+      setCrmActivities([]);
     } finally {
       setCrmLoading(false);
     }
@@ -238,38 +247,45 @@ export function ContactsPage() {
     if (!crmContact) return;
     setSaving(true);
     try {
-      const isInfluencer = (crmContact.roles as ContactRoleType[])?.includes('Influencer');
-      // Save CRM overlay fields
-      await patchContactCrm(crmContact.id, {
-        leadStatus: (crmForm.leadStatus || undefined) as LeadStatus | undefined,
-        leadSource: (crmForm.leadSource || undefined) as LeadSource | undefined,
-        priority: (crmForm.priority || undefined) as ContactPriority | undefined,
-        ownerUserId: crmForm.ownerUserId || undefined,
+      // CRM fields: anyone who may edit the contact. An emptied field is sent as null to clear it.
+      let updated = await patchContactCrm(crmContact.id, {
+        leadStatus: (crmForm.leadStatus || null) as LeadStatus | null,
+        leadSource: (crmForm.leadSource || null) as LeadSource | null,
+        priority: (crmForm.priority || null) as ContactPriority | null,
+        ownerUserId: crmForm.ownerUserId || null,
         ownerName: crmForm.ownerUserId
-          ? ((usersByCompany[crmContact.companyId] ?? []).find(u => u.id === crmForm.ownerUserId)?.name ?? undefined)
-          : undefined,
-        nextFollowupDate: crmForm.nextFollowupDate ? new Date(crmForm.nextFollowupDate) : undefined,
-        nextFollowupNote: crmForm.nextFollowupNote || undefined,
+          ? ((usersByCompany[crmContact.companyId] ?? []).find(u => u.id === crmForm.ownerUserId)?.name ?? null)
+          : null,
+        nextFollowupDate: crmForm.nextFollowupDate ? new Date(crmForm.nextFollowupDate) : null,
+        nextFollowupNote: crmForm.nextFollowupNote.trim() || null,
         visibility: crmForm.visibility,
       });
-      // Save influencer profile fields via full update
-      const influencerUpdate = isInfluencer ? {
-        influencerPlatform: crmForm.influencerPlatform || undefined,
-        influencerHandle: crmForm.influencerHandle || undefined,
-        influencerNiche: crmForm.influencerNiche || undefined,
-        followerCount: crmForm.followerCount ? Number(crmForm.followerCount) : undefined,
-        engagementRate: crmForm.engagementRate ? Number(crmForm.engagementRate) : undefined,
-        rateCardAmount: crmForm.rateCardAmount ? Number(crmForm.rateCardAmount) : undefined,
-        location: crmForm.location || undefined,
-        availabilityStatus: crmForm.availabilityStatus || undefined,
-        influencerAccounts: accounts,
-      } : {};
-      const updated = await updateContact(crmContact.id, influencerUpdate);
-      setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
-      setCrmContact(updated);
+      // The influencer profile is a management change (PUT): sent only by those allowed,
+      // so an employee's save no longer half-succeeds with an error.
+      if (canEditInfluencer(crmContact)) {
+        updated = await updateContact(crmContact.id, {
+          influencerPlatform: crmForm.influencerPlatform || null,
+          influencerHandle: crmForm.influencerHandle.trim() || null,
+          influencerNiche: crmForm.influencerNiche.trim() || null,
+          followerCount: crmForm.followerCount ? Number(crmForm.followerCount) : null,
+          engagementRate: crmForm.engagementRate ? Number(crmForm.engagementRate) : null,
+          ...(rateCards.edit ? { rateCardAmount: crmForm.rateCardAmount ? Number(crmForm.rateCardAmount) : null } : {}),
+          location: crmForm.location.trim() || null,
+          availabilityStatus: crmForm.availabilityStatus || null,
+          influencerAccounts: accounts,
+        });
+      }
+      setContacts(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+      setCrmContact(prev => (prev ? { ...prev, ...updated } : prev));
       toast({ title: t('contacts.updated') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
+    } catch (error: any) {
+      toast({
+        title: t('common.error'),
+        description: error?.status === 403
+          ? (language === 'ar' ? 'لا تملك صلاحية تعديل هذه الجهة.' : 'You may not change this contact.')
+          : undefined,
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -328,13 +344,14 @@ export function ContactsPage() {
       let updated = await updateContact(editingContact.id, {
         kind: editForm.kind,
         name: editForm.name.trim(),
-        legalName: editForm.legalName.trim() || undefined,
-        contactPerson: editForm.contactPerson.trim() || undefined,
-        email: editForm.email.trim() || undefined,
-        phone: editForm.phone.trim() || undefined,
-        address: editForm.address.trim() || undefined,
-        taxNumber: editForm.taxNumber.trim() || undefined,
-        notes: editForm.notes.trim() || undefined,
+        // An emptied field is sent as null: the server clears it.
+        legalName: editForm.legalName.trim() || null,
+        contactPerson: editForm.contactPerson.trim() || null,
+        email: editForm.email.trim() || null,
+        phone: editForm.phone.trim() || null,
+        address: editForm.address.trim() || null,
+        taxNumber: editForm.taxNumber.trim() || null,
+        notes: editForm.notes.trim() || null,
       });
       // Roles are managed via dedicated endpoints, not updateContact — sync the
       // diff so toggling Client/Lead/etc. on or off actually persists.
@@ -364,8 +381,15 @@ export function ContactsPage() {
       setContacts(prev => prev.filter(c => c.id !== deletingContact.id));
       setDeletingContact(null);
       toast({ title: t('contacts.deleted') });
-    } catch {
-      toast({ title: t('common.error'), variant: 'destructive' });
+    } catch (error) {
+      const blockers = contactInUse(error);
+      toast({
+        title: blockers
+          ? (language === 'ar' ? 'لا يمكن حذف هذه الجهة' : 'This contact cannot be deleted')
+          : t('common.error'),
+        description: blockers ? describeBlockers(blockers, language) : undefined,
+        variant: 'destructive',
+      });
     } finally {
       setDeleting(false);
     }
@@ -505,9 +529,11 @@ export function ContactsPage() {
                           <Eye className="h-4 w-4 me-2" />{t('contact360.openDetail')}
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => { setEditingContact(c); setEditForm(contactToForm(c)); }}>
-                        <Pencil className="h-4 w-4 me-2" />{t('common.edit')}
-                      </DropdownMenuItem>
+                      {canManage && (
+                        <DropdownMenuItem onClick={() => { setEditingContact(c); setEditForm(contactToForm(c)); }}>
+                          <Pencil className="h-4 w-4 me-2" />{t('common.edit')}
+                        </DropdownMenuItem>
+                      )}
                       {can('contacts.delete') && (
                         <>
                           <DropdownMenuSeparator />
@@ -652,7 +678,7 @@ export function ContactsPage() {
 
               {/* Influencer profile section */}
               {((crmContact.roles ?? []) as ContactRoleType[]).includes('Influencer') && (
-                <div className="border rounded-lg p-4 mb-4 space-y-3">
+                <fieldset disabled={!canEditInfluencer(crmContact)} className="border rounded-lg p-4 mb-4 space-y-3 disabled:opacity-80">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('crm.influencerProfile')}</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -788,15 +814,17 @@ export function ContactsPage() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </fieldset>
               )}
 
               <div className="border rounded-lg p-4 mb-4 space-y-3">
                 <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-tutorial="crm-log-activity"
-                    onClick={() => { setLogActivityOpen(true); }}>
-                    <Phone className="h-3 w-3" />{t('crm.logActivity')}
-                  </Button>
+                  {canManage && (
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" data-tutorial="crm-log-activity"
+                      onClick={() => { setLogActivityOpen(true); }}>
+                      <Phone className="h-3 w-3" />{t('crm.logActivity')}
+                    </Button>
+                  )}
                   <Button size="sm" className="h-7 text-xs" onClick={saveCrm} disabled={saving}>
                     {t('common.save')}
                   </Button>
