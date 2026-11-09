@@ -38,7 +38,7 @@ import {
   convertQuotationToInvoice, convertQuotationToSalesOrder, createQuotation, deleteQuotation, getQuotations,
   setQuotationStatus, updateQuotation,
 } from '@/services/quotationService';
-import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
+import { SalesLineItemsEditor, emptyItemRow, formDiscountTotals, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
 import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
@@ -79,6 +79,7 @@ const blankForm = (): QuoteForm => ({
 export function QuotationsPanel({ opportunityId, compact = false }: { opportunityId?: string; compact?: boolean }) {
   const { selectedCompany } = useCompany();
   const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const confirm = useConfirm();
   const { money } = useCompanyCurrency();
@@ -182,6 +183,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   };
 
   const subtotal = formItemsTotal(form.items);
+  const disc = formDiscountTotals(form.items);
   const vat = Math.round(subtotal * (Number(form.taxRate) || 0)) / 100;
 
   const save = async () => {
@@ -430,7 +432,11 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} />
           </div>
           <dl className="ms-auto grid w-full max-w-xs grid-cols-2 gap-y-1 text-sm">
-            <dt className="text-muted-foreground">{t('quotes.subtotal')}</dt><dd className="text-end tabular-nums">{money(subtotal)}</dd>
+            {disc.discount > 0 && <>
+              <dt className="text-muted-foreground">{tr('Total before discount', 'الإجمالي قبل الخصم')}</dt><dd className="text-end tabular-nums">{money(disc.gross)}</dd>
+              <dt className="text-muted-foreground">{tr('Discount', 'الخصم')}</dt><dd className="text-end tabular-nums text-destructive">{money(-disc.discount)}</dd>
+            </>}
+            <dt className="text-muted-foreground">{disc.discount > 0 ? tr('Total after discount', 'الإجمالي بعد الخصم') : t('quotes.subtotal')}</dt><dd className="text-end tabular-nums">{money(subtotal)}</dd>
             <dt className="text-muted-foreground">{t('quotes.vatAmount')}</dt><dd className="text-end tabular-nums">{money(vat)}</dd>
             <dt className="font-medium">{t('quotes.total')}</dt><dd className="text-end font-semibold tabular-nums">{money(subtotal + vat)}</dd>
           </dl>

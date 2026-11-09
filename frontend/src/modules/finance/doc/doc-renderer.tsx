@@ -23,6 +23,7 @@ import { resolveToken, resolveTokens, type DocDataContext } from './tokens';
 import { RichNodeView } from './rich-text';
 import { BODY_KEY, withWrittenBody } from '@/modules/documents/written-body';
 import { docStrings, isRtlLocale, type DocStrings } from './strings';
+import { discountTotals } from '@/lib/discount';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -666,7 +667,19 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
       }
       case 'quantity': return line.quantity;
       case 'unitPrice': return money(line.unitPrice);
-      case 'amount': return money(line.amount);
+      case 'amount': {
+        // A discounted line says what came off, so the amount squares with qty × unit.
+        const off = Number(line.discount) > 0 ? line.discount! : 0;
+        if (!off) return money(line.amount);
+        return (
+          <>
+            {money(line.amount)}
+            <div style={{ color: '#64748b', fontSize: 11 }}>
+              {s?.discount ?? 'Discount'} {line.discountType === 'amount' ? money(off) : `${Number(off.toFixed(2))}%`}
+            </div>
+          </>
+        );
+      }
       case 'custom': return line.custom?.[col.id] ?? '';
       default: return '';
     }
@@ -696,10 +709,16 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
   const showSubtotal = block.showSubtotal !== false;
   const showTax = block.showTax !== false;
   const showTotal = block.showTotal !== false;
+  const disc = discountTotals(ctx.invoice.lineItems);
+  const row = { display: 'flex', justifyContent: 'space-between', padding: '4px 0' } as const;
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', ...style }}>
       <div style={{ width: '100%', maxWidth: 280, fontSize: 14 }}>
-        {showSubtotal && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.subtotal}</span><span>{money(ctx.subtotal)}</span></div>}
+        {showSubtotal && disc.discount > 0 && <>
+          <div style={row}><span style={{ color: '#64748b' }}>{s.beforeDiscount}</span><span>{money(disc.gross)}</span></div>
+          <div style={row}><span style={{ color: '#64748b' }}>{s.discount}</span><span>{money(-disc.discount)}</span></div>
+        </>}
+        {showSubtotal && <div style={row}><span style={{ color: '#64748b' }}>{disc.discount > 0 ? s.afterDiscount : s.subtotal}</span><span>{money(ctx.subtotal)}</span></div>}
         {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.tax} {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
         {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>{s.total}</span><span>{money(ctx.total)}</span></div>}
       </div>
