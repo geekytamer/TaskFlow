@@ -5079,11 +5079,12 @@ export function createServer(options: CreateServerOptions = {}) {
 		    '/companies/:companyId/campaigns/:campaignId/generate-vendor-bills',
 		    authMiddleware,
 		    handler((req, res) => {
-		      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 		      const campaign = store.getCrmCampaignById(req.params.campaignId);
 		      if (!campaign || campaign.companyId !== req.params.companyId) {
 		        throw new HttpError(404, 'Campaign not found.');
 		      }
+		      // Bills are money owed: only someone who may change this campaign raises them.
+		      requireCampaignAccess(req, campaign.id, 'edit');
 		      const bills = withActor(req, () =>
 		        store.generateCampaignVendorBills(req.params.companyId, req.params.campaignId),
 		      );

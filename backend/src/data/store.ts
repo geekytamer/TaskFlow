@@ -12458,11 +12458,12 @@ export class DataStore {
 		      // Only external deliverables become payables. Skip internal ones,
 		      // those already billed, and anything without a vendor contact.
 		      if (d.vendorBillId) continue;
+		      if (d.status === 'Cancelled') continue;
 		      if ((d.fulfillment ?? 'Internal') !== 'External') continue;
 		      const vendorContactId = d.vendorContactId ?? d.contactId;
 		      if (!vendorContactId) continue;
 		      const contact = this.getContactById(vendorContactId);
-		      if (!contact) continue;
+		      if (!contact || contact.companyId !== companyId) continue;
 		      // Bill our cost — never the client price.
 		      const amount = d.cost ?? 0;
 		      if (amount <= 0) continue;
@@ -12507,6 +12508,7 @@ export class DataStore {
 		      const contact = this.getContactById(input.contactId);
 		      if (!contact || contact.companyId !== input.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
+		    this.assertCampaignVendor(input.companyId, input.vendorContactId);
 		    const now = new Date();
 		    // Internal deliverables never carry a vendor (no payable); External
 		    // ones require a vendor contact so a bill can be generated.
@@ -12553,6 +12555,7 @@ export class DataStore {
 		      const contact = this.getContactById(updates.contactId);
 		      if (!contact || contact.companyId !== existing.companyId) throw new Error('Deliverable contact must belong to the selected company.');
 		    }
+		    if (updates.vendorContactId) this.assertCampaignVendor(existing.companyId, updates.vendorContactId);
 		    const nextFulfillment: CampaignFulfillment =
 		      updates.fulfillment === undefined ? (existing.fulfillment ?? 'Internal') : updates.fulfillment;
 		    const requestedVendor = updates.vendorContactId === undefined ? existing.vendorContactId : updates.vendorContactId;
@@ -12592,7 +12595,16 @@ export class DataStore {
 		    return this.getCampaignDeliverableById(id);
 		  }
 
-		  /** Delete a deliverable with the briefs, submissions, reviews and results that only belong to it. */
+		  /** A deliverable's vendor is billed by this company, so it has to be one of its contacts. */
+  private assertCampaignVendor(companyId: string, vendorContactId?: string) {
+    if (!vendorContactId) return;
+    const vendor = this.getContactById(vendorContactId);
+    if (!vendor || vendor.companyId !== companyId) {
+      throw new Error('Deliverable vendor must be a contact of the selected company.');
+    }
+  }
+
+  /** Delete a deliverable with the briefs, submissions, reviews and results that only belong to it. */
 		  deleteCampaignDeliverable(id: string): boolean {
 		    const row = this.db.prepare('SELECT vendorBillId FROM campaign_deliverables WHERE id = ?').get(id) as { vendorBillId?: string | null } | undefined;
 		    if (!row) return false;
@@ -12720,6 +12732,10 @@ export class DataStore {
 		  updateCampaignExpense(id: string, updates: UpdateCampaignExpenseInput): CampaignExpense | undefined {
 		    const existing = this.getCampaignExpenseById(id);
 		    if (!existing) return undefined;
+		    if (updates.contactId) {
+		      const contact = this.getContactById(updates.contactId);
+		      if (!contact || contact.companyId !== existing.companyId) throw new Error('Expense contact must belong to the selected company.');
+		    }
 		    const expense: CampaignExpense = {
 		      ...existing,
 		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
@@ -20918,14 +20934,7 @@ export class DataStore {
     }
     this.addContactRole(contact.id, companyId, 'Client', 'Invoice');
 
-    const deliverables = this.listCampaignDeliverables(campaignId);
-    const lineItems = deliverables.map((d) => ({
-      itemType: 'Manual' as const,
-      description: d.title,
-      quantity: 1,
-      unitPrice: d.price || 0,
-      amount: d.price || 0,
-    }));
+    const lineItems = this.campaignInvoiceLines(campaignId);
     const now = new Date();
     const invoice = this.createInvoice({
       companyId,
@@ -20988,15 +20997,9 @@ export class DataStore {
       return { status: 'resynced', invoice };
     }
 
-    const deliverables = this.listCampaignDeliverables(campaignId);
-    const desiredLines = deliverables.map((d) => ({
-      itemType: 'Manual' as const,
-      description: d.title,
-      quantity: 1,
-      unitPrice: d.price || 0,
-      amount: d.price || 0,
-    }));
-    const desiredTotal = Number(desiredLines.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
+    const desiredLines = this.campaignInvoiceLines(campaignId);
+    // Deliverable prices are before VAT, so the comparison is made before VAT.
+    const desiredNet = Number(desiredLines.reduce((sum, l) => sum + l.amount, 0).toFixed(2));
 
     // Draft → safe to rewrite in place (nothing recognised on the ledger yet).
     if (primary.status === 'Draft') {
@@ -21008,14 +21011,19 @@ export class DataStore {
       return { status: 'resynced', invoice };
     }
 
-    // Issued → compare the campaign's net billed amount with the desired total.
+    // Issued → compare what the campaign has billed before VAT, less credit
+    // notes, with the deliverables' prices. Invoice totals and credit notes
+    // carry VAT, so each is taken back to its pre-VAT share first.
     const campaignInvoices = this.listInvoices(companyId).filter((i) => i.campaignId === campaignId);
-    const grossBilled = campaignInvoices.reduce((sum, i) => sum + i.total, 0);
-    const credited = campaignInvoices.reduce((sum, i) => sum + this.getInvoiceCreditedAmount(i.id), 0);
-    const billedNet = Number((grossBilled - credited).toFixed(2));
-    const delta = Number((desiredTotal - billedNet).toFixed(2));
+    const billedNet = Number(campaignInvoices.reduce((sum, i) => {
+      const vat = this.computeInvoiceTotals(i.lineItems || [], i.taxRate);
+      const netShare = vat.gross > 0 ? vat.net / vat.gross : 1;
+      return sum + vat.net - this.getInvoiceCreditedAmount(i.id) * netShare;
+    }, 0).toFixed(2));
+    const delta = Number((desiredNet - billedNet).toFixed(2));
 
-    if (Math.abs(delta) < 0.005) return { status: 'up_to_date' };
+    // Rounding a credit note to the cent can leave less than a cent behind.
+    if (Math.abs(delta) < 0.01) return { status: 'up_to_date' };
 
     const kind: 'supplementary' | 'credit' = delta > 0 ? 'supplementary' : 'credit';
     if (!confirm) {
@@ -21025,8 +21033,8 @@ export class DataStore {
         kind,
         message:
           delta > 0
-            ? `This campaign's invoice is already issued. Create a supplementary invoice for ${delta.toFixed(2)} to cover the added scope?`
-            : `This campaign's invoice is already issued. Issue a credit note for ${Math.abs(delta).toFixed(2)} for the reduced scope?`,
+            ? `This campaign's invoice is already issued. Create a supplementary invoice for ${delta.toFixed(2)} (before VAT) to cover the added scope?`
+            : `This campaign's invoice is already issued. Issue a credit note for ${Math.abs(delta).toFixed(2)} (before VAT) for the reduced scope?`,
       };
     }
 
@@ -21057,15 +21065,31 @@ export class DataStore {
       return { status: 'supplemented', delta, kind, invoice };
     }
 
+    // A credit note is stated with VAT: give back the price and the VAT charged on it.
+    const primaryVat = this.computeInvoiceTotals(primary.lineItems || [], primary.taxRate);
+    const grossShare = primaryVat.net > 0 ? primaryVat.gross / primaryVat.net : 1;
     const asked = this.requestCreditNote({
       companyId,
       invoiceId: primary.id,
       clientId: primary.clientId,
-      lineItems: [{ description: `Campaign ${campaign.name} — scope reduction`, amount: Math.abs(delta) }],
+      lineItems: [{ description: `Campaign ${campaign.name} — scope reduction`, amount: Number((Math.abs(delta) * grossShare).toFixed(2)) }],
       reason: `Campaign scope reduced after invoicing`,
     });
     if (asked.hold) return { status: 'credit_held', delta, kind, hold: asked.hold };
     return { status: 'credited', delta, kind, creditNote: asked.creditNote };
+  }
+
+  /** The client-facing lines of a campaign invoice: one per deliverable that is not cancelled. */
+  private campaignInvoiceLines(campaignId: string) {
+    return this.listCampaignDeliverables(campaignId)
+      .filter((d) => d.status !== 'Cancelled')
+      .map((d) => ({
+        itemType: 'Manual' as const,
+        description: d.title,
+        quantity: 1,
+        unitPrice: d.price || 0,
+        amount: d.price || 0,
+      }));
   }
 
   getFinanceOverview(companyId: string): FinanceOverview {
