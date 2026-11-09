@@ -93,7 +93,35 @@ export function PayoutAccountsSection({
   const remove = (key: string) => setDrafts((prev) => prev.filter((d) => d.key !== key));
   const add = () => setDrafts((prev) => [...prev, { key: newKey(), method: 'Bank transfer', isDefault: prev.length === 0 }]);
 
+  /** The first thing wrong with the drafts, in the reader's language; null when they can be sent. */
+  const problemOf = (list: Draft[]): string | null => {
+    for (const [i, d] of list.entries()) {
+      const n = list.length > 1 ? ` (${tr('account', 'الحساب')} ${i + 1})` : '';
+      const iban = (d.iban ?? '').replace(/\s+/g, '').toUpperCase();
+      const swift = (d.swift ?? '').replace(/\s+/g, '').toUpperCase();
+      const method = d.method ?? 'Bank transfer';
+      if (method === 'Bank transfer' && !iban && !(d.accountNumber ?? '').trim()) {
+        return tr('Enter the IBAN or the account number', 'اكتب رقم الآيبان أو رقم الحساب') + n;
+      }
+      if (iban && !/^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(iban)) {
+        return tr('The IBAN does not look right: it starts with two letters and two digits, like OM81…', 'رقم الآيبان غير صحيح: يبدأ بحرفين ثم رقمين، مثل OM81…') + n;
+      }
+      if (swift && !/^[A-Z0-9]{8}([A-Z0-9]{3})?$/.test(swift)) {
+        return tr('The SWIFT code must be 8 or 11 letters and digits', 'رمز السويفت يجب أن يكون 8 أو 11 حرفاً ورقماً') + n;
+      }
+      if (method === 'Wallet' && !(d.walletNumber ?? '').trim()) {
+        return tr('Enter the wallet number', 'اكتب رقم المحفظة') + n;
+      }
+    }
+    return null;
+  };
+
   const save = async () => {
+    const problem = problemOf(drafts);
+    if (problem) {
+      toast({ variant: 'destructive', title: tr('Check the details', 'تحقق من البيانات'), description: problem });
+      return;
+    }
     setSaving(true);
     try {
       const payload = drafts.map(({ key, ...rest }) => ({ ...rest, id: key.startsWith('new-') ? undefined : key }));
@@ -102,7 +130,14 @@ export function PayoutAccountsSection({
       setOpen(false);
       toast({ title: tr('Payment details saved', 'تم حفظ بيانات الدفع') });
     } catch (error: any) {
-      toast({ variant: 'destructive', title: tr('Could not save', 'تعذّر الحفظ'), description: error?.message });
+      // The server's own wording is technical English; say it plainly.
+      toast({
+        variant: 'destructive',
+        title: tr('Could not save', 'تعذّر الحفظ'),
+        description: error?.status === 403
+          ? tr('Your role cannot change payment details.', 'دورك لا يسمح بتعديل بيانات الدفع.')
+          : tr('Check the details and try again.', 'تحقق من البيانات وحاول مرة أخرى.'),
+      });
     } finally {
       setSaving(false);
     }

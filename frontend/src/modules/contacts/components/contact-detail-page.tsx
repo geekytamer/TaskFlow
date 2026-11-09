@@ -51,6 +51,13 @@ import {
 
 const empty = '—';
 
+/** Arabic for the statuses this page lists (campaigns, their pieces, quotations). */
+const STATUS_AR: Record<string, string> = {
+  Planned: 'مخطط', Active: 'نشطة', 'On Hold': 'متوقفة مؤقتاً', Completed: 'مكتملة', Cancelled: 'ملغاة', Archived: 'مؤرشفة',
+  'In Progress': 'قيد التنفيذ', Submitted: 'مُرسل للمراجعة', Approved: 'معتمد', Published: 'منشور',
+  Draft: 'مسودة', Sent: 'مُرسل', Accepted: 'مقبول', Declined: 'مرفوض', Expired: 'منتهي',
+};
+
 /** 52000 -> 52K. Follower counts are unreadable at full precision. */
 function compact(value: number): string {
   if (!Number.isFinite(value)) return empty;
@@ -125,6 +132,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const deliverables = summary.deliverables ?? [];
   const campaigns = summary.campaigns ?? [];
   const quotations = summary.quotations ?? [];
+  const status = (v: string) => (language === 'ar' ? STATUS_AR[v] ?? v : v);
   const day = (v?: string | Date | null) => (v ? new Date(v).toLocaleDateString(language === 'ar' ? 'ar-OM' : 'en-GB') : empty);
 
   return (
@@ -224,7 +232,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 label={tr('Campaigns', 'الحملات')}
                 value={String(summary.totals.campaignCount)}
                 helper={isInfluencer && summary.totals.deliverableCount !== undefined
-                  ? `${summary.totals.deliverableCount} ${tr('pieces of work', 'محتوى مطلوب')}`
+                  ? `${summary.totals.deliverableCount} ${summary.totals.deliverableCount === 1 ? tr('piece of work', 'محتوى مطلوب') : tr('pieces of work', 'محتوى مطلوب')}`
                   : undefined}
               />
             )}
@@ -366,7 +374,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         columns={[t('contact360.colName'), t('contact360.colStatus'), tr('Their part', 'دوره'), tr('Dates', 'التواريخ')]}
         rows={campaigns.slice(0, 15).map((cmp) => [
           <Link key={cmp.id} href={`/crm/campaigns?campaign=${encodeURIComponent(cmp.id)}`} className="text-primary hover:underline">{cmp.name}</Link>,
-          cmp.status,
+          status(cmp.status),
           cmp.relation === 'client' ? tr('Client', 'العميل') : tr('Works on it', 'مشارك بالتنفيذ'),
           [cmp.startDate, cmp.endDate].some(Boolean) ? `${day(cmp.startDate)} – ${day(cmp.endDate)}` : empty,
         ])}
@@ -379,7 +387,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         rows={deliverables.slice(0, 15).map((d) => [
           [d.title, d.platform].filter(Boolean).join(' · '),
           <Link key={d.id} href={`/crm/campaigns?campaign=${encodeURIComponent(d.campaignId)}`} className="text-primary hover:underline">{d.campaignName}</Link>,
-          d.status,
+          status(d.status),
           day(d.dueDate),
           d.cost === undefined ? hiddenText(language) : d.cost != null ? money(d.cost) : empty,
           d.vendorBillId ? tr('Bill raised', 'صدرت فاتورة') : tr('Not billed yet', 'لم تُفوتر بعد'),
@@ -392,7 +400,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         columns={[t('contact360.colNumber'), t('contact360.colStatus'), t('contact360.colTotal'), tr('Valid until', 'صالح حتى')]}
         rows={quotations.slice(0, 15).map((q) => [
           q.quoteNumber,
-          q.status,
+          status(q.status),
           amountIn(q.totalAmount || 0, q.currency),
           day(q.validUntil),
         ])}
