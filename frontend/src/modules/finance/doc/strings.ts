@@ -39,6 +39,9 @@ export interface DocStrings {
   quoteFor: string;
   validUntil: string;
   statement: string;
+  qty: string;
+  unit: string;
+  amount: string;
 }
 
 const EN: DocStrings = {
@@ -75,6 +78,9 @@ const EN: DocStrings = {
   quoteFor: 'Prepared for',
   validUntil: 'Valid until',
   statement: 'ACCOUNT STATEMENT',
+  qty: 'Qty',
+  unit: 'Unit',
+  amount: 'Amount',
 };
 
 const AR: DocStrings = {
@@ -111,10 +117,55 @@ const AR: DocStrings = {
   quoteFor: 'مُعدّ لـ',
   validUntil: 'صالح حتى',
   statement: 'كشف حساب',
+  qty: 'الكمية',
+  unit: 'سعر الوحدة',
+  amount: 'المبلغ',
 };
 
 export function isRtlLocale(locale: string = getCurrentLocale()): boolean {
   return locale.toLowerCase().startsWith('ar');
+}
+
+const LABEL_KEYS: Map<string, keyof DocStrings> = (() => {
+  const map = new Map<string, keyof DocStrings>();
+  // A word both languages share (الكمية) keeps the first key it was found under.
+  for (const dict of [EN, AR]) {
+    for (const key of Object.keys(dict) as (keyof DocStrings)[]) {
+      const norm = normalizeLabel(dict[key]);
+      if (norm && !map.has(norm)) map.set(norm, key);
+    }
+  }
+  // Common variants people type in the designer.
+  map.set('bill to', 'billTo');
+  map.set('quote', 'quotation');
+  map.set('unit price', 'unit');
+  map.set('price', 'unit');
+  map.set('total amount', 'total');
+  return map;
+})();
+
+function normalizeLabel(text: string): string {
+  return text.trim().replace(/[:：]\s*$/, '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * A label typed into a template ("Bill To", "Due date", "الإجمالي") is shown in
+ * the document's language, and a quotation says "Prepared for" / "Valid until"
+ * where an invoice template says "Bill To" / "Due date". Anything that is not
+ * one of the standard labels is returned exactly as written.
+ */
+export function localizeLabel(text: string, s: DocStrings, opts: { quote?: boolean } = {}): string {
+  if (!text || text.includes('{{')) return text;
+  let key = LABEL_KEYS.get(normalizeLabel(text));
+  if (!key) return text;
+  if (opts.quote) {
+    if (key === 'billTo') key = 'quoteFor';
+    else if (key === 'dueDate') key = 'validUntil';
+    else if (key === 'invoice') key = 'quotation';
+  }
+  const value = s[key];
+  // Keep the writer's capitalisation style for headings typed in capitals.
+  return text === text.toUpperCase() && /[a-z]/i.test(text) ? value.toUpperCase() : value;
 }
 
 export function docStrings(locale: string = getCurrentLocale()): DocStrings {

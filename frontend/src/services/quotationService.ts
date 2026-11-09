@@ -33,6 +33,8 @@ export interface QuotationInput {
   exchangeRate?: number;
   notes?: string;
   templateId?: string;
+  /** 'ar' / 'en'; null clears it so the quote follows the reader. */
+  language?: 'ar' | 'en' | null;
 }
 
 export async function getQuotations(companyId: string, filter: { opportunityId?: string } = {}): Promise<Quotation[]> {

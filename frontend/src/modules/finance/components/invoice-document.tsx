@@ -13,6 +13,8 @@ interface InvoiceDocumentProps {
   template?: InvoiceTemplate;
   /** Where the QR code points; the public invoice page when omitted. */
   publicUrl?: string;
+  /** The language this document prints in; the design's or the reader's when omitted. */
+  language?: 'ar' | 'en' | null;
 }
 
 /**
@@ -22,10 +24,10 @@ interface InvoiceDocumentProps {
  * One engine means the on-screen preview, the print page, and the server-side
  * PDF are always pixel-identical.
  */
-export function InvoiceDocument({ invoice, client, company, template, publicUrl }: InvoiceDocumentProps) {
+export function InvoiceDocument({ invoice, client, company, template, publicUrl, language }: InvoiceDocumentProps) {
   const custom = template?.doc;
   const doc = isInvoiceDoc(custom) ? custom : templateToDoc(template);
   return (
-    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} />
+    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} direction={language === 'ar' ? 'rtl' : language === 'en' ? 'ltr' : undefined} />
   );
 }

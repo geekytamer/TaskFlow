@@ -2325,6 +2325,7 @@ export function createServer(options: CreateServerOptions = {}) {
           totalAmount: quote.totalAmount,
           currency: quote.currency,
           notes: quote.notes,
+          language: quote.language ?? null,
         },
         template,
         company: companyRecord

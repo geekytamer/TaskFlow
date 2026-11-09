@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { STANDARD_VAT_RATE } from '@/lib/vat';
 import { format } from 'date-fns';
-import { FileText, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
+import { FileText, Languages, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Combobox } from '@/components/ui/combobox';
@@ -58,6 +58,8 @@ type QuoteForm = {
   validUntil: string;
   taxRate: string;
   templateId: string;
+  /** '' follows whoever opens the quote. */
+  language: '' | 'ar' | 'en';
   notes: string;
   items: SalesItemForm[];
 };
@@ -68,6 +70,7 @@ const blankForm = (): QuoteForm => ({
   validUntil: format(new Date(Date.now() + 30 * 86400000), 'yyyy-MM-dd'),
   taxRate: String(STANDARD_VAT_RATE),
   templateId: '',
+  language: '',
   notes: '',
   items: [emptyItemRow()],
 });
@@ -156,7 +159,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const dateLabel = (value: Date) => value.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
   const statusLabel = (status: QuotationStatus) => t(`quotes.status.${status}`);
 
-  const openNew = () => { setForm({ ...blankForm(), templateId: chooseTemplateId(quoteTemplates) }); setEditing('new'); };
+  const openNew = () => { setForm({ ...blankForm(), templateId: chooseTemplateId(quoteTemplates), language: language === 'ar' ? 'ar' : 'en' }); setEditing('new'); };
   // Documents → New document → Quotation lands here with ?new=1: open the form once loaded, then drop the flag.
   const askedNew = React.useRef(false);
   React.useEffect(() => {
@@ -176,6 +179,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       validUntil: format(quote.validUntil, 'yyyy-MM-dd'),
       taxRate: String(quote.taxRate),
       templateId: quote.templateId || '',
+      language: quote.language ?? '',
       notes: quote.notes || '',
       items: itemsToForm(quote.items),
     });
@@ -200,9 +204,10 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       taxRate: Number(form.taxRate) || 0,
       notes: form.notes || undefined,
       templateId: form.templateId || undefined,
+      language: form.language || undefined,
     };
     // On edit an emptied field is sent as null so the server clears it.
-    const editPayload = { ...payload, notes: form.notes || null, templateId: form.templateId || null } as any;
+    const editPayload = { ...payload, notes: form.notes || null, templateId: form.templateId || null, language: form.language || null } as any;
     setSaving(true);
     try {
       if (editing === 'new') {
@@ -356,6 +361,18 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                             {(quote.status === 'Accepted' || quote.status === 'Declined') && !converted(quote) && (
                               <DropdownMenuItem onClick={() => move(quote, 'Draft')}>{t('quotes.reopen')}</DropdownMenuItem>
                             )}
+                            <DropdownMenuSeparator />
+                            {(['ar', 'en'] as const).map((lang) => (
+                              <DropdownMenuItem
+                                key={lang}
+                                disabled={quote.language === lang}
+                                onClick={() => run(() => updateQuotation(quote.id, { language: lang }), tr('Quote language saved', 'تم حفظ لغة عرض السعر'))}
+                              >
+                                <Languages className="me-2 h-4 w-4" />
+                                {lang === 'ar' ? tr('Print in Arabic', 'اطبعه بالعربي') : tr('Print in English', 'اطبعه بالإنجليزي')}
+                                {quote.language === lang ? ' ✓' : ''}
+                              </DropdownMenuItem>
+                            ))}
                             {!converted(quote) && (
                               <>
                                 <DropdownMenuSeparator />
@@ -423,6 +440,17 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                 <SelectContent>
                   <SelectItem value="default">{t('quotes.defaultTemplate')}</SelectItem>
                   {quoteTemplates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>{tr('Quote language', 'لغة عرض السعر')}</Label>
+              <Select value={form.language || 'auto'} onValueChange={(value) => setForm((prev) => ({ ...prev, language: value === 'auto' ? '' : value as 'ar' | 'en' }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ar">العربية</SelectItem>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="auto">{tr("Reader's language", 'لغة من يفتحه')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

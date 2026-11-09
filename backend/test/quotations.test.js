@@ -228,3 +228,28 @@ test('a draft quotation can be deleted', async () => {
   assert.equal((await as(request(app).delete(`/quotations/${quote.id}`))).status, 204);
   assert.equal((await as(request(app).get(`/quotations/${quote.id}`))).status, 404);
 });
+
+test('a quotation keeps its print language, changeable even after it is accepted', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as, { language: 'en' });
+  assert.equal(quote.language, 'en');
+  assert.equal((await as(request(app).post('/companies/1/quotations')).send({
+    clientId: 'client-1', validUntil: tomorrow(), items: lines, language: 'fr',
+  })).status, 400);
+
+  const accepted = await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  // Changing the offer of an accepted quote is refused...
+  assert.equal((await as(request(app).put(`/quotations/${quote.id}`)).send({ notes: 'x' })).status, 400);
+  // ...but its language is only how it reads.
+  const arabic = await as(request(app).put(`/quotations/${quote.id}`)).send({ language: 'ar' });
+  assert.equal(arabic.status, 200, JSON.stringify(arabic.body));
+  assert.equal(arabic.body.language, 'ar');
+  assert.equal(arabic.body.status, 'Accepted');
+
+  const shared = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.equal(shared.body.quotation.language, 'ar');
+
+  const cleared = await as(request(app).put(`/quotations/${quote.id}`)).send({ language: null });
+  assert.equal(cleared.body.language, undefined);
+});

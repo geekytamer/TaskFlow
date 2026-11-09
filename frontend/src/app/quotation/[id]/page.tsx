@@ -13,14 +13,16 @@ export default function PublicQuotationPage() {
   const { setLanguage, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const id = params?.id as string;
-  const [data, setData] = React.useState<(PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string }) | null>(null);
+  const [data, setData] = React.useState<(PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en' }) | null>(null);
+  // ?lang=ar|en on the link wins; otherwise the quote's own language; otherwise the reader's.
+  const [linkLanguage, setLinkLanguage] = React.useState<'ar' | 'en' | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     const lang = new URLSearchParams(window.location.search).get('lang');
-    if (lang === 'ar' || lang === 'en') setLanguage(lang);
+    if (lang === 'ar' || lang === 'en') { setLanguage(lang); setLinkLanguage(lang); }
   }, [setLanguage]);
 
   React.useEffect(() => {
@@ -75,6 +77,7 @@ export default function PublicQuotationPage() {
           company={data.company || null}
           template={data.template}
           publicUrl={publicQuotationUrl(id)}
+          language={linkLanguage ?? data.language ?? null}
         />
       </div>
     </div>
