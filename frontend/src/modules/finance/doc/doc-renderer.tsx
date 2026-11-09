@@ -227,6 +227,19 @@ export function paginatePreviewContent(
   return pages;
 }
 
+/**
+ * The scale (0.8–1) that keeps a document on one page. Only a document that
+ * overflows by at most a quarter is shrunk; anything longer keeps its size and
+ * flows onto more pages as before.
+ */
+export function fitToOnePage(blockHeights: number[], pageContentHeight: number, minScale = 0.8): number {
+  const total = blockHeights.reduce((sum, h) => sum + h, 0);
+  if (!(pageContentHeight > 0) || total <= pageContentHeight) return 1;
+  // A hair under exact, so rounding in the browser never pushes the last line over.
+  const scale = (pageContentHeight / total) * 0.99;
+  return scale >= minScale ? Number(scale.toFixed(3)) : 1;
+}
+
 export function paginatePreviewBlocks(
   blocks: Block[],
   blockHeights: number[],
@@ -412,6 +425,9 @@ export function DocRenderer({
       case 'details':
         return <DetailsView key={block.id} block={block as DetailsBlock} ctx={ctx} theme={theme} style={base} />;
       case 'payment':
+        // A quotation is an offer, not a demand for money: no payment details
+        // until it is accepted (the generated quote layouts leave it out too).
+        if (template?.docType === 'quote' && !editable) return null;
         return <PaymentView key={block.id} block={block as PaymentBlock} theme={theme} template={template} style={base} s={s} />;
       case 'signature':
         return template?.stampUrl || template?.signatureUrl ? (
@@ -510,6 +526,10 @@ export function DocRenderer({
   const [previewPages, setPreviewPages] = React.useState<PreviewContentEntry[][]>(
     () => paginatePreviewContent(doc.body, [], Number.POSITIVE_INFINITY),
   );
+  // A document that runs a little past one page (a few lines of notes, the QR
+  // code) is drawn slightly smaller so it stays on one sheet, on screen and in
+  // print, instead of leaving a near-empty second page.
+  const [fitScale, setFitScale] = React.useState(1);
 
   useIsomorphicLayoutEffect(() => {
     const measurement = measurementRef.current;
@@ -532,7 +552,13 @@ export function DocRenderer({
           (row) => row.getBoundingClientRect().height,
         ),
       }));
-      const nextPages = paginatePreviewContent(doc.body, blockMeasurements, contentHeight);
+      const scale = editable ? 1 : fitToOnePage(blockMeasurements.map((m) => m.height), contentHeight);
+      const scaled = scale === 1 ? blockMeasurements : blockMeasurements.map((m) => ({
+        height: m.height * scale,
+        rowHeights: m.rowHeights.map((h) => h * scale),
+      }));
+      setFitScale((current) => (Math.abs(current - scale) < 0.001 ? current : scale));
+      const nextPages = paginatePreviewContent(doc.body, scaled, contentHeight);
       const signature = (pages: PreviewContentEntry[][]) => pages
         .map((page) => page.map((entry) => (
           `${entry.block.id}:${entry.lineItemStart ?? ''}-${entry.lineItemEnd ?? ''}`
@@ -559,7 +585,8 @@ export function DocRenderer({
       observer.disconnect();
       measurement.querySelectorAll('img').forEach((image) => image.removeEventListener('load', schedulePagination));
     };
-  }, [client, company, doc.body, invoice, pageHeight, pagePadding, pageWidth, template]);
+  }, [client, company, doc.body, editable, invoice, pageHeight, pagePadding, pageWidth, template]);
+  const fitStyle: React.CSSProperties | undefined = fitScale < 1 ? { zoom: fitScale } : undefined;
 
   return (
     <div
@@ -619,6 +646,7 @@ export function DocRenderer({
           >
             {renderWatermark()}
             <div className="doc-render-content">
+              <div data-doc-fit={fitScale < 1 ? fitScale.toFixed(3) : undefined} style={fitStyle}>
               {entries.map((entry, entryIndex) => (
                 <React.Fragment
                   key={`${entry.block.id}-${entry.lineItemStart ?? 'full'}-${entryIndex}`}
@@ -631,6 +659,7 @@ export function DocRenderer({
                   )}
                 </React.Fragment>
               ))}
+              </div>
             </div>
           </div>
         ))}
@@ -677,7 +706,9 @@ export function DocRenderer({
         ) : null}
         {renderWatermark()}
         <div className="doc-render-content">
-          {doc.body.map((block) => renderTopLevelBlock(block, false))}
+          <div style={fitStyle}>
+            {doc.body.map((block) => renderTopLevelBlock(block, false))}
+          </div>
         </div>
       </div>
     </div>
@@ -785,7 +816,7 @@ function PaymentView({ block, theme, template, style, s }: { block: PaymentBlock
   return (
     <div style={{ fontSize: 14, ...style }}>
       <div style={{ fontWeight: 600, color: theme.primaryColor }}>{block.title ?? s.payment}</div>
-      {template?.paymentInstructions && <p style={{ marginTop: 8, color: '#475569' }}>{template.paymentInstructions}</p>}
+      {template?.paymentInstructions && <p style={{ marginTop: 8, color: '#475569' }}>{localizeLabel(template.paymentInstructions, s)}</p>}
       {banks.map((b) => (
         <div key={b.id} style={{ marginTop: 12, border: '1px solid #e2e8f0', borderRadius: 4, padding: 12 }}>
           {b.bankName && <div style={{ fontWeight: 500, color: '#334155' }}>{b.bankName}{b.currency ? ` · ${b.currency}` : ''}</div>}

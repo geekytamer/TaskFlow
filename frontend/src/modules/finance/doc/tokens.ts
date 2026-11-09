@@ -1,6 +1,7 @@
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice } from '../types';
 import { getCurrentLocale } from '@/lib/locale';
+import { localizeStatus } from './strings';
 
 export interface DocDataContext {
   invoice: Invoice;
@@ -129,7 +130,7 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'document.number':
     case 'invoice.number': return invoice.invoiceNumber || '';
     case 'document.status':
-    case 'invoice.status': return invoice.status || '';
+    case 'invoice.status': return localizeStatus(invoice.status || '', ctx.locale);
     case 'document.date':
     case 'invoice.issueDate': return fmtDate(invoice.issueDate, ctx.locale);
     case 'invoice.dueDate': return fmtDate(invoice.dueDate, ctx.locale);
