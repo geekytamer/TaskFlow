@@ -1,5 +1,6 @@
 'use client';
 
+import { allNames, displayName } from '@/lib/display-name';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
 import { useModuleSkip } from '@/modules/groups/hooks/use-module-skip';
@@ -452,7 +453,7 @@ export function SalesPage() {
                 <div className="space-y-1" data-tutorial="sales-form-client">
                   <Label>{t('sales.client')}</Label>
                   <Combobox
-                    options={formClients.map((c: Contact) => ({ value: c.id, label: c.name }))}
+                    options={formClients.map((c: Contact) => ({ value: c.id, label: displayName(c, language), keywords: allNames(c) }))}
                     value={form.contactId}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
                     placeholder={t('sales.selectClient')}

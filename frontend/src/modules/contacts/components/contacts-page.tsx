@@ -1,5 +1,7 @@
 'use client';
 
+import { matchesSearch } from '@/lib/search-normalize';
+import { displayName } from '@/lib/display-name';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
 import { CompanyLabel } from '@/modules/groups/components/company-cell';
@@ -277,8 +279,8 @@ export function ContactsPage() {
     let result = contacts;
     if (roleFilter !== 'All') result = result.filter(c => (c.roles as ContactRoleType[])?.includes(roleFilter as ContactRoleType));
     if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(c => c.name.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.contactPerson?.toLowerCase().includes(q));
+      // Both names count and أحمد finds احمد (spec 2026-11-10-bilingual-names-design).
+      result = result.filter(c => matchesSearch(search, c.name, c.nameAr, c.nameEn, c.email, c.contactPerson));
     }
     return result;
   }, [contacts, roleFilter, search]);
@@ -454,7 +456,7 @@ export function ContactsPage() {
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     {c.kind === 'Organization' ? <Building2 className="h-4 w-4 text-muted-foreground shrink-0" /> : <User className="h-4 w-4 text-muted-foreground shrink-0" />}
-                    <span>{c.name}<CompanyLabel companyId={c.companyId} /></span>
+                    <span><bdi>{displayName(c, language)}</bdi><CompanyLabel companyId={c.companyId} /></span>
                     {c.visibility === 'Private' && <Lock className="h-3 w-3 text-red-400 shrink-0" />}
                     {(c as any).priority && (
                       <span className={`text-xs font-bold ${PRIORITY_COLORS[(c as any).priority as ContactPriority]}`}>

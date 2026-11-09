@@ -4,6 +4,9 @@ export interface Client {
   id: string;
   reference: string;
   name: string;
+  /** Two-language names (spec 2026-11-10); show with displayName(). */
+  nameAr?: string;
+  nameEn?: string;
   email: string;
   address: string;
   companyId: string;
@@ -62,6 +65,9 @@ export interface InvoiceLineItem {
   itemType: InvoiceLineItemType;
   sku?: string;
   description: string;
+  /** The picked item's name in each language; a document prints its own. */
+  descriptionAr?: string;
+  descriptionEn?: string;
   quantity: number;
   unitPrice: number;
   discount?: number;
@@ -126,6 +132,9 @@ export interface SalesOrderLineItem {
   inventoryItemId?: string;
   sku?: string;
   description: string;
+  /** The picked item's name in each language; a document prints its own. */
+  descriptionAr?: string;
+  descriptionEn?: string;
   quantity: number;
   unitPrice: number;
   discount?: number;

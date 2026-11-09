@@ -7,6 +7,9 @@ import type { InventoryItem } from '@/modules/operations/types';
  * sales module, so they work where inventory is switched off.
  */
 export interface ServiceInput {
+  /** Two-language names; "" clears a side. */
+  nameAr?: string;
+  nameEn?: string;
   name: string;
   salePrice: number;
   unit?: string;

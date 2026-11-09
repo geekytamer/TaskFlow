@@ -1,5 +1,6 @@
 'use client';
 
+import { allNames, displayName } from '@/lib/display-name';
 import * as React from 'react';
 import { STANDARD_VAT_RATE } from '@/lib/vat';
 import { format } from 'date-fns';
@@ -406,7 +407,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                 <div className="flex gap-2">
                   <div className="min-w-0 flex-1">
                     <Combobox
-                      options={clients.map((c) => ({ value: c.id, label: c.name }))}
+                      options={clients.map((c) => ({ value: c.id, label: displayName(c, language), keywords: allNames(c) }))}
                       value={form.contactId}
                       onValueChange={(value) => setForm((prev) => ({ ...prev, contactId: value }))}
                       placeholder={t('sales.selectClient')}
@@ -457,7 +458,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           </div>
           {/* The line table is wider than the dialog: it scrolls on its own instead of stretching the form. */}
           <div className="min-w-0 overflow-x-auto">
-            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} />
+            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} documentLanguage={form.language || undefined} />
           </div>
           <dl className="ms-auto grid w-full max-w-xs grid-cols-2 gap-y-1 text-sm">
             {disc.discount > 0 && <>

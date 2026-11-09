@@ -26,6 +26,9 @@ export interface Contact {
   companyId: string;
   kind: ContactKind;
   name: string;
+  /** Two-language names (spec 2026-11-10); show with displayName(). */
+  nameAr?: string;
+  nameEn?: string;
   legalName?: string;
   contactPerson?: string;
   email?: string;

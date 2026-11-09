@@ -263,6 +263,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       itemType: 'Manual' as const,
       sku: item.sku,
       description: item.description,
+      descriptionAr: item.descriptionAr,
+      descriptionEn: item.descriptionEn,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       discount: item.discount,

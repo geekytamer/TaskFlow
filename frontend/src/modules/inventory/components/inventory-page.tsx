@@ -1,5 +1,6 @@
 'use client';
 
+import { BilingualNameFields, namesOf, namesPayload } from '@/components/bilingual-name-fields';
 import * as React from 'react';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +73,10 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 import { useLiveRefresh } from '@/lib/live';
 
 type InventoryFormState = {
+  /** Kept equal to the name in the person's language, so the required check still works. */
   name: string;
+  nameAr: string;
+  nameEn: string;
   barcode: string;
   category: string;
   unit: string;
@@ -116,6 +120,8 @@ type TransferState = {
 
 const emptyForm = (): InventoryFormState => ({
   name: '',
+  nameAr: '',
+  nameEn: '',
   barcode: '',
   category: '',
   unit: 'pcs',
@@ -409,6 +415,7 @@ export function InventoryPage() {
     setEditSku(item.sku);
     setForm({
       name: item.name,
+      ...namesOf(item),
       barcode: item.barcode || '',
       category: item.category,
       unit: item.unit,
@@ -442,7 +449,7 @@ export function InventoryPage() {
       if (editingItem) {
         await updateInventoryItem(editingItem.id, {
           sku: editSku.trim() || undefined,
-          name: form.name,
+          ...namesPayload(form, language),
           barcode: form.barcode || (null as any),
           category: form.category,
           unit: form.unit,
@@ -464,7 +471,7 @@ export function InventoryPage() {
         return;
       }
       await createInventoryItem(selectedCompany.id, {
-        name: form.name,
+        ...namesPayload(form, language),
         barcode: form.barcode || undefined,
         category: form.category,
         unit: form.unit,
@@ -757,12 +764,13 @@ export function InventoryPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 py-2 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label>{tr('Name', 'الاسم')} <span className="text-destructive">*</span></Label>
-                <Input
-                  value={form.name}
-                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                  placeholder={tr('Item name', 'اسم الصنف')}
+              <div className="sm:col-span-2">
+                <BilingualNameFields
+                  value={{ nameAr: form.nameAr, nameEn: form.nameEn }}
+                  companyId={selectedCompany?.id}
+                  kind="term"
+                  idPrefix="item-name"
+                  onChange={(names) => setForm((prev) => ({ ...prev, ...names, name: namesPayload(names, language).name }))}
                 />
               </div>
               <div className="space-y-1">
