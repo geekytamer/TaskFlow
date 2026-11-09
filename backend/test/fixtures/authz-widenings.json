@@ -104,7 +104,8 @@
     "POST /followups/:id/snooze"
   ],
   "dashboard:read": [
-    "GET /companies/:companyId/dashboard/insights"
+    "GET /companies/:companyId/dashboard/insights",
+    "POST /companies/:companyId/name-suggestion"
   ],
   "documents:read": [
     "GET /documents/:id/text",

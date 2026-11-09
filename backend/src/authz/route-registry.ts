@@ -53,6 +53,7 @@ const AC: readonly UserRole[] = ['Admin', 'Accountant'];
 export const ROUTES: readonly RouteDecl[] = [
   // ─── dashboard ─────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/search', permission: 'dashboard.view', legacyRoles: ALL },
+  { method: 'POST', path: '/companies/:companyId/name-suggestion', permission: 'dashboard.view', legacyRoles: ALL, note: 'suggests the other-language name from the assistant model; saves nothing' },
   { method: 'GET', path: '/companies/:companyId/dashboard', permission: 'dashboard.view', legacyRoles: ALL },
   { method: 'GET', path: '/companies/:companyId/dashboard/insights', permission: 'dashboard.view', note: 'any role in the company; which figures follow DASHBOARD_OPERATIONS_READ / DASHBOARD_FINANCE_READ like the dashboard' },
 
