@@ -216,3 +216,59 @@ test('a document without discounts keeps the plain subtotal', async () => {
   assert.match(html, /المجموع الفرعي/);
   assert.doesNotMatch(html, /الخصم/);
 });
+
+// Shaped like Peak's own designed quote: labels typed in English as plain text.
+const peakQuoteDoc = {
+  version: 1,
+  page: { size: 'A4', orientation: 'portrait', margin: { top: 10, right: 10, bottom: 10, left: 10 } },
+  theme: { fontFamily: 'Arial', primaryColor: '#111827', accentColor: '#2563eb', textColor: '#111827' },
+  body: [
+    { id: 'h', type: 'heading', level: 1, content: 'QUOTATION' },
+    { id: 'bill', type: 'details', title: 'Bill To', fields: [{ label: '', value: '{{client.name}}' }] },
+    { id: 'dates', type: 'details', title: '', fields: [
+      { label: 'Issue date', value: '{{invoice.issueDate}}' },
+      { label: 'Due date', value: '{{invoice.dueDate}}' },
+    ] },
+    { id: 'items', type: 'lineItems' },
+    { id: 'n', type: 'text', content: 'Notes' },
+    { id: 'mine', type: 'text', content: 'INCLUDES INSTALLMENTS VIA PEAK FLEXI' },
+  ],
+};
+const peakQuote = discountInvoice([{ itemType: 'Manual', description: 'Reel', quantity: 1, unitPrice: 100, amount: 100 }]);
+
+test("a quote design's typed labels read as a quote, in the quote's language", async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const english = renderToStaticMarkup(
+    <DocRenderer doc={peakQuoteDoc as never} invoice={peakQuote as never} template={{ id: 't', docType: 'quote' } as never} direction="ltr" />,
+  );
+  assert.match(english, /Prepared for/);
+  assert.match(english, /Valid until/);
+  assert.doesNotMatch(english, /Bill To|Due date/);
+  assert.match(english, /QUOTATION/);
+  // What the company wrote itself stays exactly as written.
+  assert.match(english, /INCLUDES INSTALLMENTS VIA PEAK FLEXI/);
+
+  const arabic = renderToStaticMarkup(
+    <DocRenderer doc={peakQuoteDoc as never} invoice={peakQuote as never} template={{ id: 't', docType: 'quote' } as never} direction="rtl" />,
+  );
+  assert.match(arabic, /عرض سعر/);
+  assert.match(arabic, /مُعدّ لـ/);
+  assert.match(arabic, /صالح حتى/);
+  assert.match(arabic, /ملاحظات/);
+  assert.match(arabic, /الوصف/);
+  assert.doesNotMatch(arabic, /Bill To|Due date|QUOTATION|Prepared for/);
+  assert.match(arabic, /INCLUDES INSTALLMENTS VIA PEAK FLEXI/);
+});
+
+test('an invoice design keeps invoice wording, and the designer shows labels as typed', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const invoice = renderToStaticMarkup(
+    <DocRenderer doc={peakQuoteDoc as never} invoice={peakQuote as never} template={{ id: 't', docType: 'invoice' } as never} direction="ltr" />,
+  );
+  assert.match(invoice, /Bill To/);
+  assert.match(invoice, /Due date/);
+  const designer = renderToStaticMarkup(
+    <DocRenderer doc={peakQuoteDoc as never} invoice={peakQuote as never} template={{ id: 't', docType: 'quote' } as never} direction="rtl" rawLabels />,
+  );
+  assert.match(designer, /Bill To/);
+});

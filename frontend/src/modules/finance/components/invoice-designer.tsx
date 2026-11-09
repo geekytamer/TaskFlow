@@ -583,6 +583,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
                 company={company}
                 template={template}
                 editable
+                rawLabels
                 selectedId={selectedId}
                 onSelectBlock={setSelectedId}
                 onReorderBlock={reorder}

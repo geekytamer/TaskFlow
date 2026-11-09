@@ -151,6 +151,7 @@ import {
   SalesOrderStatus,
   SalesOrderFulfillmentStatus,
   Quotation,
+  DocumentLanguage,
   QuotationStatus,
   Delivery,
   DeliveryStatus,
@@ -5950,6 +5951,15 @@ export class DataStore {
               tokenize = 'unicode61 remove_diacritics 2'
             );
           `);
+        },
+      },
+      {
+        // A quotation prints in a language of its own (ar/en); NULL follows the reader.
+        // 168 is taken by PR #48 (contact payout accounts).
+        id: '169_quotation_language',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(quotations)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('language')) this.db.exec('ALTER TABLE quotations ADD COLUMN language TEXT;');
         },
       },
     ];
@@ -15889,6 +15899,7 @@ export class DataStore {
     companyId: string; clientId: string; contactId?: string; opportunityId?: string;
     issueDate: Date | string; validUntil: Date | string; items: any[]; taxRate?: number;
     currency?: string; exchangeRate?: number; notes?: string; templateId?: string; quoteNumber?: string;
+    language?: DocumentLanguage | null;
   }): Quotation {
     const items = this.normalizeSalesOrderItems(input.items);
     if (!items.length) throw new Error('A quotation needs at least one line.');
@@ -15913,14 +15924,15 @@ export class DataStore {
       exchangeRate: money.exchangeRate,
       notes: input.notes,
       templateId: input.templateId,
+      language: input.language ?? undefined,
       createdAt: now,
       updatedAt: now,
     };
     this.db.prepare(
       `INSERT INTO quotations (id, companyId, quoteNumber, clientId, contactId, opportunityId, issueDate, validUntil, status, items,
-         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, createdAt, updatedAt)
+         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, language, createdAt, updatedAt)
        VALUES (@id, @companyId, @quoteNumber, @clientId, @contactId, @opportunityId, @issueDate, @validUntil, @status, @items,
-         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @createdAt, @updatedAt)`,
+         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @language, @createdAt, @updatedAt)`,
     ).run({
       ...quote,
       contactId: quote.contactId ?? null,
@@ -15930,6 +15942,7 @@ export class DataStore {
       items: JSON.stringify(items),
       notes: quote.notes ?? null,
       templateId: quote.templateId ?? null,
+      language: quote.language ?? null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
@@ -15948,9 +15961,17 @@ export class DataStore {
   updateQuotation(id: string, updates: {
     clientId?: string; contactId?: string | null; issueDate?: Date | string; validUntil?: Date | string; items?: any[];
     taxRate?: number; currency?: string; exchangeRate?: number; notes?: string | null; templateId?: string | null;
+    language?: DocumentLanguage | null;
   }): Quotation | undefined {
     const existing = this.getQuotationById(id);
     if (!existing) return undefined;
+    // The language only changes how the quote reads, not what it offers, so it
+    // changes at any stage, an accepted or converted quote included.
+    const { language, ...offer } = updates;
+    if (language !== undefined) {
+      this.db.prepare('UPDATE quotations SET language=?, updatedAt=? WHERE id=?').run(language ?? null, new Date().toISOString(), id);
+    }
+    if (!Object.values(offer).some((v) => v !== undefined)) return this.getQuotationById(id);
     if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
     if (existing.status === 'Accepted' || existing.status === 'Declined') {
       throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
@@ -16081,6 +16102,7 @@ export class DataStore {
       exchangeRate: Number(row.exchangeRate) || 1,
       notes: row.notes ?? undefined,
       templateId: row.templateId ?? undefined,
+      language: row.language === 'ar' || row.language === 'en' ? row.language : undefined,
       salesOrderId: row.salesOrderId ?? undefined,
       invoiceId: row.invoiceId ?? undefined,
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,

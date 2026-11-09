@@ -22,7 +22,7 @@ import type {
 import { resolveToken, resolveTokens, type DocDataContext } from './tokens';
 import { RichNodeView } from './rich-text';
 import { BODY_KEY, withWrittenBody } from '@/modules/documents/written-body';
-import { docStrings, isRtlLocale, type DocStrings } from './strings';
+import { docStrings, isRtlLocale, localizeLabel, type DocStrings } from './strings';
 import { discountTotals } from '@/lib/discount';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
@@ -47,6 +47,36 @@ interface DocRendererProps {
   selectedId?: string | null;
   onSelectBlock?: (id: string) => void;
   onReorderBlock?: (draggedId: string, targetId: string, place: 'before' | 'after') => void;
+  /** The language this one document prints in (a quotation's own); overrides the design's. */
+  direction?: 'rtl' | 'ltr';
+  /** Designer-only: show the labels exactly as typed, so editing them is not confusing. */
+  rawLabels?: boolean;
+}
+
+/**
+ * Standard labels typed into a design ("Bill To", "Due date", "QUOTATION") read
+ * in the document's language, with quote wording on a quotation. Text a person
+ * wrote themselves, and every {{token}}, is left alone.
+ */
+export function localizeDocLabels(blocks: Block[], s: DocStrings, quote: boolean): Block[] {
+  const L = (text: string) => localizeLabel(text, s, { quote });
+  return blocks.map((block): Block => {
+    switch (block.type) {
+      case 'container':
+        return { ...block, children: localizeDocLabels(block.children, s, quote) };
+      case 'heading':
+      case 'text':
+        return { ...block, content: L(block.content) };
+      case 'details':
+        return { ...block, title: block.title ? L(block.title) : block.title, fields: block.fields.map((f) => ({ ...f, label: f.label ? L(f.label) : f.label })) };
+      case 'lineItems':
+        return block.columns ? { ...block, columns: block.columns.map((c) => ({ ...c, label: L(c.label) })) } : block;
+      case 'payment':
+        return block.title ? { ...block, title: L(block.title) } : block;
+      default:
+        return block;
+    }
+  });
 }
 
 function px(n?: number) { return n === undefined ? undefined : `${n}px`; }
@@ -221,10 +251,18 @@ export function DocRenderer({
   selectedId,
   onSelectBlock,
   onReorderBlock,
+  direction,
+  rawLabels,
 }: DocRendererProps) {
   // A document written like in Word prints its own wording in place of the template's.
   const writtenBody = fields?.[BODY_KEY];
-  const doc = React.useMemo(() => withWrittenBody(designDoc, writtenBody), [designDoc, writtenBody]);
+  const doc = React.useMemo(() => {
+    const written = withWrittenBody(designDoc, writtenBody);
+    const directed = direction ? { ...written, direction } : written;
+    if (rawLabels) return directed;
+    const locale = directed.direction === 'rtl' ? 'ar' : directed.direction === 'ltr' ? 'en' : undefined;
+    return { ...directed, body: localizeDocLabels(directed.body, docStrings(locale), template?.docType === 'quote') };
+  }, [designDoc, writtenBody, direction, rawLabels, template?.docType]);
   // Only standard-rated lines carry VAT (the same rule the server totals and posts with).
   const vat = invoiceVat(invoice.lineItems, invoice.taxRate || 0);
   const subtotal = vat.net;
@@ -690,7 +728,7 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
       <colgroup>{columns.map((c) => <col key={c.id} style={c.width ? { width: `${c.width}%` } : undefined} />)}</colgroup>
       <thead>
         <tr style={{ background: theme.primaryColor, color: '#fff' }}>
-          {columns.map((c) => <th key={c.id} style={{ padding: '12px 16px', textAlign: alignClass[defaultAlign(c)], fontWeight: 600 }}>{c.label}</th>)}
+          {columns.map((c) => <th key={c.id} style={{ padding: '12px 16px', textAlign: alignClass[defaultAlign(c)], fontWeight: 600 }}>{s ? localizeLabel(c.label, s) : c.label}</th>)}
         </tr>
       </thead>
       <tbody>

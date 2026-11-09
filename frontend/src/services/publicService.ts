@@ -63,7 +63,7 @@ export async function resolvePublicDocumentPath(id: string): Promise<string | nu
  * Fetches a quotation and maps it into the invoice-shaped payload the shared
  * document engine renders: valid-until stands where an invoice's due date is.
  */
-export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string }> {
+export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en' }> {
   const res = await fetch(`${API_BASE}/public/quotations/${id}`, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error(res.status === 404 ? 'Quotation not found.' : 'Could not load quotation.');
@@ -97,7 +97,8 @@ export async function getPublicQuotation(id: string): Promise<PublicInvoicePaylo
   const template: InvoiceTemplate | undefined = data.template
     ? { ...data.template, createdAt: toDate(data.template.createdAt) || new Date(), updatedAt: toDate(data.template.updatedAt) || new Date() }
     : undefined;
-  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status };
+  const language = q.language === 'ar' || q.language === 'en' ? q.language : undefined;
+  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status, language };
 }
 
 /**
