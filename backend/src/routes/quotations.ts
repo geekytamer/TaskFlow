@@ -1,4 +1,4 @@
-import type { QuotationStatus } from '../types';
+import type { DocumentLanguage, QuotationStatus } from '../types';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalDateInput, optionalNumber, optionalString, requiredDateInput, requiredString } from '../validation';
 import type { RouteContext } from './context';
@@ -6,6 +6,15 @@ import { type AuthedRequest, companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
 
 /** Quotations. */
+
+/** `ar` / `en` pick the language a quote prints in; null or "" clears it; absent leaves it. */
+const parseDocumentLanguage = (value: unknown): DocumentLanguage | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (value === 'ar' || value === 'en') return value;
+  throw new HttpError(400, 'language must be "ar", "en" or empty.');
+};
+
 export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
   const { store, authMiddleware, requireCompanyRoles, withActor, ensureClientBelongsToCompany, parseSalesOrderItems, ensureSalesItemsBelongToCompany } = ctx;
 
@@ -89,6 +98,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           exchangeRate: optionalNumber(body.exchangeRate),
           notes: optionalString(body.notes),
           templateId,
+          language: parseDocumentLanguage(body.language),
         }),
       ));
       res.status(201).json(quote);
@@ -135,6 +145,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           exchangeRate: optionalNumber(body.exchangeRate),
           notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
           templateId,
+          language: parseDocumentLanguage(body.language),
         }),
       ));
       if (!updated) throw new HttpError(404, 'Quotation not found.');

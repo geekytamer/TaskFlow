@@ -40,11 +40,12 @@ import { StagingBanner } from '@/modules/layout/components/staging-banner';
 import { ModuleGate } from '@/modules/companies/components/module-gate';
 import { PermissionsErrorNotice } from '@/components/permissions-error';
 import { isImpersonating } from '@/services/adminService';
+import { isCompanyMember } from '@/lib/company-membership';
 import { Search } from 'lucide-react';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading: authLoading } = useAuthGuard();
-  const { currentUser, loading: companyLoading } = useCompany();
+  const { currentUser, selectedCompany, loading: companyLoading } = useCompany();
   const { t, isRtl } = useI18n();
   const { brandText } = useBrand();
 
@@ -57,8 +58,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // We also explicitly check if currentUser exists before showing the app.
   const isLoading = authLoading || companyLoading || !currentUser;
 
-  // Super-admins never use the company-scoped app directly. They must
-  // impersonate a user to see this UI. Detect this case so we can both
+  // A super-admin uses the company-scoped app only inside a company they are
+  // a member of (the admin panel's Open button); for any other company they
+  // must impersonate a user, since the server refuses non-members. Detect the
+  // other case so we can both
   // (a) redirect, and (b) AVOID mounting any company-scoped components,
   // which would otherwise fire 403s and re-render in a loop while the
   // browser navigates away.
@@ -66,6 +69,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     !isLoading &&
     !!currentUser?.isSuperAdmin &&
     !isImpersonating() &&
+    !isCompanyMember(currentUser, selectedCompany?.id) &&
     typeof window !== 'undefined' &&
     !window.location.pathname.startsWith('/admin');
 

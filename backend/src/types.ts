@@ -838,6 +838,8 @@ export interface Quotation {
   exchangeRate: number;
   notes?: string;
   templateId?: string;
+  /** The language the quote prints in; unset follows whoever opens it. */
+  language?: DocumentLanguage;
   salesOrderId?: string;
   invoiceId?: string;
   sentAt?: Date;
@@ -846,6 +848,8 @@ export interface Quotation {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type DocumentLanguage = 'ar' | 'en';
 
 export type DeliveryStatus = 'Pending' | 'Shipped' | 'Delivered' | 'Cancelled';
 

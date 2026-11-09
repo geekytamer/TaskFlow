@@ -155,6 +155,8 @@ export interface Quotation {
   exchangeRate: number;
   notes?: string;
   templateId?: string;
+  /** The language the quote prints in; unset follows whoever opens it. */
+  language?: 'ar' | 'en';
   salesOrderId?: string;
   invoiceId?: string;
   sentAt?: Date;
