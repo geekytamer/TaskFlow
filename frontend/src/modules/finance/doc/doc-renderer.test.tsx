@@ -272,3 +272,40 @@ test('an invoice design keeps invoice wording, and the designer shows labels as 
   );
   assert.match(designer, /Bill To/);
 });
+
+test('a document a little over one page is shrunk to fit; a long one is not', async () => {
+  const { fitToOnePage } = await import('./doc-renderer');
+  assert.equal(fitToOnePage([400, 400], 899), 1);
+  // QT-0004 on Peak's letterhead: 1,065px of content for an 899px page.
+  const scale = fitToOnePage([89, 91, 363, 185, 80, 114, 143], 899);
+  assert.ok(scale < 1 && scale >= 0.8, String(scale));
+  assert.ok([89, 91, 363, 185, 80, 114, 143].reduce((a, b) => a + b, 0) * scale <= 899);
+  // Twice a page stays full size and flows onto a second page.
+  assert.equal(fitToOnePage([900, 900], 899), 1);
+});
+
+test('a quote prints no payment block, and starter sentences and status read in its language', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const doc = {
+    ...peakQuoteDoc,
+    direction: 'rtl',
+    body: [
+      { id: 'st', type: 'text', content: '{{invoice.status}}' },
+      { id: 'pay', type: 'payment' },
+      { id: 'terms', type: 'text', content: 'All amounts are shown in the invoice currency.' },
+    ],
+  };
+  const template = { id: 't', docType: 'quote', paymentInstructions: 'Payment due on receipt unless otherwise agreed.' };
+  const html = renderToStaticMarkup(
+    <DocRenderer doc={doc as never} invoice={{ ...peakQuote, status: 'Draft' } as never} template={template as never} />,
+  );
+  assert.match(html, /مسودة/);
+  assert.match(html, /جميع المبالغ معروضة بعملة الفاتورة/);
+  assert.doesNotMatch(html, /Payment due on receipt|الدفع عند الاستلام|All amounts/);
+
+  // An invoice keeps its payment block, its sentence translated.
+  const invoiceHtml = renderToStaticMarkup(
+    <DocRenderer doc={doc as never} invoice={{ ...peakQuote, status: 'Draft' } as never} template={{ ...template, docType: 'invoice' } as never} />,
+  );
+  assert.match(invoiceHtml, /يُستحق الدفع عند الاستلام ما لم يُتفق على غير ذلك/);
+});

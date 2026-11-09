@@ -149,6 +149,37 @@ function normalizeLabel(text: string): string {
 }
 
 /**
+ * The sentences the system's own starter templates (Classic, Modern, Compact)
+ * fill in, and their Arabic. A company that never changed them gets them in the
+ * document's language; anything it rewrote is its own text and stays as written.
+ */
+const DEFAULT_SENTENCES: Array<[string, string]> = [
+  ['Payment is due within 30 days.', 'يُستحق الدفع خلال 30 يومًا.'],
+  ['Thank you for your business.', 'شكرًا لتعاملكم معنا.'],
+  ['Please include the invoice number with your payment.', 'يرجى ذكر رقم الفاتورة عند الدفع.'],
+  ['Payment terms are shown on the invoice.', 'شروط الدفع موضحة في الفاتورة.'],
+  ['We appreciate your business.', 'نقدّر تعاملكم معنا.'],
+  ['Payment due on receipt unless otherwise agreed.', 'يُستحق الدفع عند الاستلام ما لم يُتفق على غير ذلك.'],
+  ['All amounts are shown in the invoice currency.', 'جميع المبالغ معروضة بعملة الفاتورة.'],
+];
+const SENTENCES = new Map<string, [string, string]>();
+for (const pair of DEFAULT_SENTENCES) {
+  SENTENCES.set(normalizeLabel(pair[0]), pair);
+  SENTENCES.set(normalizeLabel(pair[1]), pair);
+}
+
+/** A document status in the document's language (Draft → مسودة). */
+const STATUS_AR: Record<string, string> = {
+  draft: 'مسودة', sent: 'مُرسل', paid: 'مدفوعة', overdue: 'متأخرة', accepted: 'مقبول',
+  declined: 'مرفوض', expired: 'منتهي الصلاحية', cancelled: 'ملغي', pending: 'قيد الانتظار',
+  shipped: 'تم الشحن', delivered: 'تم التسليم', partial: 'جزئي', confirmed: 'مؤكد',
+};
+export function localizeStatus(status: string, locale: string = getCurrentLocale()): string {
+  if (!status || !isRtlLocale(locale)) return status;
+  return STATUS_AR[status.trim().toLowerCase()] ?? status;
+}
+
+/**
  * A label typed into a template ("Bill To", "Due date", "الإجمالي") is shown in
  * the document's language, and a quotation says "Prepared for" / "Valid until"
  * where an invoice template says "Bill To" / "Due date". Anything that is not
@@ -156,6 +187,8 @@ function normalizeLabel(text: string): string {
  */
 export function localizeLabel(text: string, s: DocStrings, opts: { quote?: boolean } = {}): string {
   if (!text || text.includes('{{')) return text;
+  const sentence = SENTENCES.get(normalizeLabel(text));
+  if (sentence) return s === AR ? sentence[1] : sentence[0];
   let key = LABEL_KEYS.get(normalizeLabel(text));
   if (!key) return text;
   if (opts.quote) {
