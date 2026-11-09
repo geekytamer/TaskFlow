@@ -19,7 +19,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
-import { CurrencyAmount } from '@/lib/currency';
+import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InventoryItem } from '@/modules/operations/types';
 import { createService, deleteService, getServices, updateService } from '@/services/servicesService';
 import { suggestName } from '@/services/nameSuggestionService';
@@ -31,6 +31,8 @@ export function ServicesPanel() {
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { can } = usePermissions();
+  // Prices show in the company's own currency; without it they fell back to US$.
+  const { currencyCode } = useCompanyCurrency();
   const { toast } = useToast();
   const confirm = useConfirm();
   const companyId = selectedCompany?.id ?? '';
@@ -135,7 +137,7 @@ export function ServicesPanel() {
                   <TableCell className="font-medium"><bdi>{displayName(service, language)}</bdi>{service.nameAr && service.nameEn && <div className="text-xs font-normal text-muted-foreground"><bdi>{displayName(service, language === 'ar' ? 'en' : 'ar')}</bdi></div>}</TableCell>
                   <TableCell className="text-muted-foreground"><bdi>{service.unit}</bdi></TableCell>
                   <TableCell className="text-muted-foreground">{service.vatApplicable === false ? tr('No VAT', 'بدون ضريبة') : tr('VAT', 'عليها ضريبة')}</TableCell>
-                  <TableCell className="text-end tabular-nums"><CurrencyAmount value={service.salePrice ?? 0} /></TableCell>
+                  <TableCell className="text-end tabular-nums"><CurrencyAmount value={service.salePrice ?? 0} currencyCode={currencyCode} /></TableCell>
                   {(canEdit || canDelete) && (
                     <TableCell>
                       <div className="flex justify-end gap-1">
