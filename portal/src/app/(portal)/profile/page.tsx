@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { panel } from '@/components/ui';
 import { getSocialAccounts } from '@/lib/social';
 import { ProfileChangeForm } from '@/components/profile-change-form';
+import { PayoutDetailsForm } from '@/components/payout-details-form';
 import { formatCompact, formatMoney, formatPercent, listSep } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t } from '@/lib/i18n';
@@ -23,6 +24,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   if (params.connected === 'instagram') redirect(`/connections?${new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => typeof e[1] === 'string')).toString()}`);
   const linked = accounts?.find((a) => a.status === 'active' || a.status === 'needs_reconnect');
   const dash = '-';
+  const payouts = profile.payoutAccounts ?? [];
+  const mainPayout = payouts.find((a) => a.isDefault) ?? payouts[0];
+  // Bank numbers read best in groups of four.
+  const grouped = (v: string) => v.replace(/(.{4})/g, '$1 ').trim();
 
   return (
     <div className="max-w-3xl space-y-10">
@@ -77,6 +82,33 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           </ul>
         )}
       </section>
+
+      {payouts.length > 0 || profile.payoutAccounts ? (
+        <section aria-labelledby="payout-title" className="space-y-3">
+          <div>
+            <h2 id="payout-title" className="text-lg font-semibold tracking-tight">{t(lang, 'payd.title')}</h2>
+            <p className="mt-1 text-sm text-ink-soft">{t(lang, 'payd.subtitle')}</p>
+          </div>
+          {payouts.length === 0 ? (
+            <p className="text-ink-soft">{t(lang, 'payd.none')}</p>
+          ) : (
+            <ul className="divide-y divide-line border-y border-line">
+              {payouts.map((a) => (
+                <li key={a.id} className="grid gap-1 py-3 sm:grid-cols-[180px_1fr] sm:gap-6">
+                  <span className="text-sm text-ink-soft">{a.bankName ? <bdi>{a.bankName}</bdi> : t(lang, `payd.m.${a.method}` as Parameters<typeof t>[1])}</span>
+                  <span className="font-medium">
+                    {a.accountHolder && <bdi className="block">{a.accountHolder}</bdi>}
+                    {(a.iban || a.accountNumber || a.walletNumber) && (
+                      <bdi dir="ltr" className="block font-mono text-[15px]">{grouped(a.iban || a.accountNumber || a.walletNumber || '')}</bdi>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!profile.pendingChange && <PayoutDetailsForm lang={lang} current={mainPayout} />}
+        </section>
+      ) : null}
 
       {profile.pendingChange ? (
         <p role="status" className="rounded-xl border border-accent/30 bg-accent/10 p-4 font-medium text-accent">{t(lang, 'prof.pending')}</p>

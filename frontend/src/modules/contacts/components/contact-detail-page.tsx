@@ -25,6 +25,7 @@ import { getContactSummary, type ContactSummary } from '@/services/contactServic
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { WorkspaceSection } from './workspace-section';
 import { FlexiSection } from './flexi-section';
+import { PayoutAccountsSection } from './payout-accounts-section';
 import { useCanReviewFlexi } from '@/modules/flexi/lib/use-can-review-flexi';
 import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/components/influencer-avatar';
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
@@ -33,6 +34,8 @@ import {
   ArrowLeft,
   BadgeCheck,
   ExternalLink,
+  Megaphone,
+  Wallet,
   Users,
   Briefcase,
   FileText,
@@ -47,6 +50,13 @@ import {
 } from 'lucide-react';
 
 const empty = '—';
+
+/** Arabic for the statuses this page lists (campaigns, their pieces, quotations). */
+const STATUS_AR: Record<string, string> = {
+  Planned: 'مخطط', Active: 'نشطة', 'On Hold': 'متوقفة مؤقتاً', Completed: 'مكتملة', Cancelled: 'ملغاة', Archived: 'مؤرشفة',
+  'In Progress': 'قيد التنفيذ', Submitted: 'مُرسل للمراجعة', Approved: 'معتمد', Published: 'منشور',
+  Draft: 'مسودة', Sent: 'مُرسل', Accepted: 'مقبول', Declined: 'مرفوض', Expired: 'منتهي',
+};
 
 /** 52000 -> 52K. Follower counts are unreadable at full precision. */
 function compact(value: number): string {
@@ -114,6 +124,16 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   }
 
   const c = summary.contact;
+  const roles = c.roles || [];
+  const isInfluencer = roles.includes('Influencer');
+  // Contacts we pay: influencers, vendors, partners.
+  const isPaid = isInfluencer || roles.includes('Vendor') || roles.includes('Partner');
+  const vendorBillsTitle = isInfluencer ? tr('Payouts', 'المدفوعات') : t('whatsapp.summaryVendorBills');
+  const deliverables = summary.deliverables ?? [];
+  const campaigns = summary.campaigns ?? [];
+  const quotations = summary.quotations ?? [];
+  const status = (v: string) => (language === 'ar' ? STATUS_AR[v] ?? v : v);
+  const day = (v?: string | Date | null) => (v ? new Date(v).toLocaleDateString(language === 'ar' ? 'ar-OM' : 'en-GB') : empty);
 
   return (
     <div className="space-y-6">
@@ -195,10 +215,27 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             />
             <Stat
               icon={<Package className="h-4 w-4 text-red-600 dark:text-red-400" />}
-              label={t('whatsapp.summaryVendorBills')}
+              label={vendorBillsTitle}
               value={String(summary.totals.vendorBillCount)}
               helper={money(summary.totals.vendorBillOutstanding) + ' ' + t('whatsapp.summaryOutstanding')}
             />
+            {isPaid && summary.totals.vendorBillPaid !== undefined && (
+              <Stat
+                icon={<Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
+                label={tr('Paid to them', 'المدفوع لهم')}
+                value={money(summary.totals.vendorBillPaid)}
+              />
+            )}
+            {summary.totals.campaignCount !== undefined && (
+              <Stat
+                icon={<Megaphone className="h-4 w-4 text-pink-600 dark:text-pink-400" />}
+                label={tr('Campaigns', 'الحملات')}
+                value={String(summary.totals.campaignCount)}
+                helper={isInfluencer && summary.totals.deliverableCount !== undefined
+                  ? `${summary.totals.deliverableCount} ${summary.totals.deliverableCount === 1 ? tr('piece of work', 'محتوى مطلوب') : tr('pieces of work', 'محتوى مطلوب')}`
+                  : undefined}
+              />
+            )}
             <Stat
               icon={<TrendingUp className="h-4 w-4 text-violet-600 dark:text-violet-400" />}
               label={t('whatsapp.summaryOpportunities')}
@@ -300,6 +337,13 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         </Card>
       )}
 
+      {isPaid && (
+        <PayoutAccountsSection
+          contact={c}
+          onChanged={(updated) => setSummary((s) => (s ? { ...s, contact: updated } : s))}
+        />
+      )}
+
       {selectedCompany?.id && moduleOn('inbox') && <ContactConversation companyId={selectedCompany.id} contactId={c.id} />}
 
       {/* Portal access: invite this contact to the influencer or client portal, where staff look for it first. */}
@@ -324,6 +368,44 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
       {(c.roles || []).includes('Client') && canReviewFlexi && <FlexiSection contactId={c.id} />}
 
       {/* Detailed sections */}
+      <RecordTable
+        title={tr('Campaigns', 'الحملات')}
+        href="/crm/campaigns"
+        columns={[t('contact360.colName'), t('contact360.colStatus'), tr('Their part', 'دوره'), tr('Dates', 'التواريخ')]}
+        rows={campaigns.slice(0, 15).map((cmp) => [
+          <Link key={cmp.id} href={`/crm/campaigns?campaign=${encodeURIComponent(cmp.id)}`} className="text-primary hover:underline">{cmp.name}</Link>,
+          status(cmp.status),
+          cmp.relation === 'client' ? tr('Client', 'العميل') : tr('Works on it', 'مشارك بالتنفيذ'),
+          [cmp.startDate, cmp.endDate].some(Boolean) ? `${day(cmp.startDate)} – ${day(cmp.endDate)}` : empty,
+        ])}
+        total={campaigns.length}
+      />
+      <RecordTable
+        title={tr('Work we pay for', 'الأعمال المدفوعة')}
+        href="/crm/campaigns"
+        columns={[tr('Piece', 'المحتوى'), tr('Campaign', 'الحملة'), t('contact360.colStatus'), t('contact360.colDue'), tr('Our cost', 'التكلفة علينا'), tr('Billed', 'الفوترة')]}
+        rows={deliverables.slice(0, 15).map((d) => [
+          [d.title, d.platform].filter(Boolean).join(' · '),
+          <Link key={d.id} href={`/crm/campaigns?campaign=${encodeURIComponent(d.campaignId)}`} className="text-primary hover:underline">{d.campaignName}</Link>,
+          status(d.status),
+          day(d.dueDate),
+          d.cost === undefined ? hiddenText(language) : d.cost != null ? money(d.cost) : empty,
+          d.vendorBillId ? tr('Bill raised', 'صدرت فاتورة') : tr('Not billed yet', 'لم تُفوتر بعد'),
+        ])}
+        total={deliverables.length}
+      />
+      <RecordTable
+        title={tr('Quotations', 'عروض الأسعار')}
+        href="/sales"
+        columns={[t('contact360.colNumber'), t('contact360.colStatus'), t('contact360.colTotal'), tr('Valid until', 'صالح حتى')]}
+        rows={quotations.slice(0, 15).map((q) => [
+          q.quoteNumber,
+          status(q.status),
+          amountIn(q.totalAmount || 0, q.currency),
+          day(q.validUntil),
+        ])}
+        total={quotations.length}
+      />
       <RecordTable
         title={t('whatsapp.summaryInvoices')}
         href="/finance?tab=invoices"
@@ -365,7 +447,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         rows={summary.projects.slice(0, 15).map((p) => [p.name, p.description || empty])}
       />
       <RecordTable
-        title={t('whatsapp.summaryVendorBills')}
+        title={vendorBillsTitle}
         href="/finance?tab=payables"
         columns={[
           t('contact360.colNumber'),
@@ -451,12 +533,16 @@ function RecordTable({
   href,
   columns,
   rows,
+  total,
 }: {
   title: string;
   href: string;
   columns: string[];
   rows: Array<Array<React.ReactNode>>;
+  /** How many there are in all, when more than the rows shown. */
+  total?: number;
 }) {
+  const { language } = useI18n();
   if (!rows.length) return null;
   return (
     <Card>
@@ -490,6 +576,11 @@ function RecordTable({
             ))}
           </TableBody>
         </Table>
+        {total !== undefined && total > rows.length && (
+          <p className="pt-2 text-xs text-muted-foreground">
+            {language === 'ar' ? `يُعرض ${rows.length} من ${total}` : `Showing ${rows.length} of ${total}`}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

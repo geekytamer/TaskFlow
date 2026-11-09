@@ -145,6 +145,33 @@ test('staff approve a change request through the normal contact update, or rejec
   assert.equal(profile.lastDecision.note, 'Please talk to us first.');
 });
 
+test('an influencer asks to be paid to a bank account; staff approve it and it is on file', async () => {
+  const ctx = build();
+  const lina = await ctx.session('influencer', ctx.lina, 'lina@creator.test');
+  assert.deepEqual((await get(ctx, lina, '/profile')).body.payoutAccounts, []);
+  assert.equal((await post(ctx, lina, '/profile/change-requests', { payoutAccounts: [{ method: 'Bank transfer', bankName: 'No number' }] })).status, 400);
+  const asked = await post(ctx, lina, '/profile/change-requests', {
+    payoutAccounts: [{ method: 'Bank transfer', accountHolder: 'Lina Haddad', bankName: 'Bank Muscat', iban: 'OM81 0180 0000 0129 9123 456' }],
+  });
+  assert.equal(asked.status, 201, asked.text);
+  assert.equal(ctx.store.getContactById(ctx.lina.id).payoutAccounts, undefined, 'nothing is on file before review');
+
+  // An employee may not see payment details: the requested account is left out for them.
+  const forEmployee = await staff(ctx, 'get', `/contacts/${ctx.lina.id}/change-requests`, undefined, ctx.employeeAuth);
+  if (forEmployee.status === 200) assert.ok(!forEmployee.text.includes('OM810180000001299123456'));
+
+  const list = await staff(ctx, 'get', `/contacts/${ctx.lina.id}/change-requests`);
+  assert.equal(list.body[0].changes.payoutAccounts[0].iban, 'OM810180000001299123456');
+  assert.equal((await staff(ctx, 'post', `/contacts/${ctx.lina.id}/change-requests/${list.body[0].id}/approve`, {})).status, 200);
+  const [account] = ctx.store.getContactById(ctx.lina.id).payoutAccounts;
+  assert.equal(account.bankName, 'Bank Muscat');
+  assert.equal(account.isDefault, true);
+  const logged = ctx.store.listActivityEvents(ctx.company.id, { entityType: 'contact', entityId: ctx.lina.id, limit: 20 })
+    .find((e) => e.action === 'payout_accounts_changed');
+  assert.equal(logged.actorUserId, ctx.owner.id, 'the approver is recorded');
+  assert.equal((await get(ctx, lina, '/profile')).body.payoutAccounts[0].bankName, 'Bank Muscat');
+});
+
 test('assignments: planned ones are hidden, the brief waits for acceptance, nothing secret leaks', async () => {
   const ctx = build();
   await staff(ctx, 'put', `/campaigns/${ctx.campaign.id}/portal-brief`, { influencerBrief: 'Show the gift box in the first 3 seconds.', requireClientApproval: true });
