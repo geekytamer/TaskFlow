@@ -132,6 +132,8 @@ import {
   optionalBoolean,
   optionalNumber,
   optionalString,
+  clearableString,
+  clearableNumber,
   requiredArray,
   requiredDateInput,
   requiredNumber,
@@ -4050,6 +4052,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getContactById(req.params.id);
       if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, existing.companyId, companyManagementRoles);
+      // A contact the person may not see does not exist for them.
+      requireVisible(req, 'contacts', existing.companyId, existing.id, 'Contact not found.');
       const body = asRecord(req.body, 'body');
       requireFieldEdits(req, existing.companyId, 'contact', body, existing);
       const influencerAccounts = body.influencerAccounts !== undefined ? parseInfluencerAccounts(body.influencerAccounts) : undefined;
@@ -4065,25 +4069,25 @@ export function createServer(options: CreateServerOptions = {}) {
       contact = store.updateContact(req.params.id, {
         kind: optionalString(body.kind) as any,
         name: optionalString(body.name),
-        legalName: optionalString(body.legalName),
-        contactPerson: optionalString(body.contactPerson),
-        email: optionalString(body.email),
-        phone: optionalString(body.phone),
-        address: optionalString(body.address),
-        taxNumber: optionalString(body.taxNumber),
+        legalName: clearableString(body, 'legalName'),
+        contactPerson: clearableString(body, 'contactPerson'),
+        email: clearableString(body, 'email'),
+        phone: clearableString(body, 'phone'),
+        address: clearableString(body, 'address'),
+        taxNumber: clearableString(body, 'taxNumber'),
 	        tags: Array.isArray(body.tags) ? body.tags : undefined,
-	        notes: optionalString(body.notes),
-	        influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : undefined,
-	        influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : undefined,
-	        influencerNiche: body.influencerNiche !== undefined ? normalizeNiches(optionalString(body.influencerNiche)) ?? undefined : undefined,
-	        followerCount: body.followerCount !== undefined ? optionalNumber(body.followerCount) : undefined,
-	        engagementRate: body.engagementRate !== undefined ? optionalNumber(body.engagementRate) : undefined,
-	        rateCardAmount: body.rateCardAmount !== undefined ? optionalNumber(body.rateCardAmount) : undefined,
-	        location: body.location !== undefined ? optionalString(body.location) : undefined,
+	        notes: clearableString(body, 'notes'),
+	        influencerPlatform: clearableString(body, 'influencerPlatform'),
+	        influencerHandle: clearableString(body, 'influencerHandle'),
+	        influencerNiche: (() => { const v = clearableString(body, 'influencerNiche'); return v ? normalizeNiches(v) ?? null : v; })(),
+	        followerCount: clearableNumber(body, 'followerCount'),
+	        engagementRate: clearableNumber(body, 'engagementRate'),
+	        rateCardAmount: clearableNumber(body, 'rateCardAmount'),
+	        location: clearableString(body, 'location'),
 	        languages: body.languages !== undefined
 	          ? requiredArray(body.languages, 'languages').map((item, index) => requiredString(item, `languages[${index}]`))
 	          : undefined,
-	        availabilityStatus: body.availabilityStatus !== undefined ? optionalString(body.availabilityStatus) : undefined,
+	        availabilityStatus: clearableString(body, 'availabilityStatus'),
 	        influencerAccounts: influencerAccounts,
 	        customFields: body.customFields !== undefined ? optionalCustomFields(body.customFields) : undefined,
 	      });
@@ -4119,6 +4123,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id, 'Contact not found.');
       const body = asRecord(req.body, 'body');
       const role = requiredString(body.role, 'role') as any;
       if (role === 'Influencer' && !contact.roles?.includes('Influencer')) assertNoHandleClash(store, contact.companyId, contact);
@@ -4256,6 +4261,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id, 'Contact not found.');
       store.removeContactRole(req.params.id, req.params.role as any);
       res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
@@ -4268,6 +4274,14 @@ export function createServer(options: CreateServerOptions = {}) {
       const contact = store.getContactById(req.params.id);
       if (!contact) { res.status(404).json({ error: 'Not found' }); return; }
       requireCompanyRoles(req, contact.companyId, companyManagementRoles);
+      requireVisible(req, 'contacts', contact.companyId, contact.id, 'Contact not found.');
+      // Say what still uses it, by kind and count, so the page can explain in the reader's language.
+      const blockers = store.contactReferences(contact.id);
+      if (blockers.length > 0) {
+        throw new HttpError(409, `This contact is still used by ${blockers.map((b) => `${b.count} ${b.key.replace(/_/g, ' ')}`).join(', ')}. Remove or reassign those first.`, {
+          code: 'contact_in_use', blockers,
+        });
+      }
       store.deleteContact(req.params.id);
       res.status(204).end();
     }),
@@ -4331,18 +4345,18 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const body = asRecord(req.body, 'body');
       const updated = store.updateContact(req.params.id, {
-        leadStatus: body.leadStatus !== undefined ? enumValue(body.leadStatus, 'leadStatus', leadStatuses) : undefined,
-        leadSource: body.leadSource !== undefined ? enumValue(body.leadSource, 'leadSource', leadSources) : undefined,
-        priority: body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
-        ownerUserId: body.ownerUserId !== undefined ? optionalString(body.ownerUserId) : undefined,
-        ownerName: body.ownerName !== undefined ? optionalString(body.ownerName) : undefined,
+        leadStatus: clearableString(body, 'leadStatus') === null ? null : body.leadStatus !== undefined ? enumValue(body.leadStatus, 'leadStatus', leadStatuses) : undefined,
+        leadSource: clearableString(body, 'leadSource') === null ? null : body.leadSource !== undefined ? enumValue(body.leadSource, 'leadSource', leadSources) : undefined,
+        priority: clearableString(body, 'priority') === null ? null : body.priority !== undefined ? enumValue(body.priority, 'priority', contactPriorities) : undefined,
+        ownerUserId: clearableString(body, 'ownerUserId'),
+        ownerName: clearableString(body, 'ownerName'),
         nextFollowupDate:
           body.nextFollowupDate !== undefined
             ? body.nextFollowupDate
               ? new Date(optionalDateInput(body.nextFollowupDate)!)
               : null
             : undefined,
-        nextFollowupNote: body.nextFollowupNote !== undefined ? optionalString(body.nextFollowupNote) : undefined,
+        nextFollowupNote: clearableString(body, 'nextFollowupNote'),
         visibility: body.visibility !== undefined ? enumValue(body.visibility, 'visibility', ['Public', 'Private'] as const) : undefined,
       });
       res.json(maskFor(req, contact.companyId, 'contact', updated));

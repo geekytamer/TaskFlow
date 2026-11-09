@@ -48,6 +48,23 @@ export const requiredNumber = (value: unknown, name: string): number => {
   return parsed;
 };
 
+const blank = (value: unknown) => value === null || (typeof value === 'string' && !value.trim());
+
+/**
+ * A text field a form may empty: undefined when the body leaves it out (keep
+ * it), null when it is sent empty (clear it), the trimmed text otherwise.
+ */
+export const clearableString = (body: Record<string, unknown>, key: string): string | null | undefined => {
+  if (!(key in body) || body[key] === undefined) return undefined;
+  return blank(body[key]) ? null : optionalString(body[key]);
+};
+
+/** As clearableString, for a number. */
+export const clearableNumber = (body: Record<string, unknown>, key: string): number | null | undefined => {
+  if (!(key in body) || body[key] === undefined) return undefined;
+  return blank(body[key]) ? null : optionalNumber(body[key]);
+};
+
 export const optionalNumber = (value: unknown): number | undefined => {
   if (value === undefined || value === null || value === '') return undefined;
   return requiredNumber(value, 'value');

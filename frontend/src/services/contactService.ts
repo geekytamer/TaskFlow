@@ -183,7 +183,11 @@ export async function createContact(input: {
   return decodeContact(data);
 }
 
-export async function updateContact(id: string, updates: Partial<Omit<Contact, 'id' | 'companyId' | 'createdAt'>>): Promise<Contact> {
+/** Changes a contact. null clears a field (an emptied input); leaving a field out keeps it. */
+export async function updateContact(
+  id: string,
+  updates: { [K in keyof Omit<Contact, 'id' | 'companyId' | 'createdAt'>]?: Contact[K] | null },
+): Promise<Contact> {
   const data = await apiFetch<any>(`/contacts/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
