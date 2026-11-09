@@ -37,6 +37,14 @@ export const lineNet = (quantity: number, unitPrice: number, discount: number, d
 export const formItemsTotal = (rows: SalesItemForm[]) =>
   rows.reduce((sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType), 0);
 
+/** What the form's lines cost before discounts, how much came off, and what is left. */
+export const formDiscountTotals = (rows: SalesItemForm[]) => {
+  const r2 = (n: number) => Number(n.toFixed(2));
+  const gross = rows.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+  const net = formItemsTotal(rows);
+  return { gross: r2(gross), discount: r2(Math.max(0, gross - net)), net: r2(net) };
+};
+
 /** Turns saved lines back into editable rows. */
 export const itemsToForm = (items: SalesOrderLineItem[]): SalesItemForm[] =>
   items.length

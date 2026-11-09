@@ -14,6 +14,9 @@ export interface DocStrings {
   terms: string;
   notes: string;
   subtotal: string;
+  beforeDiscount: string;
+  discount: string;
+  afterDiscount: string;
   tax: string;
   total: string;
   payment: string;
@@ -47,6 +50,9 @@ const EN: DocStrings = {
   terms: 'Terms',
   notes: 'Notes',
   subtotal: 'Subtotal',
+  beforeDiscount: 'Total before discount',
+  discount: 'Discount',
+  afterDiscount: 'Total after discount',
   tax: 'Tax',
   total: 'Total',
   payment: 'Payment',
@@ -80,6 +86,9 @@ const AR: DocStrings = {
   terms: 'الشروط والأحكام',
   notes: 'ملاحظات',
   subtotal: 'المجموع الفرعي',
+  beforeDiscount: 'الإجمالي قبل الخصم',
+  discount: 'الخصم',
+  afterDiscount: 'الإجمالي بعد الخصم',
   tax: 'الضريبة',
   total: 'الإجمالي',
   payment: 'الدفع',

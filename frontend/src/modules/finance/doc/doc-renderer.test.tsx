@@ -159,3 +159,60 @@ test('a document written like in Word prints its own text, fields filled in, nev
   assert.match(html, /&lt;img src=x/);
   assert.doesNotMatch(html, /dropped/, 'unknown nodes are not drawn');
 });
+
+const discountDoc = (direction: 'ltr' | 'rtl') => ({
+  version: 1,
+  direction,
+  page: { size: 'A4', orientation: 'portrait', margin: { top: 10, right: 10, bottom: 10, left: 10 } },
+  theme: { fontFamily: 'Arial', primaryColor: '#111827', accentColor: '#2563eb', textColor: '#111827' },
+  body: [
+    { id: 'items', type: 'lineItems' },
+    { id: 'totals', type: 'totals' },
+  ],
+});
+
+const discountInvoice = (lineItems: unknown[]) => ({
+  id: 'invoice-d',
+  invoiceNumber: 'Q-1',
+  issueDate: new Date('2026-11-09T00:00:00.000Z'),
+  dueDate: new Date('2026-12-09T00:00:00.000Z'),
+  currency: 'OMR',
+  taxRate: 5,
+  lineItems,
+});
+
+test('a discounted document shows the total before discount, the discount, and the total after it', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const html = renderToStaticMarkup(
+    <DocRenderer
+      doc={discountDoc('ltr') as never}
+      invoice={discountInvoice([
+        // 2 × 100 at 10% off = 180; 1 × 50 with 5 off = 45; 1 × 20 no discount.
+        { itemType: 'Manual', description: 'Reel', quantity: 2, unitPrice: 100, discount: 10, discountType: 'percent', amount: 180 },
+        { itemType: 'Manual', description: 'Story', quantity: 1, unitPrice: 50, discount: 5, discountType: 'amount', amount: 45 },
+        { itemType: 'Manual', description: 'Post', quantity: 1, unitPrice: 20, amount: 20 },
+      ]) as never}
+    />,
+  );
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  assert.match(text, /Total before discount[^A-Za-z]*270/);
+  assert.match(text, /Discount[^A-Za-z]*-[^0-9]*25/);
+  assert.match(text, /Total after discount[^A-Za-z]*245/);
+  // Each discounted line says what came off it.
+  assert.match(text, /Discount 10%/);
+  assert.doesNotMatch(text, /Subtotal/);
+});
+
+test('a document without discounts keeps the plain subtotal', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const html = renderToStaticMarkup(
+    <DocRenderer
+      doc={discountDoc('rtl') as never}
+      invoice={discountInvoice([
+        { itemType: 'Manual', description: 'Post', quantity: 3, unitPrice: 20, amount: 60 },
+      ]) as never}
+    />,
+  );
+  assert.match(html, /المجموع الفرعي/);
+  assert.doesNotMatch(html, /الخصم/);
+});

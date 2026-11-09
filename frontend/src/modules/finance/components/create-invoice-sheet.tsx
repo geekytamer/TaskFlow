@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { invoiceVat, STANDARD_VAT_RATE, VAT_TREATMENTS, vatTreatmentLabel, type VatTreatment } from '@/lib/vat';
+import { discountTotals } from '@/lib/discount';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import { Button } from '@/components/ui/button';
 import {
@@ -236,6 +237,7 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
   const invoiceSubtotal = React.useMemo(() =>
     selectedLineItems.reduce((sum, item) => sum + item.amount, 0),
   [selectedLineItems]);
+  const invoiceDiscount = React.useMemo(() => discountTotals(selectedLineItems), [selectedLineItems]);
   // Only standard-rated lines carry VAT (same rule as the server).
   const invoiceTaxAmount = React.useMemo(
     () => invoiceVat(selectedLineItems, Number(taxRate) || 0).tax,
@@ -263,6 +265,8 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
       description: item.description,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
+      discount: item.discount,
+      discountType: item.discountType,
       amount: item.lineTotal,
     })));
   };
@@ -772,8 +776,18 @@ export function CreateInvoiceSheet({ children, open, onOpenChange, onInvoiceCrea
                   </div>
                 )}
                 <div className="space-y-2 p-4 bg-muted/50 rounded-lg" data-tutorial="invoice-form-total">
+                    {invoiceDiscount.discount > 0 && <>
+                      <div className="flex justify-end items-center gap-4">
+                        <p className="text-sm text-muted-foreground">{tr('Total before discount', 'الإجمالي قبل الخصم')}</p>
+                        <p className="w-32 text-end text-sm tabular-nums">{amountIn(invoiceDiscount.gross, foreignCurrency)}</p>
+                      </div>
+                      <div className="flex justify-end items-center gap-4">
+                        <p className="text-sm text-muted-foreground">{tr('Discount', 'الخصم')}</p>
+                        <p className="w-32 text-end text-sm tabular-nums text-destructive">{amountIn(-invoiceDiscount.discount, foreignCurrency)}</p>
+                      </div>
+                    </>}
                     <div className="flex justify-end items-center gap-4">
-                      <p className="text-sm text-muted-foreground">{tr('Subtotal', 'المجموع الفرعي')}</p>
+                      <p className="text-sm text-muted-foreground">{invoiceDiscount.discount > 0 ? tr('Total after discount', 'الإجمالي بعد الخصم') : tr('Subtotal', 'المجموع الفرعي')}</p>
                       <p className="w-32 text-end text-sm tabular-nums">{amountIn(invoiceSubtotal, foreignCurrency)}</p>
                     </div>
                     <div className="flex justify-end items-center gap-4">

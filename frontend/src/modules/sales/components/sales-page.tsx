@@ -68,7 +68,7 @@ import { QuotationsPanel } from './quotations-panel';
 import { ServicesPanel } from './services-panel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReturnsPanel } from './returns-panel';
-import { SalesLineItemsEditor, emptyItemRow, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
+import { SalesLineItemsEditor, emptyItemRow, formDiscountTotals, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
 
@@ -243,6 +243,7 @@ export function SalesPage() {
   const formItems = React.useMemo(() => items.filter((i) => (i as { companyId?: string }).companyId === formCompanyId), [items, formCompanyId]);
 
   const estimatedTotal = React.useMemo(() => formItemsTotal(form.items), [form.items]);
+  const estimatedDiscount = React.useMemo(() => formDiscountTotals(form.items), [form.items]);
 
   const filteredOrders = React.useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -480,6 +481,13 @@ export function SalesPage() {
                 <div className="space-y-1">
                   <Label>{t('sales.estimatedTotal')}</Label>
                   <div className="flex h-10 items-center rounded-md border px-3 text-sm">{amountIn(estimatedTotal, currencyOf(formCompanyId))}</div>
+                  {estimatedDiscount.discount > 0 && (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {language === 'ar' ? 'قبل الخصم' : 'Before discount'} {amountIn(estimatedDiscount.gross, currencyOf(formCompanyId))}
+                      {' · '}
+                      {language === 'ar' ? 'الخصم' : 'Discount'} {amountIn(-estimatedDiscount.discount, currencyOf(formCompanyId))}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1 sm:col-span-2">
                   <Label>{t('sales.notes')}</Label>
