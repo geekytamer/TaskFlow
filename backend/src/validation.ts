@@ -120,3 +120,26 @@ export const enumValue = <T extends string>(
   }
   return normalized;
 };
+
+/**
+ * Two-language names (spec 2026-11-10-bilingual-names-design). `nameAr` /
+ * `nameEn` pass through as sent ("" clears a side, absent leaves it); the
+ * store works out `name`. `nameOf` lets a form that sends only the two sides
+ * through the `name` checks routes already make.
+ */
+export const parseNameSides = (body: Record<string, unknown>): { nameAr?: string; nameEn?: string } => {
+  const side = (value: unknown, label: string): string | undefined => {
+    if (value === undefined) return undefined;
+    if (value === null) return '';
+    if (typeof value !== 'string') throw new HttpError(400, `${label} must be text.`);
+    return value.replace(/\s+/g, ' ').trim().slice(0, 200);
+  };
+  return { nameAr: side(body.nameAr, 'nameAr'), nameEn: side(body.nameEn, 'nameEn') };
+};
+
+export const nameOf = (body: Record<string, unknown>): unknown => {
+  if (typeof body.name === 'string' && body.name.trim()) return body.name;
+  const ar = typeof body.nameAr === 'string' ? body.nameAr.trim() : '';
+  const en = typeof body.nameEn === 'string' ? body.nameEn.trim() : '';
+  return en || ar || body.name;
+};

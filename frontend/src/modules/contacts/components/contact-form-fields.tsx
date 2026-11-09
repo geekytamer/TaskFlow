@@ -1,5 +1,8 @@
 'use client';
 
+import { BilingualNameFields, namesOf, namesPayload } from '@/components/bilingual-name-fields';
+import { useCompany } from '@/context/company-context';
+import { getCurrentLocale } from '@/lib/locale';
 import * as React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +29,10 @@ export const ROLE_COLORS: Record<ContactRoleType, string> = {
 
 export type ContactForm = {
   kind: 'Organization' | 'Person';
+  /** Kept equal to the name in the person's language, so pages that check it still work. */
   name: string;
+  nameAr: string;
+  nameEn: string;
   legalName: string;
   contactPerson: string;
   email: string;
@@ -40,6 +46,8 @@ export type ContactForm = {
 export const emptyContactForm = (overrides: Partial<ContactForm> = {}): ContactForm => ({
   kind: 'Organization',
   name: '',
+  nameAr: '',
+  nameEn: '',
   legalName: '',
   contactPerson: '',
   email: '',
@@ -49,11 +57,14 @@ export const emptyContactForm = (overrides: Partial<ContactForm> = {}): ContactF
   notes: '',
   roles: [],
   ...overrides,
+  // A prefilled name (e.g. typed into a picker) starts on the side its letters say.
+  ...(overrides.name && overrides.nameAr === undefined && overrides.nameEn === undefined ? namesOf({ name: overrides.name }) : {}),
 });
 
 export const contactToForm = (c: Contact): ContactForm => ({
   kind: c.kind,
   name: c.name,
+  ...namesOf(c),
   legalName: c.legalName ?? '',
   contactPerson: c.contactPerson ?? '',
   email: c.email ?? '',
@@ -72,7 +83,10 @@ export function buildContactPayload(
   const { customFields, lockedRole } = options;
   return {
     kind: form.kind,
-    name: form.name.trim(),
+    // An older caller may only have filled `name`: it counts for its own side.
+    ...(form.nameAr.trim() || form.nameEn.trim()
+      ? namesPayload({ nameAr: form.nameAr, nameEn: form.nameEn }, getCurrentLocale().startsWith('ar') ? 'ar' : 'en')
+      : { name: form.name.trim() }),
     legalName: form.legalName.trim() || undefined,
     contactPerson: form.contactPerson.trim() || undefined,
     email: form.email.trim() || undefined,
@@ -103,7 +117,8 @@ export function ContactFormFields({
   /** Hide the role selector when the caller manages the role separately. */
   hideRoles?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const { selectedCompany } = useCompany();
   const toggleRole = (role: ContactRoleType) =>
     setForm((f) => ({
       ...f,
@@ -122,11 +137,14 @@ export function ContactFormFields({
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <Label>{t('contacts.name')} *</Label>
-          <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-        </div>
       </div>
+      <BilingualNameFields
+        value={{ nameAr: form.nameAr, nameEn: form.nameEn }}
+        companyId={selectedCompany?.id}
+        kind="name"
+        idPrefix="contact-name"
+        onChange={(names) => setForm((f) => ({ ...f, ...names, name: namesPayload(names, language).name }))}
+      />
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>{t('contacts.legalName')}</Label>

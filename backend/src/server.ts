@@ -139,6 +139,8 @@ import {
   requiredNumber,
   requiredString,
   stringArray,
+  nameOf,
+  parseNameSides,
 } from './validation';
 import { validateInvoiceDoc } from './invoice-doc';
 import type { RouteContext } from './routes/context';
@@ -174,6 +176,7 @@ import { DocumentTextIndex } from './documents/text-index';
 import { registerApprovalRoutes } from './routes/approvals';
 import { registerIntercompanyRoutes } from './routes/intercompany';
 import { registerAssistantRoutes, type AssistantOptions } from './routes/assistant';
+import { registerNameSuggestionRoutes } from './routes/name-suggestion';
 import { registerShipmentRoutes } from './routes/shipments';
 import { registerColdChainRoutes } from './routes/cold-chain';
 import { registerQualityRoutes } from './routes/quality';
@@ -505,6 +508,8 @@ const parseInvoiceLineItems = (value: unknown): InvoiceLineItem[] => {
       description: requiredString(record.description, `lineItems[${index}].description`, {
         min: 2,
       }),
+      descriptionAr: optionalString(record.descriptionAr),
+      descriptionEn: optionalString(record.descriptionEn),
       quantity,
       unitPrice,
       discount: record.discount != null ? optionalNumber(record.discount) : undefined,
@@ -567,6 +572,8 @@ const parseSalesOrderItems = (value: unknown): SalesOrderLineItem[] => {
       inventoryItemId: optionalString(record.inventoryItemId),
       sku: optionalString(record.sku),
       description: requiredString(record.description, `items[${index}].description`, { min: 2 }),
+      descriptionAr: optionalString(record.descriptionAr),
+      descriptionEn: optionalString(record.descriptionEn),
       quantity,
       unitPrice,
       discount: record.discount != null ? optionalNumber(record.discount) : undefined,
@@ -2286,7 +2293,7 @@ export function createServer(options: CreateServerOptions = {}) {
           ? { id: companyRecord.id, name: companyRecord.name, address: companyRecord.address, logoUrl: companyRecord.logoUrl }
           : undefined,
         client: client
-          ? { id: client.id, name: client.name, address: client.address, email: client.email }
+          ? { id: client.id, name: client.name, nameAr: client.nameAr, nameEn: client.nameEn, address: client.address, email: client.email }
           : undefined,
       });
     }),
@@ -2319,7 +2326,8 @@ export function createServer(options: CreateServerOptions = {}) {
           validUntil: quote.validUntil,
           status: quote.status,
           items: quote.items.map((item) => ({
-            sku: item.sku, description: item.description, quantity: item.quantity, unitPrice: item.unitPrice,
+            sku: item.sku, description: item.description, descriptionAr: item.descriptionAr, descriptionEn: item.descriptionEn,
+            quantity: item.quantity, unitPrice: item.unitPrice,
             discount: item.discount, discountType: item.discountType, lineTotal: item.lineTotal,
           })),
           subtotal: quote.subtotal,
@@ -2334,7 +2342,7 @@ export function createServer(options: CreateServerOptions = {}) {
         company: companyRecord
           ? { id: companyRecord.id, name: companyRecord.name, address: companyRecord.address, logoUrl: companyRecord.logoUrl }
           : undefined,
-        client: client ? { id: client.id, name: client.name, address: client.address, email: client.email } : undefined,
+        client: client ? { id: client.id, name: client.name, nameAr: client.nameAr, nameEn: client.nameEn, address: client.address, email: client.email } : undefined,
       });
     }),
   );
@@ -3995,7 +4003,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      contact = store.createContact({
         companyId,
         kind: (optionalString(body.kind) as any) ?? 'Organization',
-        name: requiredString(body.name, 'name'),
+        name: requiredString(nameOf(body), 'name'),
+        ...parseNameSides(body),
         legalName: optionalString(body.legalName),
         contactPerson: optionalString(body.contactPerson),
         email: optionalString(body.email),
@@ -4069,6 +4078,7 @@ export function createServer(options: CreateServerOptions = {}) {
       contact = store.updateContact(req.params.id, {
         kind: optionalString(body.kind) as any,
         name: optionalString(body.name),
+        ...parseNameSides(body),
         legalName: clearableString(body, 'legalName'),
         contactPerson: clearableString(body, 'contactPerson'),
         email: clearableString(body, 'email'),
@@ -5822,7 +5832,8 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const client = withActor(req, () =>
 	        store.createClient({
 	          companyId,
-	          name: requiredString(body.name, 'name', { min: 2 }),
+	          name: requiredString(nameOf(body), 'name', { min: 2 }),
+	          ...parseNameSides(body),
 	          email: requiredString(body.email, 'email', { min: 3 }),
 	          address: requiredString(body.address, 'address', { min: 5 }),
 	          contactName: optionalString(body.contactName),
@@ -5851,6 +5862,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      const updated = withActor(req, () =>
 	        store.updateClient(req.params.id, {
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+          ...parseNameSides(body),
           email: body.email !== undefined ? requiredString(body.email, 'email', { min: 3 }) : undefined,
           address: body.address !== undefined ? requiredString(body.address, 'address', { min: 5 }) : undefined,
           contactName: body.contactName !== undefined ? optionalString(body.contactName) : undefined,
@@ -6237,7 +6249,7 @@ export function createServer(options: CreateServerOptions = {}) {
       requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Accountant']);
       const body = asRecord(req.body, 'body');
       // Validate required shape before business rules so missing-field errors win.
-      const name = requiredString(body.name, 'name', { min: 2 });
+      const name = requiredString(nameOf(body), 'name', { min: 2 });
       const category = requiredString(body.category, 'category', { min: 2 });
       const unit = requiredString(body.unit, 'unit', { min: 1 });
       const preferredSupplierId = optionalString(body.preferredSupplierId);
@@ -6258,6 +6270,7 @@ export function createServer(options: CreateServerOptions = {}) {
           store.createInventoryItem({
             companyId: req.params.companyId,
             name,
+            ...parseNameSides(body),
             category,
             unit,
             barcode: optionalString(body.barcode),
@@ -7268,6 +7281,7 @@ export function createServer(options: CreateServerOptions = {}) {
   registerApprovalRoutes(app, routeContext, { docSummary, decideDocument });
   registerIntercompanyRoutes(app, routeContext);
   registerAssistantRoutes(app, routeContext, options.assistant);
+  registerNameSuggestionRoutes(app, routeContext, { chat: options.assistant?.chat });
   registerShipmentRoutes(app, routeContext);
   registerColdChainRoutes(app, routeContext);
   registerQualityRoutes(app, routeContext);
@@ -7344,6 +7358,8 @@ export function createServer(options: CreateServerOptions = {}) {
             itemType: 'Manual',
             sku: item.sku,
             description: item.description,
+            descriptionAr: item.descriptionAr,
+            descriptionEn: item.descriptionEn,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             discount: item.discount,
@@ -8713,6 +8729,7 @@ export function createServer(options: CreateServerOptions = {}) {
           sku: body.sku !== undefined ? requiredString(body.sku, 'sku', { min: 1 }) : undefined,
           barcode: nullable(body.barcode),
           name: body.name !== undefined ? requiredString(body.name, 'name', { min: 2 }) : undefined,
+          ...parseNameSides(body),
           category: body.category !== undefined ? requiredString(body.category, 'category', { min: 2 }) : undefined,
           unit: body.unit !== undefined ? requiredString(body.unit, 'unit', { min: 1 }) : undefined,
           vatApplicable: optionalBoolean(body.vatApplicable),

@@ -309,3 +309,25 @@ test('a quote prints no payment block, and starter sentences and status read in 
   );
   assert.match(invoiceHtml, /يُستحق الدفع عند الاستلام ما لم يُتفق على غير ذلك/);
 });
+
+test('a line picked from a service prints in the document language; a typed line as written', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const doc = { ...peakQuoteDoc, body: [
+    { id: 'c', type: 'text', content: '{{client.name}}' },
+    { id: 'items', type: 'lineItems' },
+  ] };
+  const invoice = discountInvoice([
+    { itemType: 'Manual', description: 'تهيئة فردية', descriptionAr: 'تهيئة فردية', descriptionEn: 'Solo onboarding', quantity: 1, unitPrice: 500, amount: 500 },
+    { itemType: 'Manual', description: 'insta oman', quantity: 1, unitPrice: 250, amount: 250 },
+  ]);
+  const client = { id: 'c1', name: 'مطعم ليلاس', nameAr: 'مطعم ليلاس', nameEn: 'Lilas Restaurant' };
+  const english = renderToStaticMarkup(<DocRenderer doc={doc as never} invoice={invoice as never} client={client as never} direction="ltr" />);
+  assert.match(english, /Solo onboarding/);
+  assert.doesNotMatch(english, /تهيئة فردية/);
+  assert.match(english, /Lilas Restaurant/);
+  assert.match(english, /insta oman/);
+  const arabic = renderToStaticMarkup(<DocRenderer doc={doc as never} invoice={invoice as never} client={client as never} direction="rtl" />);
+  assert.match(arabic, /تهيئة فردية/);
+  assert.match(arabic, /مطعم ليلاس/);
+  assert.doesNotMatch(arabic, /Solo onboarding|Lilas Restaurant/);
+});

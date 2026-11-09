@@ -1,5 +1,7 @@
 'use client';
 
+import { Combobox } from '@/components/ui/combobox';
+import { allNames, displayName } from '@/lib/display-name';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +22,9 @@ export type SalesItemForm = {
   unitPrice: string;
   discount: string;
   discountType: 'percent' | 'amount';
+  /** The picked item's name in each language; cleared when the description is typed over. */
+  descriptionAr?: string;
+  descriptionEn?: string;
 };
 
 export const emptyItemRow = (): SalesItemForm => ({
@@ -52,6 +57,8 @@ export const itemsToForm = (items: SalesOrderLineItem[]): SalesItemForm[] =>
         inventoryItemId: item.inventoryItemId || '',
         sku: item.sku,
         description: item.description,
+        descriptionAr: item.descriptionAr,
+        descriptionEn: item.descriptionEn,
         quantity: String(item.quantity),
         unitPrice: String(item.unitPrice),
         discount: String(item.discount ?? 0),
@@ -74,6 +81,8 @@ export const prepareItems = (rows: SalesItemForm[], inventoryMap: Map<string, In
         inventoryItemId: inventoryItem?.id ?? (item.inventoryItemId || undefined),
         sku: inventoryItem?.sku ?? item.sku,
         description,
+        descriptionAr: item.descriptionAr || undefined,
+        descriptionEn: item.descriptionEn || undefined,
         quantity,
         unitPrice,
         discount: discount > 0 ? discount : undefined,
@@ -90,6 +99,7 @@ export function SalesLineItemsEditor({
   inventory,
   currencyCode,
   onSaveAsService,
+  documentLanguage,
 }: {
   rows: SalesItemForm[];
   onChange: (rows: SalesItemForm[]) => void;
@@ -98,11 +108,30 @@ export function SalesLineItemsEditor({
   onSaveAsService?: (index: number) => void;
   /** The currency of the company the document is in; default the selected company's. */
   currencyCode?: string;
+  /** The document's language: a picked item's name is shown in it. Default the interface language. */
+  documentLanguage?: 'ar' | 'en';
 }) {
   const { t, language } = useI18n();
   const { money: companyMoney } = useCompanyCurrency();
   const money = (value: number) => (currencyCode ? formatCurrency(value, currencyCode) : companyMoney(value));
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
+  const docLanguage = documentLanguage ?? (language === 'ar' ? 'ar' : 'en');
+  // Search finds an item by either name or its code; it is listed in the document's language.
+  const pickerOptions = React.useMemo(() => inventory.map((inventoryItem) => ({
+    value: inventoryItem.id,
+    label: `${inventoryItem.sku} - ${displayName(inventoryItem, docLanguage)}`,
+    keywords: allNames(inventoryItem),
+  })), [inventory, docLanguage]);
+  // A line picked from an item follows the document's language when it changes.
+  React.useEffect(() => {
+    const next = rows.map((row) => {
+      if (!row.descriptionAr && !row.descriptionEn) return row;
+      const wanted = displayName({ nameAr: row.descriptionAr, nameEn: row.descriptionEn }, docLanguage);
+      return wanted && wanted !== row.description ? { ...row, description: wanted } : row;
+    });
+    if (next.some((row, i) => row !== rows[i])) onChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docLanguage]);
   const update = (index: number, updates: Partial<SalesItemForm>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...updates } : row)));
 
@@ -129,34 +158,33 @@ export function SalesLineItemsEditor({
             {rows.map((item, index) => (
               <TableRow key={index}>
                 <TableCell>
-                  <Select
-                    value={item.inventoryItemId || 'manual'}
+                  <Combobox
+                    className="min-w-[11rem]"
+                    value={item.inventoryItemId}
+                    placeholder={t('sales.manualItem')}
+                    clearLabel={t('sales.manualItem')}
+                    searchPlaceholder={language === 'ar' ? 'ابحث بالاسم أو الرمز…' : 'Search by name or code…'}
+                    emptyText={language === 'ar' ? 'لا توجد نتائج' : 'No results'}
+                    options={pickerOptions}
                     onValueChange={(value) => {
-                      if (value === 'manual') {
-                        update(index, { inventoryItemId: '', description: '', unitPrice: '0' });
+                      if (!value) {
+                        update(index, { inventoryItemId: '', description: '', descriptionAr: undefined, descriptionEn: undefined, unitPrice: '0' });
                         return;
                       }
                       const inventoryItem = inventoryMap.get(value);
                       update(index, {
                         inventoryItemId: value,
-                        description: inventoryItem?.name || '',
+                        sku: inventoryItem?.sku,
+                        description: displayName(inventoryItem, docLanguage),
+                        descriptionAr: inventoryItem?.nameAr,
+                        descriptionEn: inventoryItem?.nameEn,
                         unitPrice: String(inventoryItem?.salePrice || 0),
                       });
                     }}
-                  >
-                    <SelectTrigger className="min-w-[9rem]"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="manual">{t('sales.manualItem')}</SelectItem>
-                      {inventory.map((inventoryItem) => (
-                        <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
-                          {inventoryItem.sku} - {inventoryItem.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  />
                 </TableCell>
                 <TableCell>
-                  <Input dir="auto" className="min-w-[10rem]" value={item.description} onChange={(event) => update(index, { description: event.target.value })} placeholder={t('sales.description')} />
+                  <Input dir="auto" className="min-w-[10rem]" value={item.description} onChange={(event) => update(index, { description: event.target.value, descriptionAr: undefined, descriptionEn: undefined })} placeholder={t('sales.description')} />
                   {onSaveAsService && !item.inventoryItemId && item.description.trim() && (
                     <button
                       type="button"

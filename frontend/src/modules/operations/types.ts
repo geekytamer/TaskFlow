@@ -4,6 +4,9 @@ export interface InventoryItem {
   sku: string;
   barcode?: string;
   name: string;
+  /** Two-language names (spec 2026-11-10); show with displayName(). */
+  nameAr?: string;
+  nameEn?: string;
   category: string;
   unit: string;
   vatApplicable: boolean;

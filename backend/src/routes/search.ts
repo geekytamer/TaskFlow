@@ -1,4 +1,6 @@
 import { type UserRole } from '../types';
+import { pickName } from '../names';
+import { matchesSearch, normalizeSearch } from '../search-normalize';
 import type { RouteContext } from './context';
 import { type AuthedRequest, handler } from './shared';
 import type { Express } from 'express';
@@ -20,9 +22,11 @@ export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
     handler((req, res) => {
       const companyId = req.params.companyId;
       requireCompanyAccess(req, companyId);
-      const q = String(req.query.q ?? '').trim().toLowerCase();
-      if (q.length < 2) return res.json([]);
-      const hit = (...fields: Array<string | null | undefined>) => fields.some((f) => f && f.toLowerCase().includes(q));
+      const q = String(req.query.q ?? '').trim();
+      if (normalizeSearch(q).length < 2) return res.json([]);
+      // Both names count, and أحمد finds احمد (spec 2026-11-10-bilingual-names-design).
+      const hit = (...fields: Array<string | null | undefined>) => matchesSearch(q, ...fields);
+      const lang = req.query.lang === 'ar' || req.query.lang === 'en' ? req.query.lang : undefined;
       const LIMIT = 6;
       const groups: Array<{ type: string; items: Array<{ id: string; title: string; subtitle?: string; route: string }> }> = [];
       const add = (type: string, items: Array<{ id: string; title: string; subtitle?: string; route: string }>) => {
@@ -34,26 +38,26 @@ export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
       // Scoped areas (contacts, projects, tasks) list only what the person may
       // see, by authz/visible.ts — the same rule as their own lists.
       if (holds(req, companyId, 'contacts', 'contacts.view', everyone)) {
-        add('contacts', store.listContacts(companyId, undefined, viewerOf(req)).filter((c) => hit(c.name, c.email, c.phone, c.taxNumber))
-          .map((c) => ({ id: c.id, title: c.name, subtitle: c.email || c.phone || (c.roles ?? []).join(', '), route: `/contacts/${c.id}` })));
+        add('contacts', store.listContacts(companyId, undefined, viewerOf(req)).filter((c) => hit(c.name, c.nameAr, c.nameEn, c.email, c.phone, c.taxNumber))
+          .map((c) => ({ id: c.id, title: pickName(c, lang), subtitle: c.email || c.phone || (c.roles ?? []).join(', '), route: `/contacts/${c.id}` })));
       }
       if (holds(req, companyId, 'invoices', 'invoices.view', management)) {
-        const clients = new Map(store.listClients(companyId).map((c) => [c.id, c.name]));
-        add('invoices', store.listInvoices(companyId).filter((i) => hit(i.invoiceNumber, clients.get(i.clientId)))
-          .map((i) => ({ id: i.id, title: i.invoiceNumber, subtitle: `${clients.get(i.clientId) ?? ''} · ${i.status}`, route: '/finance?tab=invoices' })));
+        const clients = new Map(store.listClients(companyId).map((c) => [c.id, c]));
+        add('invoices', store.listInvoices(companyId).filter((i) => { const c = clients.get(i.clientId); return hit(i.invoiceNumber, c?.name, c?.nameAr, c?.nameEn); })
+          .map((i) => ({ id: i.id, title: i.invoiceNumber, subtitle: `${pickName(clients.get(i.clientId) ?? {}, lang)} · ${i.status}`, route: '/finance?tab=invoices' })));
       }
       if (holds(req, companyId, 'sales', 'sales.view', management)) {
-        const clients = new Map(store.listClients(companyId).map((c) => [c.id, c.name]));
-        add('salesOrders', store.listSalesOrders(companyId).filter((o) => hit(o.orderNumber, clients.get(o.clientId)))
-          .map((o) => ({ id: o.id, title: o.orderNumber, subtitle: `${clients.get(o.clientId) ?? ''} · ${o.status}`, route: '/sales' })));
+        const clients = new Map(store.listClients(companyId).map((c) => [c.id, c]));
+        add('salesOrders', store.listSalesOrders(companyId).filter((o) => { const c = clients.get(o.clientId); return hit(o.orderNumber, c?.name, c?.nameAr, c?.nameEn); })
+          .map((o) => ({ id: o.id, title: o.orderNumber, subtitle: `${pickName(clients.get(o.clientId) ?? {}, lang)} · ${o.status}`, route: '/sales' })));
       }
       if (holds(req, companyId, 'purchasing', 'purchasing.view', management)) {
         add('purchaseOrders', store.listPurchaseOrders(companyId).filter((o) => hit(o.orderNumber, o.supplierName))
           .map((o) => ({ id: o.id, title: o.orderNumber, subtitle: `${o.supplierName} · ${o.status}`, route: '/purchases' })));
       }
       if (holds(req, companyId, 'inventory', 'inventory.view', management)) {
-        add('items', store.listInventoryItems(companyId).filter((i) => hit(i.name, i.sku, i.barcode))
-          .map((i) => ({ id: i.id, title: i.name, subtitle: `${i.sku} · ${i.onHand} ${i.unit}`, route: '/inventory' })));
+        add('items', store.listInventoryItems(companyId).filter((i) => hit(i.name, i.nameAr, i.nameEn, i.sku, i.barcode))
+          .map((i) => ({ id: i.id, title: pickName(i, lang), subtitle: `${i.sku} · ${i.onHand} ${i.unit}`, route: '/inventory' })));
         add('batches', store.listInventoryLots(companyId).filter((l) => hit(l.lotNumber))
           .map((l) => ({ id: l.id, title: l.lotNumber, subtitle: `${store.getInventoryItemById(l.inventoryItemId)?.name ?? ''} · ${l.status}`, route: '/inventory' })));
         add('shipments', store.shipments.list(companyId).filter((s) => hit(s.reference, s.carrier, ...s.containers))

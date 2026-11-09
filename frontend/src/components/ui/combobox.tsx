@@ -1,5 +1,6 @@
 'use client';
 
+import { matchesSearch } from '@/lib/search-normalize';
 import * as React from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -71,8 +72,8 @@ export function Combobox({
         <Command
           filter={(itemValue, search) => {
             const opt = options.find((o) => o.value.toLowerCase() === itemValue.toLowerCase());
-            const hay = `${opt?.label ?? ''} ${opt?.keywords ?? ''}`.toLowerCase();
-            return hay.includes(search.toLowerCase()) ? 1 : 0;
+            // Both names count and أحمد finds احمد (spec 2026-11-10-bilingual-names-design).
+            return matchesSearch(search, opt?.label, opt?.keywords) ? 1 : 0;
           }}
         >
           <CommandInput placeholder={searchPlaceholder} />
