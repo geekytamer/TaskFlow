@@ -24,6 +24,7 @@ import { FinancialReportsPanel } from './financial-reports-panel';
 import { BudgetPanel } from './budget-panel';
 import { VatPanel } from './vat-panel';
 import { IntercompanyPanel } from './intercompany-panel';
+import { ClientPaymentsPanel } from './client-payments-panel';
 import { useI18n } from '@/context/i18n-context';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { usePermissions } from '@/context/permissions-context';
@@ -43,12 +44,13 @@ const VALID_TABS = new Set([
   'budgets',
   'vat',
   'intercompany',
+  'cheques',
 ]);
 
-const TAB_MODULES: Record<string, string> = { invoices: 'invoices', payables: 'vendor-bills' };
+const TAB_MODULES: Record<string, string> = { invoices: 'invoices', payables: 'vendor-bills', cheques: 'invoices' };
 
 export function FinancePage() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { moduleOn } = usePermissions();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -96,6 +98,9 @@ export function FinancePage() {
           {tabOn('invoices') && (
             <TabsTrigger value="invoices" data-tutorial="finance-tab-invoices">{t('finance.tabInvoices')}</TabsTrigger>
           )}
+          {tabOn('cheques') && (
+            <TabsTrigger value="cheques">{language === 'ar' ? 'الشيكات والتحويلات' : 'Cheques & transfers'}</TabsTrigger>
+          )}
           {tabOn('payables') && (
             <TabsTrigger value="payables" data-tutorial="finance-tab-payables">{t('finance.tabPayables')}</TabsTrigger>
           )}
@@ -123,6 +128,15 @@ export function FinancePage() {
               <IfModule module="invoices">
                 <InvoiceTable />
                 <CreditNotesPanel />
+              </IfModule>
+            </PerCompany>
+          </TabsContent>
+        )}
+        {tabOn('cheques') && (
+          <TabsContent value="cheques" className="space-y-4">
+            <PerCompany>
+              <IfModule module="invoices">
+                <ClientPaymentsPanel />
               </IfModule>
             </PerCompany>
           </TabsContent>

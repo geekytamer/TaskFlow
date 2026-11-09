@@ -8,9 +8,12 @@ import { formatDate, formatMoney } from '@/lib/format';
 import { requireAudience } from '@/lib/guard';
 import { t, type Lang } from '@/lib/i18n';
 import { currentLang } from '@/lib/session';
+import { PaymentRecords } from '@/components/payment-records';
+import { TransferForm } from '@/components/transfer-form';
+import { getInvoicePaymentRecords } from '@/lib/payments';
 
 /** How to pay this invoice: what was printed on it, with copy buttons, and where to send proof. */
-function HowToPay({ invoice, lang }: { invoice: InvoiceDetail; lang: Lang }) {
+function HowToPay({ invoice, lang, room }: { invoice: InvoiceDetail; lang: Lang; room: number }) {
   const payment = invoice.payment ?? { instructions: null, accounts: [] };
   const copy = { label: t(lang, 'pay.copy'), done: t(lang, 'pay.copied') };
   const row = (label: string, value: string | null, copyable = false) => value && (
@@ -44,7 +47,10 @@ function HowToPay({ invoice, lang }: { invoice: InvoiceDetail; lang: Lang }) {
       </dl>
       {payment.instructions && <p dir="auto" className="whitespace-pre-line text-sm leading-relaxed">{payment.instructions}</p>}
       {payment.accounts.length === 0 && !payment.instructions && <p className="text-sm text-ink-soft">{t(lang, 'pay.noDetails')}</p>}
-      <p className="border-t border-line pt-4 text-sm text-ink-soft">
+      <div className="border-t border-line pt-4">
+        <TransferForm lang={lang} invoiceId={invoice.id} room={room} currency={invoice.currency} />
+      </div>
+      <p className="text-sm text-ink-soft">
         {t(lang, 'pay.proof')} <Link href="/messages" className="font-semibold text-accent underline-offset-4 hover:underline">{t(lang, 'pay.proofLink')}</Link>
       </p>
     </section>
@@ -55,8 +61,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   requireAudience('client');
   const { id } = await params;
   const lang = await currentLang();
-  const invoice = await getInvoice(id);
+  const [invoice, held] = await Promise.all([getInvoice(id), getInvoicePaymentRecords(id)]);
   if (!invoice) notFound();
+  const records = held?.records ?? [];
+  const room = held?.room ?? invoice.outstanding;
   const m = (n: number) => <bdi>{formatMoney(n, invoice.currency, lang)}</bdi>;
   const open = invoice.outstanding > 0 && invoice.status !== 'paid';
 
@@ -80,7 +88,14 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         {open && <p className="text-sm text-ink-soft">{t(lang, 'bill.ofTotal')} {m(invoice.total)}</p>}
       </div>
 
-      {open && <HowToPay invoice={invoice} lang={lang} />}
+      {records.length > 0 && (
+        <section aria-labelledby="records-title">
+          <SectionTitle id="records-title">{t(lang, 'cp.title')}</SectionTitle>
+          <PaymentRecords records={records} lang={lang} />
+        </section>
+      )}
+
+      {open && <HowToPay invoice={invoice} lang={lang} room={room} />}
 
       <section aria-labelledby="items-title">
         <SectionTitle id="items-title">{t(lang, 'bill.items')}</SectionTitle>

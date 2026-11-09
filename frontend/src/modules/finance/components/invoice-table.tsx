@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useApprovalNeeded } from '@/modules/approvals/hooks/use-approval-needed';
 import { WaitingHolds } from '@/modules/approvals/components/waiting-holds';
 import { isHeld } from '@/services/approvalService';
@@ -660,6 +661,11 @@ export function InvoiceTable() {
                               </div>
                             </>
                           )}
+                          <p className="text-sm text-muted-foreground">
+                            <Link href={`/finance?tab=cheques&invoice=${invoice.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                              {language === 'ar' ? 'شيكات مؤجلة أو تحويل من العميل؟ سجّلها هنا' : 'Post-dated cheques or a client transfer? Record them here'}
+                            </Link>
+                          </p>
                           {(invoice.outstandingAmount || 0) <= 0 && payments.length > 0 && (
                             <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                               {t('invoiceTable.fullyPaidManageHelp')}

@@ -8,6 +8,7 @@ import { t, type Lang } from '@/lib/i18n';
 import type { Message } from '@/lib/messages';
 import type { NeedsYouItem } from '@/lib/needs-you';
 import { StatusBadge } from './status-badge';
+import { whenLabel } from './payment-records';
 import { EmptyState, RowLink, SectionTitle, button, list, panel, textLink } from './ui';
 
 function itemText(item: NeedsYouItem, lang: Lang) {
@@ -16,6 +17,13 @@ function itemText(item: NeedsYouItem, lang: Lang) {
       label: t(lang, 'home.overdue').replace('{days}', String(item.daysLate)),
       detail: <><bdi dir="ltr">{item.title}</bdi> · <bdi>{formatMoney(item.amount, item.currency, lang)}</bdi></>,
       action: t(lang, 'home.payNow'),
+    };
+  }
+  if (item.kind === 'cheque') {
+    return {
+      label: t(lang, 'home.chequeSoon').replace('{number}', item.title).replace('{when}', whenLabel(item.dueDate, lang) ?? formatDate(item.dueDate, lang)),
+      detail: <bdi>{formatMoney(item.amount, item.currency, lang)}</bdi>,
+      action: t(lang, 'dash.open'),
     };
   }
   if (item.kind === 'proposal') return { label: t(lang, 'dash.waiting'), detail: <bdi dir="auto">{item.title}</bdi>, action: t(lang, 'dash.open') };

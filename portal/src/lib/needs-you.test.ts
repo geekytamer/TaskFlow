@@ -19,3 +19,17 @@ test('overdue money first (most days late first), then proposals, then content t
 test('nothing waiting gives an empty list', () => {
   assert.deepEqual(rankNeedsYou({ overdue: [], proposals: [], reviews: [] }), []);
 });
+
+test('cheques due soon sit after overdue money, soonest first', () => {
+  const items = rankNeedsYou({
+    overdue: [{ id: 'i1', number: 'INV-1', outstanding: 300, currency: 'OMR', daysLate: 2 }],
+    proposals: [{ id: 'p1', title: 'Offer' }],
+    cheques: [
+      { id: 'c2', invoiceId: 'i9', number: '000125', amount: 400, currency: 'OMR', dueDate: '2026-12-09' },
+      { id: 'c1', invoiceId: 'i9', number: '000124', amount: 400, currency: 'OMR', dueDate: '2026-12-05' },
+    ],
+    reviews: [],
+  });
+  assert.deepEqual(items.map((i) => i.key), ['invoice:i1', 'cheque:c1', 'cheque:c2', 'proposal:p1']);
+  assert.equal(items[1].href, '/billing/i9');
+});

@@ -6,6 +6,7 @@ import { getAudience } from '@/lib/audience';
 import { getCampaigns } from '@/lib/campaigns';
 import { getAssignments, getPayouts } from '@/lib/influencer';
 import { getInvoices } from '@/lib/billing';
+import { daysUntil, getPaymentRecords, upcomingCheques } from '@/lib/payments';
 import { getMessages } from '@/lib/messages';
 import { getCalendar } from '@/lib/workspace';
 import { requireMe } from '@/lib/portal';
@@ -45,13 +46,15 @@ export default async function Home() {
     return <Dashboard me={me} lang={lang} audience={audience} assignments={assignments} attention={attention} payouts={payouts.slice(0, 3)} />;
   }
 
-  const [proposals, campaigns, invoices, messages, flexi] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages(), getFlexi().catch(() => null)]);
+  const [proposals, campaigns, invoices, messages, flexi, records] = await Promise.all([getProposals(), getCampaigns(), getInvoices(), getMessages(), getFlexi().catch(() => null), getPaymentRecords().catch(() => [])]);
   const now = Date.now();
   const unpaid = invoices.filter((i) => i.status !== 'paid' && i.outstanding > 0);
   const overdue = unpaid.filter((i) => i.status === 'overdue');
   const items = rankNeedsYou({
     overdue: overdue.map((i) => ({ id: i.id, number: i.number, outstanding: i.outstanding, currency: i.currency, daysLate: i.dueDate ? Math.max(1, Math.floor((now - Date.parse(i.dueDate)) / 86_400_000)) : 1 })),
     proposals: proposals.filter((p) => p.status === 'sent').map((p) => ({ id: p.id, title: p.title })),
+    cheques: upcomingCheques(records).filter((r) => daysUntil(r.dueDate!) <= 7)
+      .map((r) => ({ id: r.id, invoiceId: r.invoiceId, number: r.chequeNumber ?? '', amount: r.amount, currency: r.currency ?? '', dueDate: r.dueDate! })),
     reviews: campaigns.map((c) => ({ campaignId: c.id, name: c.name, count: c.deliverables.awaitingReview })),
   });
   const owed = sumByCurrency(unpaid.map((i) => ({ currency: i.currency, amount: i.outstanding })));

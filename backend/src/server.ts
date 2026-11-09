@@ -16,7 +16,9 @@ import { sweepClientReminders } from './finance/client-email';
 import { sweepOverdueReadings } from './inventory/cold-chain';
 import { ApprovalError, type ApprovalDocType } from './approvals/approvals';
 import { sweepShipments } from './logistics/shipments';
-import { sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
+import { send as sendEmail, sendNotificationEmail, sendNotificationDigestEmail, sendPasswordEmail, type PasswordEmailSender } from './email';
+import { registerClientPaymentRoutes } from './finance/client-payment-routes';
+import { sweepChequeReminders, type ClientPaymentSenders } from './finance/client-payment-messages';
 import { makePasswordLinkSender, registerPasswordRoutes } from './routes/password';
 import { registerTaskPartRoutes } from './routes/task-parts';
 import { registerTaskChecklistRoutes } from './routes/task-checklist';
@@ -304,6 +306,8 @@ export interface CreateServerOptions extends DataStoreOptions {
   social?: SocialOptions;
   /** WhatsApp alerts to portal users; defaults to the company's Green API number. */
   portalWhatsApp?: WhatsAppSender;
+  /** Cheque reminders and transfer answers to clients (tests pass fakes). */
+  clientPaymentSenders?: ClientPaymentSenders;
   /** Who liked a post (a self-hosted worker or an Apify actor); defaults to the environment. */
   likersFetcher?: LikersFetcher;
   /** Where the influencer directory's figures come from; defaults to the environment (Apify, or fixtures). */
@@ -876,6 +880,11 @@ export function createServer(options: CreateServerOptions = {}) {
         void sweepClientReminders(store)
           .then((n) => { if (n > 0) logger.info(`[reminders] ${n} overdue reminder(s) emailed to clients`); })
           .catch((error) => logger.error('[reminders] client reminder sweep failed', error));
+        if (process.env.NODE_ENV !== 'test') {
+          void sweepChequeReminders(store, clientPaymentSenders)
+            .then((n) => { if (n > 0) logger.info(`[client-payments] ${n} cheque reminder(s) sent`); })
+            .catch((error) => logger.error('[client-payments] cheque reminder sweep failed', error));
+        }
         const recurring = runDueRecurring(store);
         if (recurring.created + recurring.held + recurring.failed > 0) {
           logger.info(`[recurring] ${recurring.created} created, ${recurring.held} held as draft, ${recurring.failed} failed`);
@@ -951,7 +960,11 @@ export function createServer(options: CreateServerOptions = {}) {
   app.use((req, res, next) => (
     req.method === 'POST' && (/^\/portal-api\/(?:client|influencer)\/files$/.test(req.path)
       || /^\/companies\/[^/]+\/contacts\/[^/]+\/files$/.test(req.path)
-      || /^\/portal-api\/influencer\/workspace\/deals\/[^/]+\/files$/.test(req.path))
+      || /^\/portal-api\/influencer\/workspace\/deals\/[^/]+\/files$/.test(req.path)
+      // Cheque images and transfer receipts (finance/client-payments).
+      || /^\/portal-api\/client\/invoices\/[^/]+\/transfers$/.test(req.path)
+      || /^\/invoices\/[^/]+\/client-payments$/.test(req.path)
+      || /^\/client-payments\/[^/]+\/files$/.test(req.path))
       ? portalFileJson(req, res, next)
       : next()
   ));
@@ -1419,6 +1432,22 @@ export function createServer(options: CreateServerOptions = {}) {
       req.user ? { userId: req.user.id, name: req.user.name } : undefined,
       fn,
     );
+
+  // Cheque reminders and transfer answers: WhatsApp from the company's own number (shown in its inbox) and email.
+  const clientPaymentSenders: ClientPaymentSenders = options.clientPaymentSenders ?? {
+    whatsapp: async (companyId, phone, text, contactId) => {
+      const instance = store.getWhatsappInstanceForCompany(companyId);
+      const creds = store.getWhatsappCredentials(companyId);
+      if (!instance || !creds) throw new Error('WhatsApp is not connected.');
+      const chatId = toChatId(phone);
+      const sent = await greenApi.sendMessage(creds, chatId, text);
+      store.createWhatsappMessage({
+        companyId, instanceId: instance.id, direction: 'outbound', externalId: sent.idMessage, chatId, phone, contactId: contactId ?? undefined,
+        type: 'text', body: text, status: 'sent', contextEntityType: 'client_payment', actorName: 'Payment reminders', sentAt: new Date(),
+      });
+    },
+    email: (to, subject, html) => sendEmail(to, subject, html),
+  };
 
   // Auto-convert a contact to Client when a transaction is created for them
   const autoConvertContactToClient = (contactId: string | undefined, companyId: string) => {
@@ -7541,6 +7570,11 @@ export function createServer(options: CreateServerOptions = {}) {
       res.json(updated);
     }),
   );
+
+  registerClientPaymentRoutes(app, store, {
+    authMiddleware, requireCompanyRoles, withActor, senders: clientPaymentSenders,
+    logError: (message, error) => logger.error(message, error),
+  });
 
   app.get(
     '/invoices/:id/payments',

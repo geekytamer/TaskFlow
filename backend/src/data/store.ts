@@ -29,6 +29,7 @@ import { ShipmentStore } from '../logistics/shipments';
 import { ApprovalStore, levelsFor, type ApprovalFacts, type ApprovalLevel, type ApprovalDocType, type ApprovalHold, type HoldDocType } from '../approvals/approvals';
 import { attentionAlerts } from '../dashboard/attention';
 import { ClientEmailStore } from '../finance/client-email';
+import { CLIENT_PAYMENTS_SCHEMA, ClientPaymentsStore } from '../finance/client-payments';
 import { WorkspaceStore } from '../workspace/workspace-store';
 import { MediaKitStore } from '../workspace/media-kit';
 import { PushStore } from '../push/push-store';
@@ -749,6 +750,7 @@ export class DataStore {
   readonly shipments: ShipmentStore;
   readonly approvals: ApprovalStore;
   readonly clientEmail: ClientEmailStore;
+  readonly clientPayments: ClientPaymentsStore;
   readonly workspace: WorkspaceStore;
   readonly mediaKits: MediaKitStore;
   readonly push: PushStore;
@@ -845,6 +847,10 @@ export class DataStore {
       },
     };
     this.clientEmail = new ClientEmailStore(this.db);
+    this.clientPayments = new ClientPaymentsStore(this.db, {
+      invoice: (id) => this.getInvoiceById(id),
+      recordPayment: (input) => this.createPayment(input),
+    });
     this.workspace = new WorkspaceStore(this.db);
     this.mediaKits = new MediaKitStore(this.db);
     this.push = new PushStore(this.db);
@@ -5950,6 +5956,14 @@ export class DataStore {
               tokenize = 'unicode61 remove_diacritics 2'
             );
           `);
+        },
+      },
+      {
+        // Client payments (spec 2026-11-09-client-payments-cheques-transfers-design):
+        // post-dated cheques and bank transfers before they become invoice payments.
+        id: '168_client_payments',
+        run: () => {
+          this.db.exec(CLIENT_PAYMENTS_SCHEMA);
         },
       },
     ];
@@ -19854,6 +19868,8 @@ export class DataStore {
       this.db.prepare('UPDATE vendor_bill_payments SET matchedPaymentId = NULL WHERE matchedPaymentId = ?').run(paymentId);
       this.db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
       this.removeJournalEntriesBySource('invoice_payment', paymentId);
+      // A cheque or transfer that made this payment goes back to waiting.
+      this.clientPayments.onPaymentReversed(paymentId);
       this.refreshInvoicePaymentStatus(invoiceId);
       const invoice = this.getInvoiceById(invoiceId);
       if (!invoice) {

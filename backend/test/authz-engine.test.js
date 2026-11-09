@@ -338,7 +338,13 @@ const seedRecordPerResource = (store, company, userId) => {
   const wsContact = store.workspace.addContact({ companyId: company, ownerContactId: contact.id }, { name: 'Seed brand', kind: 'brand' });
   const projectTemplate = store.projectPlan.saveTemplate(company, 'Seed template', { description: '', color: '#888888', visibility: 'Public', memberIds: [], budget: null, lengthDays: null, milestones: [], tasks: [] }, userId);
 
+  const now = new Date().toISOString();
+  store.db.prepare(`INSERT INTO client_payment_records (id, companyId, invoiceId, method, status, amount, statusAt, createdAt, updatedAt, chequeNumber, dueDate)
+    VALUES ('seed-cheque', ?, ?, 'cheque', 'received', 1, ?, ?, ?, '100200', '2026-12-01')`).run(company, invoice.id, now, now, now);
+  const chequeFile = store.clientPayments.addFile('seed-cheque', { content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), type: 'image/png', fileName: 'cheque.png' }, { userId });
+
   return {
+    'client-payments': 'seed-cheque', 'client-payment-files': chequeFile.id,
     'sales-orders': order.id, services: service.id, quotations: quotation.id, invoices: invoice.id, 'sub:payments': payment.id,
     'credit-notes': creditNote.id, 'vendor-bills': bill.id, deliveries: delivery.id, 'customer-returns': customerReturn.id,
     shipments: shipment.id, rfqs: rfq.id, 'sub:quotes': rfq.quotes[0].id, 'purchase-requisitions': requisition.id,

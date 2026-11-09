@@ -194,7 +194,16 @@
     "DELETE /credit-notes/:id"
   ],
   "invoices:pay": [
-    "POST /companies/:companyId/intercompany/match-receipt"
+    "DELETE /client-payments/:id",
+    "GET /client-payment-files/:fileId",
+    "GET /companies/:companyId/client-payments",
+    "GET /invoices/:id/client-payments",
+    "PATCH /client-payments/:id",
+    "POST /client-payments/:id/files",
+    "POST /client-payments/:id/status",
+    "POST /companies/:companyId/intercompany/match-receipt",
+    "POST /invoices/:id/client-payments",
+    "PUT /companies/:companyId/client-payment-settings"
   ],
   "invoices:read": [
     "GET /companies/:companyId/approval-holds"

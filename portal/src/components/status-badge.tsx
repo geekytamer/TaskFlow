@@ -5,6 +5,7 @@ import type { CommissionStatus, ReferralStatus } from '@/lib/referrals';
 import type { InvoiceStatus } from '@/lib/billing';
 import type { AssignmentStatus, InfluencerDeliverableStatus, Payout } from '@/lib/influencer-types';
 import type { DealStatus } from '@/lib/workspace-types';
+import type { RecordStatus } from '@/lib/payments';
 
 type Tone = 'action' | 'done' | 'quiet' | 'warn';
 
@@ -36,6 +37,11 @@ const PAYOUT_TONE: Record<Payout['status'], Tone> = { pending: 'quiet', approved
 
 const DEAL_TONE: Record<DealStatus, Tone> = { lead: 'quiet', confirmed: 'action', delivered: 'quiet', paid: 'done', cancelled: 'quiet' };
 
+const RECORD_TONE: Record<RecordStatus, Tone> = {
+  received: 'action', deposited: 'quiet', cleared: 'done', bounced: 'warn', returned: 'quiet',
+  pending: 'quiet', confirmed: 'done', rejected: 'warn',
+};
+
 const INVOICE_TONE: Record<InvoiceStatus, Tone> = { due: 'quiet', overdue: 'warn', partly_paid: 'quiet', paid: 'done' };
 
 type Subject =
@@ -49,7 +55,8 @@ type Subject =
   | { work: InfluencerDeliverableStatus }
   | { payout: Payout['status'] }
   | { invoice: InvoiceStatus }
-  | { deal: DealStatus };
+  | { deal: DealStatus }
+  | { record: RecordStatus };
 
 function toneAndKey(subject: Subject): [Tone, string] {
   if ('request' in subject) return [REQUEST_TONE[subject.request], `req.status.${subject.request}`];
@@ -58,6 +65,7 @@ function toneAndKey(subject: Subject): [Tone, string] {
   if ('referral' in subject) return [REFERRAL_TONE[subject.referral], `ref.status.${subject.referral}`];
   if ('assignment' in subject) return [ASSIGNMENT_TONE[subject.assignment], `asg.status.${subject.assignment}`];
   if ('deal' in subject) return [DEAL_TONE[subject.deal], `deal.status.${subject.deal}`];
+  if ('record' in subject) return [RECORD_TONE[subject.record], `cp.status.${subject.record}`];
   if ('invoice' in subject) return [INVOICE_TONE[subject.invoice], `bill.status.${subject.invoice}`];
   if ('payout' in subject) return [PAYOUT_TONE[subject.payout], `pay.status.${subject.payout}`];
   if ('work' in subject) return [WORK_TONE[subject.work], `idl.status.${subject.work}`];

@@ -5,6 +5,8 @@ import { paidContactOf } from './influencer';
 import { clientVisibleUrl } from './review-flow';
 import type { PortalUser } from './portal-store';
 
+import { clientInvoices } from './billing';
+import { daysBetween, localDay } from '../finance/client-payments';
 /**
  * WhatsApp alerts for portal users who opt in. Events are derived from the data
  * on each sweep (never hooked into individual routes, so none is missed), and
@@ -13,10 +15,10 @@ import type { PortalUser } from './portal-store';
  * never carry amounts, rates or anything else a lock screen should not show.
  */
 
-export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review' | 'request';
+export type AlertEvent = 'message' | 'proposal' | 'invitation' | 'changes' | 'payout' | 'review' | 'request' | 'cheque';
 export type AlertGroup = 'messages' | 'proposals' | 'content' | 'money' | 'invites';
 export const ALERT_GROUPS: readonly AlertGroup[] = ['messages', 'proposals', 'content', 'money', 'invites'];
-export const GROUP_OF: Record<AlertEvent, AlertGroup> = { message: 'messages', proposal: 'proposals', request: 'proposals', review: 'content', changes: 'content', payout: 'money', invitation: 'invites' };
+export const GROUP_OF: Record<AlertEvent, AlertGroup> = { message: 'messages', proposal: 'proposals', request: 'proposals', review: 'content', changes: 'content', payout: 'money', invitation: 'invites', cheque: 'money' };
 export type GroupPrefs = Record<AlertGroup, { push: boolean; whatsapp: boolean }>;
 export interface AlertPrefs { portalUserId: string; phone: string | null; whatsapp: boolean; lang: 'en' | 'ar'; groups: GroupPrefs; preview: boolean; updatedAt: string }
 
@@ -117,6 +119,18 @@ export function currentEvents(store: DataStore, user: PortalUser): PendingAlert[
         out.push({ event: 'review', refId: `${d.id}:${url}`, path: `/campaigns/${c.id}/content/${d.id}` });
       }
     }
+    // A cheque to be deposited within three days: once per cheque and date.
+    const contact = store.getContactById(user.contactId);
+    const today = localDay();
+    if (contact) {
+      for (const invoice of clientInvoices(store, user.companyId, contact)) {
+        for (const r of store.clientPayments.listForInvoice(invoice.id)) {
+          if (r.method !== 'cheque' || r.status !== 'received' || !r.dueDate) continue;
+          const left = daysBetween(today, r.dueDate);
+          if (left >= 0 && left <= 3) out.push({ event: 'cheque', refId: `${r.id}:${r.dueDate}`, path: `/billing/${invoice.id}` });
+        }
+      }
+    }
     return out;
   }
   for (const id of store.influencer.assignmentIdsOf(user.companyId, user.contactId)) {
@@ -143,6 +157,7 @@ const LINES: Record<AlertEvent, { en: (n: number) => string; ar: (n: number) => 
   changes: { en: (n) => (n === 1 ? 'Changes were requested on your draft' : `Changes were requested on ${n} drafts`), ar: (n) => (n === 1 ? 'طُلبت تعديلات على مسودتك' : `طُلبت تعديلات على ${n} مسودات`) },
   review: { en: (n) => (n === 1 ? 'Content is ready for your review' : `${n} pieces of content are ready for your review`), ar: (n) => (n === 1 ? 'محتوى جاهز لمراجعتك' : `${n} محتويات جاهزة لمراجعتك`) },
   request: { en: (n) => (n === 1 ? 'There is an update on your request' : `There are updates on ${n} of your requests`), ar: (n) => (n === 1 ? 'يوجد تحديث على طلبك' : `توجد تحديثات على ${n} من طلباتك`) },
+  cheque: { en: (n) => (n === 1 ? 'A cheque of yours will be deposited soon' : `${n} of your cheques will be deposited soon`), ar: (n) => (n === 1 ? 'سيتم إيداع أحد شيكاتك قريبًا' : `سيتم إيداع ${n} من شيكاتك قريبًا`) },
   payout: { en: (n) => (n === 1 ? 'A payout was marked paid' : `${n} payouts were marked paid`), ar: (n) => (n === 1 ? 'تم دفع مستحقاتك' : `تم دفع ${n} مستحقات`) },
 };
 
@@ -179,7 +194,8 @@ export async function sweepPortalAlerts(store: DataStore, send: WhatsAppSender, 
       return !entry || (entry.status === 'failed' && now.getTime() - Date.parse(entry.at) >= RETRY_AFTER_MS);
     });
     // A group switched off for WhatsApp is marked skipped, so switching it on later does not replay the past.
-    const wanted = (e: PendingAlert) => prefs.groups[GROUP_OF[e.event]].whatsapp;
+    // Cheques already reach WhatsApp through the payment reminders (finance/client-payment-messages).
+    const wanted = (e: PendingAlert) => e.event !== 'cheque' && prefs.groups[GROUP_OF[e.event]].whatsapp;
     const muted = fresh.filter((e) => !wanted(e) && !log.has(`${e.event}:${e.refId}`));
     if (muted.length > 0) store.alerts.log(user.id, muted, 'skipped');
     const due = fresh.filter(wanted);

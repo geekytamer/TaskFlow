@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { registerClientPaymentPortalRoutes } from './client-payments-routes';
 import rateLimit from 'express-rate-limit';
 import { HttpError } from '../http';
 import { asRecord, requiredString } from '../validation';
@@ -171,6 +172,7 @@ export function createPortalRouter(options: PortalRouterOptions): Router {
     registerWorkspacePortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'));
     registerPortalGameRoutes(router, options.requestsStore, companyId, requireSession, options.pdf);
     registerAlertRoutes(router, options.requestsStore, companyId, requireSession);
+    registerClientPaymentPortalRoutes(router, options.requestsStore, companyId, requireSessionFor('client'));
     if (options.social) registerSocialPortalRoutes(router, options.requestsStore, companyId, requireSessionFor('influencer'), options.social);
     if (options.pdf) {
       registerClientBillingRoutes(router, options.requestsStore, companyId, requireSessionFor('client'), {
