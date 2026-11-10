@@ -4085,7 +4085,8 @@ test('crm pipeline supports influencer profiles, opportunities, requests, and co
       availabilityStatus: 'Available',
     });
   assert.equal(contactResponse.status, 201);
-  assert.equal(contactResponse.body.influencerHandle, '@noorcreates');
+  // Stored without the @ the page adds (influencers/handles.ts cleanHandle).
+  assert.equal(contactResponse.body.influencerHandle, 'noorcreates');
   assert.equal(contactResponse.body.followerCount, 125000);
   assert.deepEqual(contactResponse.body.languages, ['Arabic', 'English']);
   const contactId = contactResponse.body.id;

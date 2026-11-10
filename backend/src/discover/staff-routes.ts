@@ -4,6 +4,7 @@ import type { DataStore } from '../data/store';
 import { HttpError } from '../http';
 import { normalizeNiches } from '../niches';
 import { assertNoHandleClash } from '../influencers/service';
+import { cleanDisplayName } from '../influencers/handles';
 import type { Contact, InfluencerAccount, SanitizedUser } from '../types';
 import { asRecord } from '../validation';
 import type { DiscoverScraper } from './apify';
@@ -189,7 +190,7 @@ export function createDiscoverStaffRouter(deps: DiscoverStaffDeps): Router {
     const contact = deps.createContact(req, {
       companyId,
       kind: 'Person',
-      name: profile.fullName?.trim() || `@${profile.username}`,
+      name: (profile.fullName ? cleanDisplayName(profile.fullName) : '') || `@${profile.username}`,
       roles: ['Influencer'],
       email: profile.emails[0],
       phone: profile.phones[0],
