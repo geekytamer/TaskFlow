@@ -8,15 +8,25 @@ import { handler } from './shared';
 import type { Express } from 'express';
 
 
-const numberingEntityTypes = [
-  'client',
-  'supplier',
-  'inventory_item',
-  'purchase_order',
-  'sales_order',
-  'sales_invoice',
-  'vendor_invoice',
-] as const;
+/**
+ * Every numbered document the settings page lists. Keyed by the type so a new
+ * NumberingEntityType fails to compile until it is added here; the old hand list
+ * missed quotations, delivery notes and purchase requisitions, so saving those
+ * rows answered 400.
+ */
+const numberingEntityTypeSet: Record<NumberingEntityType, true> = {
+  client: true,
+  supplier: true,
+  inventory_item: true,
+  purchase_order: true,
+  purchase_requisition: true,
+  sales_order: true,
+  sales_invoice: true,
+  vendor_invoice: true,
+  delivery: true,
+  quotation: true,
+};
+const numberingEntityTypes = Object.keys(numberingEntityTypeSet) as NumberingEntityType[];
 
 /** Admin panel, companies and company-wide settings. */
 export function registerAdminRoutes(app: Express, ctx: RouteContext): void {
