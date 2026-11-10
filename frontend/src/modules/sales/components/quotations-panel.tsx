@@ -374,6 +374,15 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                                 {quote.language === lang ? ' ✓' : ''}
                               </DropdownMenuItem>
                             ))}
+                            {converted(quote) && (
+                              <>
+                                <DropdownMenuSeparator />
+                                {/* Say why there is no Delete instead of leaving it out silently. */}
+                                <DropdownMenuItem disabled className="whitespace-normal text-xs">
+                                  {tr('To delete this quote, delete the sales order or invoice it became first.', 'لحذف هذا العرض، احذف أمر البيع أو الفاتورة اللي صار لها أولاً.')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
                             {!converted(quote) && (
                               <>
                                 <DropdownMenuSeparator />

@@ -613,10 +613,13 @@ export function SalesPage() {
                         variant="outline"
                         size="sm"
                         className="text-muted-foreground hover:text-destructive"
+                        aria-label={language === 'ar' ? 'حذف أمر البيع' : 'Delete sales order'}
+                        title={language === 'ar' ? 'حذف أمر البيع' : 'Delete sales order'}
                         onClick={async () => {
                           if (!(await confirm({
                             title: t('sales.deleteTitle', 'Delete sales order?'),
-                            description: t('sales.deleteDesc', 'Delete order {number}? This cannot be undone.').replace('{number}', order.orderNumber),
+                            description: t('sales.deleteDesc', 'Delete order {number}? This cannot be undone.').replace('{number}', order.orderNumber)
+                              + (language === 'ar' ? ' أي تسليم لم يُشحن بعد يُحذف معه.' : ' Any delivery that has not shipped is deleted with it.'),
                             confirmText: t('common.delete'),
                             cancelText: t('common.cancel'),
                             destructive: true,

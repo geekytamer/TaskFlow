@@ -9689,11 +9689,23 @@ export class DataStore {
     if (order.invoiceId || order.status === 'Invoiced') {
       throw new Error('Cannot delete a sales order that has been invoiced. Delete the invoice first.');
     }
-    const delivery = this.db.prepare('SELECT 1 FROM deliveries WHERE salesOrderId = ? LIMIT 1').get(id);
-    if (delivery) {
-      throw new Error('Cannot delete a sales order that has recorded deliveries.');
+    // Goods that left (shipped or delivered, or shipped then cancelled) moved
+    // stock and keep the order. A delivery that never left is only a plan: it
+    // goes with the order, so an order made by mistake can be removed.
+    const deliveries = this.db.prepare('SELECT id, deliveryNumber, status, dispatchedAt FROM deliveries WHERE salesOrderId = ?')
+      .all(id) as Array<{ id: string; deliveryNumber: string; status: string; dispatchedAt: string | null }>;
+    const moved = deliveries.find((d) => d.status === 'Shipped' || d.status === 'Delivered' || d.dispatchedAt);
+    if (moved) {
+      throw new Error(`Delivery ${moved.deliveryNumber} has already shipped, so this order keeps its stock history. Create a return instead.`);
     }
     const trx = this.db.transaction(() => {
+      for (const d of deliveries) {
+        this.db.prepare('DELETE FROM deliveries WHERE id = ?').run(d.id);
+        this.createActivityEvent({
+          companyId: order.companyId, entityType: 'delivery', entityId: d.id, action: 'deleted',
+          summary: `Delivery ${d.deliveryNumber} deleted with sales order ${order.orderNumber} (it never shipped).`,
+        });
+      }
       this.db.prepare('UPDATE opportunities SET wonSalesOrderId = NULL WHERE wonSalesOrderId = ?').run(id);
       this.db.prepare('UPDATE quotations SET salesOrderId = NULL WHERE salesOrderId = ?').run(id);
       this.db.prepare('UPDATE purchase_orders SET mirrorSalesOrderId = NULL WHERE mirrorSalesOrderId = ?').run(id);
