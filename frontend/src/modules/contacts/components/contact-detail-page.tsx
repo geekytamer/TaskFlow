@@ -34,7 +34,7 @@ import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/com
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { agingOf, dayText, quickLinks, sinceText, statementOf } from '../lib/contact-finance';
-import { accountLinks, displayName } from '@/modules/influencers/lib/influencer-list';
+import { accountLinks, displayName as cleanInfluencerName } from '@/modules/influencers/lib/influencer-list';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -297,7 +297,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             )}
             <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight md:text-3xl" dir="auto">{displayName(c.name)}</h1>
+                <h1 className="text-2xl font-bold tracking-tight md:text-3xl" dir="auto">{cleanInfluencerName(displayName(c, language) || c.name)}</h1>
                 {c.visibility === 'Private' && (
                   <span title={t('crm.visibilityPrivate')}><Lock className="h-4 w-4 text-red-500" /></span>
                 )}
