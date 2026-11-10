@@ -28,6 +28,7 @@ import {
   type ProjectTab,
 } from '@/modules/projects/lib/project-meta';
 import { cn } from '@/lib/utils';
+import { displayName } from '@/lib/display-name';
 
 export function ProjectList() {
   const { selectedCompany, projects, currentUser, loading } = useCompany();
@@ -194,7 +195,7 @@ export function ProjectList() {
                         className="w-3 h-3 rounded-full flex-shrink-0"
                         style={{ backgroundColor: project.color }}
                       />
-                      <CardTitle className="truncate text-lg">{project.name}</CardTitle>
+                      <CardTitle className="truncate text-lg"><bdi>{displayName(project, language)}</bdi></CardTitle>
                     </div>
                     {showCompany && (
                       <p className="text-xs text-muted-foreground">{companyName(project.companyId)}</p>

@@ -141,6 +141,7 @@ import {
   stringArray,
   nameOf,
   parseNameSides,
+  requireNamesLeft,
 } from './validation';
 import { validateInvoiceDoc } from './invoice-doc';
 import type { RouteContext } from './routes/context';
@@ -1952,6 +1953,8 @@ export function createServer(options: CreateServerOptions = {}) {
     options: { partial?: boolean } = {},
   ): Partial<{
     name: string;
+    nameAr: string;
+    nameEn: string;
     email: string;
     role: UserRole;
     companyIds: string[];
@@ -1973,8 +1976,13 @@ export function createServer(options: CreateServerOptions = {}) {
     const companyIds = record.companyIds
       ? stringArray(record.companyIds, 'companyIds')
       : companyRoles?.map((assignment) => assignment.companyId);
+    const sides = parseNameSides(record);
     const payload = {
-      name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      // A form may send only the two sides; `name` then comes from them.
+      name: record.name !== undefined || (!partial && (sides.nameAr || sides.nameEn))
+        ? requiredString(nameOf(record), 'name', { min: 2 })
+        : undefined,
+      ...sides,
       email: record.email !== undefined ? requiredString(record.email, 'email', { min: 3 }) : undefined,
       role: record.role !== undefined ? enumValue(record.role, 'role', userRoles) : undefined,
       companyIds,
@@ -2032,8 +2040,12 @@ export function createServer(options: CreateServerOptions = {}) {
   const parseProjectPayload = (body: unknown, options: { partial?: boolean } = {}) => {
     const record = asRecord(body, 'body');
     const partial = Boolean(options.partial);
+    const sides = parseNameSides(record);
     const payload = {
-      name: record.name !== undefined ? requiredString(record.name, 'name', { min: 2 }) : undefined,
+      name: record.name !== undefined || (!partial && (sides.nameAr || sides.nameEn))
+        ? requiredString(nameOf(record), 'name', { min: 2 })
+        : undefined,
+      ...sides,
       description: record.description !== undefined ? optionalString(record.description) : undefined,
       color: record.color !== undefined ? optionalString(record.color) : undefined,
       companyId: record.companyId !== undefined ? requiredString(record.companyId, 'companyId') : undefined,
@@ -3227,6 +3239,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const user = withActor(req, () => store.createUser({
         id: userIdFromBody(asRecord(req.body, 'body').id),
         name: payload.name!,
+        nameAr: payload.nameAr,
+        nameEn: payload.nameEn,
         email: payload.email!,
         password: suppliedPassword ? payload.password! : unusablePassword(),
         companyIds: payload.companyIds!,
@@ -3261,6 +3275,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const existing = store.getUserById(targetId);
     if (!existing) throw new HttpError(404, 'User not found.');
     const payload = parseUserPayload(rawBody, { partial: true });
+    requireNamesLeft(payload, existing);
     const existingAssignments =
       existing.companyRoles
       || existing.companyIds.map((companyId) => ({
@@ -3281,6 +3296,8 @@ export function createServer(options: CreateServerOptions = {}) {
       }
       const identityChange =
         (payload.name !== undefined && payload.name !== existing.name)
+        || (payload.nameAr !== undefined && payload.nameAr !== (existing.nameAr ?? ''))
+        || (payload.nameEn !== undefined && payload.nameEn !== (existing.nameEn ?? ''))
         || (payload.email !== undefined && payload.email.toLowerCase() !== existing.email.toLowerCase())
         || payload.password !== undefined;
       if (identityChange && !isSelf && !existingAssignments.every((a) => manages(a.companyId))) {
@@ -3505,6 +3522,8 @@ export function createServer(options: CreateServerOptions = {}) {
       const project = withActor(req, () =>
         store.createProject({
           name: payload.name!,
+          nameAr: payload.nameAr,
+          nameEn: payload.nameEn,
           description: payload.description || '',
           color: payload.color || '',
           companyId: payload.companyId!,
@@ -3530,6 +3549,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (!existing) throw new HttpError(404, 'Project not found.');
       requireCompanyRoles(req, existing.companyId, ['Admin', 'Manager']);
       const payload = parseProjectPayload(req.body, { partial: true });
+      requireNamesLeft(payload, existing);
       if (payload.companyId && payload.companyId !== existing.companyId) {
         requireCompanyRoles(req, payload.companyId, ['Admin', 'Manager']);
       }

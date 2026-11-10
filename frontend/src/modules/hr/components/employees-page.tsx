@@ -17,6 +17,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Plus, Trash2, Pencil, X } from 'lucide-react';
 import { usePermissions } from '@/context/permissions-context';
 import { HiddenValue } from '@/components/hidden-value';
+import { BilingualNameFields, namesOf, namesPayload, type BilingualNames } from '@/components/bilingual-name-fields';
+import { displayName } from '@/lib/display-name';
 import {
   createDepartment,
   createEmployee,
@@ -41,7 +43,7 @@ const STATUS_STYLES: Record<EmployeeStatus, string> = {
 };
 
 type Form = {
-  name: string; email: string; phone: string; jobTitle: string;
+  email: string; phone: string; jobTitle: string;
   departmentId: string; managerId: string; employmentType: EmploymentType;
   status: EmployeeStatus; hireDate: string; annualLeaveAllowance: string; notes: string;
   basicSalary: string; allowances: string; deductions: string; bankName: string; iban: string;
@@ -49,7 +51,7 @@ type Form = {
 };
 
 const emptyForm = (): Form => ({
-  name: '', email: '', phone: '', jobTitle: '', departmentId: '', managerId: '',
+  email: '', phone: '', jobTitle: '', departmentId: '', managerId: '',
   employmentType: 'Full-time', status: 'Active', hireDate: '', annualLeaveAllowance: '21', notes: '',
   basicSalary: '', allowances: '', deductions: '', bankName: '', iban: '',
   bankCode: '', idType: 'civil_id', idNumber: '',
@@ -74,6 +76,8 @@ export function EmployeesPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Employee | null>(null);
   const [form, setForm] = React.useState<Form>(emptyForm());
+  const [names, setNames] = React.useState<BilingualNames>(namesOf(null));
+  const nameReady = Boolean(names.nameAr.trim() || names.nameEn.trim());
   const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -94,13 +98,14 @@ export function EmployeesPage() {
   React.useEffect(() => { void load(); }, [load]);
 
   const deptName = (id?: string) => departments.find((d) => d.id === id)?.name ?? '—';
-  const managerName = (id?: string) => employees.find((e) => e.id === id)?.name ?? '—';
+  const managerName = (id?: string) => displayName(employees.find((e) => e.id === id), language) || '—';
 
-  const openCreate = () => { setEditing(null); setForm(emptyForm()); setDialogOpen(true); };
+  const openCreate = () => { setEditing(null); setForm(emptyForm()); setNames(namesOf(null)); setDialogOpen(true); };
   const openEdit = (e: Employee) => {
     setEditing(e);
+    setNames(namesOf(e));
     setForm({
-      name: e.name, email: e.email ?? '', phone: e.phone ?? '', jobTitle: e.jobTitle ?? '',
+      email: e.email ?? '', phone: e.phone ?? '', jobTitle: e.jobTitle ?? '',
       departmentId: e.departmentId ?? '', managerId: e.managerId ?? '',
       employmentType: e.employmentType ?? 'Full-time', status: e.status,
       hireDate: e.hireDate ? new Date(e.hireDate).toISOString().slice(0, 10) : '',
@@ -130,10 +135,10 @@ export function EmployeesPage() {
   const idGroup = group('personal_ids', 'idNumber');
 
   const handleSave = async () => {
-    if (!selectedCompany || !form.name.trim()) return;
+    if (!selectedCompany || !nameReady) return;
     setSaving(true);
     const payload = {
-      name: form.name.trim(),
+      ...namesPayload(names, language),
       email: form.email.trim() || undefined,
       phone: form.phone.trim() || undefined,
       jobTitle: form.jobTitle.trim() || undefined,
@@ -179,7 +184,7 @@ export function EmployeesPage() {
   const handleDelete = async (e: Employee) => {
     if (!(await confirm({
       title: tr('Delete employee?', 'حذف الموظف؟'),
-      description: tr(`Delete ${e.name}? Their leave records will be removed.`, `حذف ${e.name}؟ ستُحذف سجلات إجازاتهم.`),
+      description: tr(`Delete ${displayName(e, language)}? Their leave records will be removed.`, `حذف ${displayName(e, language)}؟ ستُحذف سجلات إجازاتهم.`),
       confirmText: tr('Delete', 'حذف'), cancelText: tr('Cancel', 'إلغاء'), destructive: true,
     }))) return;
     try {
@@ -281,7 +286,7 @@ export function EmployeesPage() {
               ) : employees.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell className="font-medium">
-                    {e.name}
+                    <bdi>{displayName(e, language)}</bdi>
                     {e.email && <div className="text-xs text-muted-foreground">{e.email}</div>}
                   </TableCell>
                   <TableCell>{e.jobTitle || '—'}</TableCell>
@@ -311,9 +316,8 @@ export function EmployeesPage() {
             <DialogTitle>{editing ? tr('Edit Employee', 'تعديل الموظف') : tr('New Employee', 'موظف جديد')}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1 sm:col-span-2">
-              <Label>{tr('Name', 'الاسم')} *</Label>
-              <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+            <div className="sm:col-span-2">
+              <BilingualNameFields value={names} onChange={setNames} companyId={selectedCompany?.id} kind="name" idPrefix="employee-name" />
             </div>
             <div className="space-y-1">
               <Label>{tr('Email', 'البريد')}</Label>
@@ -343,7 +347,7 @@ export function EmployeesPage() {
                 <SelectTrigger><SelectValue placeholder={tr('None', 'بدون')} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{tr('None', 'بدون')}</SelectItem>
-                  {employees.filter((e) => e.id !== editing?.id).map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
+                  {employees.filter((e) => e.id !== editing?.id).map((e) => <SelectItem key={e.id} value={e.id}>{displayName(e, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -446,7 +450,7 @@ export function EmployeesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>{tr('Cancel', 'إلغاء')}</Button>
-            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>{tr('Save', 'حفظ')}</Button>
+            <Button onClick={handleSave} disabled={saving || !nameReady}>{tr('Save', 'حفظ')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

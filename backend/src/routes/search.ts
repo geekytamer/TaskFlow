@@ -64,16 +64,16 @@ export function registerSearchRoutes(app: Express, ctx: RouteContext): void {
           .map((s) => ({ id: s.id, title: s.reference, subtitle: [s.origin, s.destination].filter(Boolean).join(' → ') || s.status, route: '/shipments' })));
       }
       if (store.isModuleEnabled(companyId, 'projects')) {
-        add('projects', store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }]).filter((p) => hit(p.name))
-          .map((p) => ({ id: p.id, title: p.name, route: `/projects/${p.id}` })));
+        add('projects', store.listVisibleProjects([{ companyId, viewer: viewerOf(req) }]).filter((p) => hit(p.name, p.nameAr, p.nameEn))
+          .map((p) => ({ id: p.id, title: pickName(p, lang), route: `/projects/${p.id}` })));
       }
       if (store.isModuleEnabled(companyId, 'tasks')) {
         add('tasks', store.listVisibleTasks([{ companyId, viewer: viewerOf(req), platformSupport: Boolean(req.user!.isSuperAdmin) }]).filter((t) => hit(t.title))
           .map((t) => ({ id: t.id, title: t.title, subtitle: t.status, route: t.projectId ? `/projects/${t.projectId}` : '/tasks' })));
       }
       if (store.isModuleEnabled(companyId, 'hr')) {
-        add('employees', store.listEmployees(companyId).filter((e) => hit(e.name, e.jobTitle))
-          .map((e) => ({ id: e.id, title: e.name, subtitle: e.jobTitle, route: '/hr/employees' })));
+        add('employees', store.listEmployees(companyId).filter((e) => hit(e.name, e.nameAr, e.nameEn, e.jobTitle))
+          .map((e) => ({ id: e.id, title: pickName(e, lang), subtitle: e.jobTitle, route: '/hr/employees' })));
       }
       res.json(groups);
     }),

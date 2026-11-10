@@ -36,9 +36,12 @@ import { createClient } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
+import { BilingualNameFields, namesPayload } from '@/components/bilingual-name-fields';
 
 const addClientSchema = z.object({
-  name: z.string().min(2, 'Client name must be at least 2 characters.'),
+  // Two-language name (spec 2026-11-10-bilingual-names-design): at least one side.
+  nameAr: z.string(),
+  nameEn: z.string(),
   email: z.string().email('Please enter a valid email.'),
   address: z.string().min(5, 'Address is required.'),
   contactName: z.string().optional(),
@@ -49,6 +52,14 @@ const addClientSchema = z.object({
   paymentMethod: z.enum(['Bank Transfer', 'Cash', 'Card', 'Credit']),
   status: z.enum(['Lead', 'Active', 'At Risk', 'Inactive']),
   notes: z.string().optional(),
+}).superRefine((v, ctx) => {
+  const ar = v.nameAr.trim();
+  const en = v.nameEn.trim();
+  if (!ar && !en) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nameEn'], message: 'name-missing' });
+  } else if ((ar && ar.length < 2) || (en && en.length < 2)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nameEn'], message: 'name-short' });
+  }
 });
 
 type AddClientFormValues = z.infer<typeof addClientSchema>;
@@ -75,7 +86,8 @@ export function AddClientDialog({
   const form = useForm<AddClientFormValues>({
     resolver: zodResolver(addClientSchema),
     defaultValues: {
-      name: '',
+      nameAr: '',
+      nameEn: '',
       email: '',
       address: '',
       contactName: '',
@@ -101,9 +113,12 @@ export function AddClientDialog({
         toast({ variant: 'destructive', title: tr('Error', 'خطأ'), description: tr('No company selected.', 'لم يتم اختيار شركة.') });
         return;
     }
+    const { nameAr, nameEn, ...rest } = data;
+    const names = namesPayload({ nameAr, nameEn }, language);
     try {
       await createClient({
-        ...data,
+        ...rest,
+        ...names,
         companyId: selectedCompany.id,
         contactName: data.contactName || undefined,
         phone: data.phone || undefined,
@@ -115,7 +130,7 @@ export function AddClientDialog({
       });
       toast({
         title: tr('Client Created', 'تم إنشاء العميل'),
-        description: tr(`Client "${data.name}" has been successfully created.`, `تم إنشاء العميل "${data.name}" بنجاح.`),
+        description: tr(`Client "${names.name}" has been successfully created.`, `تم إنشاء العميل "${names.name}" بنجاح.`),
       });
       onClientAdded();
       handleOpenChange(false);
@@ -145,14 +160,29 @@ export function AddClientDialog({
             </div>
             <FormField
               control={form.control}
-              name="name"
-              render={({ field }) => (
+              name="nameEn"
+              render={({ fieldState }) => (
                 <FormItem>
                   <FormLabel>{tr('Client Name', 'اسم العميل')}</FormLabel>
-                  <FormControl>
-                    <Input placeholder={tr('e.g. Globex Corporation', 'مثال: شركة جلوبكس')} {...field} />
-                  </FormControl>
-                  <FormMessage />
+                  <BilingualNameFields
+                    value={{ nameAr: form.watch('nameAr'), nameEn: form.watch('nameEn') }}
+                    onChange={(next) => {
+                      const validate = form.formState.isSubmitted;
+                      form.setValue('nameAr', next.nameAr, { shouldValidate: validate, shouldDirty: true });
+                      form.setValue('nameEn', next.nameEn, { shouldValidate: validate, shouldDirty: true });
+                    }}
+                    companyId={selectedCompany?.id}
+                    kind="name"
+                    idPrefix="client-name"
+                    required={false}
+                  />
+                  {fieldState.error && (
+                    <p className="text-sm font-medium text-destructive">
+                      {fieldState.error.message === 'name-short'
+                        ? tr('Client name must be at least 2 characters.', 'يجب أن لا يقل اسم العميل عن حرفين.')
+                        : tr('Enter the client name in Arabic or English.', 'اكتب اسم العميل بالعربي أو بالإنجليزي.')}
+                    </p>
+                  )}
                 </FormItem>
               )}
             />

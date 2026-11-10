@@ -11,7 +11,6 @@ import { CreateTaskSheet } from '@/modules/projects/components/create-task-sheet
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
@@ -36,6 +35,8 @@ import { ProjectOverview } from '@/modules/projects/components/project-overview'
 import { PROJECT_PRIORITY_STYLE, PROJECT_STATUS_STYLE, projectIsLate, projectPriorityName, projectStatusName } from '@/modules/projects/lib/project-meta';
 import { ProjectActions } from '@/modules/projects/components/project-actions';
 import { getCurrentLocale } from '@/lib/locale';
+import { BilingualNameFields, namesOf, namesPayload, type BilingualNames } from '@/components/bilingual-name-fields';
+import { displayName } from '@/lib/display-name';
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -59,7 +60,7 @@ export default function ProjectDetailsPage() {
   const [clients, setClients] = React.useState<Client[]>([]);
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
-  const [editName, setEditName] = React.useState('');
+  const [editNames, setEditNames] = React.useState<BilingualNames>(namesOf(null));
   const [editDescription, setEditDescription] = React.useState('');
   const [editVisibility, setEditVisibility] = React.useState<ProjectVisibility>('Public');
   const [editClient, setEditClient] = React.useState<string | undefined>();
@@ -94,7 +95,7 @@ export default function ProjectDetailsPage() {
       }
       
       setProject(projectData);
-      setEditName(projectData.name);
+      setEditNames(namesOf(projectData));
       setEditDescription(projectData.description || '');
       setEditVisibility(projectData.visibility);
       setEditClient(projectData.clientId);
@@ -163,7 +164,7 @@ export default function ProjectDetailsPage() {
     setSaving(true);
     try {
       const updated = await updateProject(project.id, {
-        name: editName,
+        ...namesPayload(editNames, language),
         description: editDescription,
         visibility: editVisibility,
         clientId: editClient && editClient !== 'none' ? editClient : undefined,
@@ -247,8 +248,8 @@ export default function ProjectDetailsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1 basis-[320px]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h1 className="text-3xl font-bold font-headline">{project.name}</h1>
-            <AskAboutThis subject={{ kind: 'project', id: project.id, title: project.name }} />
+            <h1 className="text-3xl font-bold font-headline"><bdi>{displayName(project, language)}</bdi></h1>
+            <AskAboutThis subject={{ kind: 'project', id: project.id, title: displayName(project, language) }} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 [&>*]:whitespace-nowrap">
             <Badge variant="outline" className={PROJECT_STATUS_STYLE[project.status ?? 'Active']}>{projectStatusName(project.status, language)}</Badge>
@@ -301,10 +302,7 @@ export default function ProjectDetailsPage() {
                   <SheetDescription>{tr('Update details, visibility, client, and members.', 'تحديث التفاصيل والظهور والعميل والأعضاء.')}</SheetDescription>
                 </SheetHeader>
                 <div className="-me-6 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-4 pe-6">
-                  <div className="space-y-2">
-                    <Label>{tr('Name', 'الاسم')}</Label>
-                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder={tr('Name', 'الاسم')} />
-                  </div>
+                  <BilingualNameFields value={editNames} onChange={setEditNames} companyId={project.companyId} kind="term" idPrefix="project-edit-name" />
                   <div className="space-y-2">
                     <Label>{tr('Description', 'الوصف')}</Label>
                     <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder={tr('Description', 'الوصف')} />
