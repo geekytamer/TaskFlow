@@ -76,7 +76,7 @@ export function registerGroupPeopleRoutes(
     const manageable = tree.filter((id) => superAdmin || allowsRule(req, id, 'USERS_WRITE'));
 
     const people = new Map<string, {
-      id: string; name: string; email: string; avatar?: string;
+      id: string; name: string; nameAr?: string; nameEn?: string; email: string; avatar?: string;
       memberships: Array<{ companyId: string; role: string; positionId?: string }>;
       employer: { companyId: string; employeeId: string } | null;
     }>();
@@ -87,7 +87,7 @@ export function registerGroupPeopleRoutes(
           ? u.companyRoles
           : (u.companyIds ?? []).map((id) => ({ companyId: id, role: u.role, positionId: u.positionId }));
         people.set(u.id, {
-          id: u.id, name: u.name, email: u.email, avatar: u.avatar,
+          id: u.id, name: u.name, nameAr: u.nameAr, nameEn: u.nameEn, email: u.email, avatar: u.avatar,
           memberships: roles.filter((r) => inTree.has(r.companyId))
             .map((r) => ({ companyId: r.companyId, role: String(r.role), positionId: r.positionId ?? undefined })),
           employer: null,

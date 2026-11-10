@@ -25,6 +25,7 @@ const METRIC_ROUTES: Record<string, string> = {
 };
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { getDashboardInsights, getDashboardPayload, type DashboardInsights, type InsightPeriod } from '@/services/dashboardService';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { ScopeBar } from '@/modules/groups/components/scope-bar';
@@ -429,7 +430,7 @@ export function Dashboard() {
 
   const { role, scope, metrics, charts, alerts, activity, quickActions } = localizedPayload;
   const hour = new Date().getHours();
-  const firstName = currentUser?.name?.split(' ')[0] ?? '';
+  const firstName = displayName(currentUser, language).split(' ')[0] ?? '';
   const greeting = hour < 12 ? tr('Good morning', 'صباح الخير') : hour < 18 ? tr('Good afternoon', 'مساء الخير') : tr('Good evening', 'مساء النور');
   const today = new Date().toLocaleDateString(language === 'ar' ? 'ar-OM-u-nu-latn' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const severityChip: Record<string, string> = {

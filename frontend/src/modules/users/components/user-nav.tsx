@@ -17,6 +17,7 @@ import { logout } from '@/services/authService';
 import { useCompany } from '@/context/company-context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { ShieldCheck } from 'lucide-react';
 import {
   Dialog,
@@ -57,6 +58,8 @@ export function UserNav() {
     return null;
   }
 
+  const shownName = displayName(user, language);
+
   const openProfile = () => {
     setProfileName(user.name);
     setProfileAvatar(user.avatar);
@@ -85,11 +88,11 @@ export function UserNav() {
           className="relative h-10 w-full justify-start gap-2 px-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user.avatar} alt={user.name} />
-            <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+            <AvatarImage src={user.avatar} alt={shownName} />
+            <AvatarFallback>{shownName.charAt(0)}</AvatarFallback>
           </Avatar>
           <div className="text-start group-data-[collapsible=icon]:hidden">
-            <p className="text-sm font-medium leading-none">{user.name}</p>
+            <p className="text-sm font-medium leading-none">{shownName}</p>
             <p className="text-xs leading-none text-sidebar-foreground/70">
               {user.email}
             </p>
@@ -99,7 +102,7 @@ export function UserNav() {
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user.name}</p>
+            <p className="text-sm font-medium leading-none">{shownName}</p>
             <p className="text-xs leading-none text-muted-foreground">
               {user.email}
             </p>

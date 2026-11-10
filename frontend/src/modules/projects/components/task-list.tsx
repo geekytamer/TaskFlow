@@ -19,6 +19,7 @@ import { useCompany } from '@/context/company-context';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { getTasks, updateTask, updateTaskPart } from '@/services/projectService';
 import { PRIORITY_DOT, PRIORITY_WEIGHT, STATUS_STYLE, myPart, formatTaskDates, partsProgress, recurrenceName, spanDayToday, statusFor, statusName, taskSpanDays } from '@/modules/projects/lib/task-meta';
@@ -305,7 +306,7 @@ function TaskRow({
             <Avatar key={user.id} className="h-6 w-6 border-2 border-background">
               <AvatarImage src={user.avatar} />
               <AvatarFallback className="text-[10px]">
-                {user.name.charAt(0)}
+                {displayName(user, language).charAt(0)}
               </AvatarFallback>
             </Avatar>
           ))}
@@ -635,9 +636,9 @@ export function TaskList({ projectId }: { projectId?: string }) {
       <TaskRow
         key={task.id}
         task={task}
-        projectName={project?.name}
+        projectName={project ? displayName(project, language) : undefined}
         projectColor={project?.color}
-        clientName={client?.name}
+        clientName={client ? displayName(client, language) : undefined}
         assignees={assignees}
         overdue={overdue}
         showProject={!projectId}

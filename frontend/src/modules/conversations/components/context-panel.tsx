@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName, allNames } from '@/lib/display-name';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import { useToast } from '@/hooks/use-toast';
 import { NewFollowupDialog } from '@/modules/crm/components/followups-page';
@@ -114,7 +115,7 @@ export function ContextPanel({ thread, detail, onChanged }: Props) {
           <bdi>{thread.contact.name}</bdi>
         </Link>
         <p className="text-xs text-muted-foreground">
-          {tr('Owner', 'المسؤول')}: {owner ? <bdi>{owner.name}</bdi> : '—'}
+          {tr('Owner', 'المسؤول')}: {owner ? <bdi>{displayName(members.find((m) => m.id === owner.id), language) || owner.name}</bdi> : '—'}
         </p>
         <p className="text-xs text-muted-foreground">
           {stateLabel(thread.state, tr)}
@@ -125,7 +126,7 @@ export function ContextPanel({ thread, detail, onChanged }: Props) {
       <section className={section} aria-label={tr('Assigned to', 'مُسندة إلى')}>
         <Label className={heading}>{tr('Assigned to', 'مُسندة إلى')}</Label>
         <Combobox
-          options={members.map((m) => ({ value: m.id, label: m.name }))}
+          options={members.map((m) => ({ value: m.id, label: displayName(m, language), keywords: allNames(m) }))}
           value={thread.assignee?.id ?? ''}
           disabled={busy}
           onValueChange={(id) => void run(() => updateThread(thread.id, { assigneeUserId: id || null }), tr('Could not assign', 'تعذّر الإسناد'))}

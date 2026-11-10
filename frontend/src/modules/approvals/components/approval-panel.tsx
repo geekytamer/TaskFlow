@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
 import { decideApproval, getApprovalView, reassignApproval, type ApprovalDocType, type ApprovalView } from '@/services/approvalService';
@@ -30,7 +31,7 @@ export function ApprovalPanel({ docType, docId, onChanged }: { docType: Approval
   const [note, setNote] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [handing, setHanding] = React.useState(false);
-  const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [people, setPeople] = React.useState<Array<{ id: string; name: string; nameAr?: string; nameEn?: string }>>([]);
   const [toUserId, setToUserId] = React.useState('');
   const [reason, setReason] = React.useState('');
 
@@ -135,7 +136,7 @@ export function ApprovalPanel({ docType, docId, onChanged }: { docType: Approval
           <Label className="text-xs">{tr('Who decides it now', 'من يقرر الآن')}</Label>
           <Select value={toUserId} onValueChange={setToUserId}>
             <SelectTrigger aria-label={tr('Who decides it now', 'من يقرر الآن')}><SelectValue placeholder={tr('Choose a person', 'اختر شخصًا')} /></SelectTrigger>
-            <SelectContent>{people.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+            <SelectContent>{people.map((p) => <SelectItem key={p.id} value={p.id}>{displayName(p, language)}</SelectItem>)}</SelectContent>
           </Select>
           <Label htmlFor={`reason-${docId}`} className="text-xs">{tr('Why (kept in the history)', 'السبب (يُحفظ في السجل)')}</Label>
           <Textarea id={`reason-${docId}`} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tr('e.g. Sara is on leave until the 20th', 'مثال: سارة في إجازة حتى يوم 20')} dir="auto" />

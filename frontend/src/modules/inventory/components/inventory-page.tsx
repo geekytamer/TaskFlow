@@ -32,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { getCurrentLocale } from '@/lib/locale';
@@ -1194,7 +1195,7 @@ export function InventoryPage() {
                                   <option value="">{tr('Internal / Unassigned', 'داخلي / غير محدد')}</option>
                                   {projects.map((project) => (
                                     <option key={project.id} value={project.id}>
-                                      {project.name}
+                                      {displayName(project, language)}
                                     </option>
                                   ))}
                                 </select>

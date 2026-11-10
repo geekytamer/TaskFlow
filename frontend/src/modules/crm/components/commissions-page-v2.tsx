@@ -63,6 +63,7 @@ import {
   type ContributionRole,
 } from '@/services/crmService';
 import { getUsersByCompany } from '@/services/userService';
+import { displayName } from '@/lib/display-name';
 import { updateUser } from '@/services/userService';
 import type { User } from '@/modules/users/types';
 import {
@@ -339,7 +340,7 @@ function RulesTab({
   users: User[];
   onChanged: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<CommissionRule | null>(null);
@@ -467,7 +468,7 @@ function RulesTab({
                     <SelectContent>
                       <SelectItem value="any">{t('commissions.anyUser')}</SelectItem>
                       {users.filter((u) => u.commissionEligible).map((u) => (
-                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                        <SelectItem key={u.id} value={u.id}>{displayName(u, language)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -641,7 +642,7 @@ function EligibilityTab({
   users: User[];
   onChanged: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [pending, setPending] = React.useState<string | null>(null);
   // local override for instant feedback before the parent reloads
@@ -712,7 +713,7 @@ function EligibilityTab({
               const rate = overlay.defaultCommissionRate ?? u.defaultCommissionRate;
               return (
                 <TableRow key={u.id}>
-                  <TableCell className="text-sm font-medium">{u.name}</TableCell>
+                  <TableCell className="text-sm font-medium">{displayName(u, language)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email}</TableCell>
                   <TableCell className="text-sm">{u.role}</TableCell>
                   <TableCell>

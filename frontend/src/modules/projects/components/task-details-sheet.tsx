@@ -53,6 +53,7 @@ import { createInvoice } from '@/services/financeService';
 import { Badge } from '@/components/ui/badge';
 import { RecordSupportPanel } from '@/modules/shared/components/record-support-panel';
 import { useI18n } from '@/context/i18n-context';
+import { displayName, allNames } from '@/lib/display-name';
 
 interface TaskDetailsSheetProps {
   open: boolean;
@@ -84,8 +85,8 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
   const [editableTask, setEditableTask] = React.useState<Task>(task);
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [project, setProject] = React.useState<Project | undefined>();
-  const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
   const [allUsers, setAllUsers] = React.useState<CompanyMember[]>([]);
+  const companyUsers: MultiSelectItem[] = allUsers.map((u) => ({ value: u.id, label: displayName(u, language), keywords: allNames(u), icon: UserIcon }));
   const [allTasks, setAllTasks] = React.useState<Task[]>([]);
   const [newComment, setNewComment] = React.useState('');
   const mentions = useMentions(newComment);
@@ -113,12 +114,11 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
           companyUsersData.length > 0
             ? companyUsersData
             : currentUser
-              ? [{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar ?? null }]
+              ? [{ id: currentUser.id, name: currentUser.name, nameAr: currentUser.nameAr, nameEn: currentUser.nameEn, avatar: currentUser.avatar ?? null }]
               : [];
         setProject(projectData);
         setComments(commentsData);
         setAllUsers(visibleUsers);
-        setCompanyUsers(visibleUsers.map(u => ({ value: u.id, label: u.name, icon: UserIcon })));
         setAllTasks(tasksData.filter(t => t.companyId === selectedCompany.id && t.id !== task.id));
         setLoading(false);
     }
@@ -308,7 +308,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
               <SheetTitle>{editableTask?.title || tr('Task Details', 'تفاصيل المهمة')}</SheetTitle>
               <SheetDescription>
                 {project ? (
-                  <>{tr('In project', 'في المشروع')} <span className="font-semibold text-foreground">{project.name}</span></>
+                  <>{tr('In project', 'في المشروع')} <span className="font-semibold text-foreground">{displayName(project, language)}</span></>
                 ) : (
                   <span className="text-muted-foreground">{tr('No project', 'لا يوجد مشروع')}</span>
                 )}
@@ -353,7 +353,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                   </DetailRow>
                   <TaskPartsPanel
                     task={editableTask}
-                    people={allUsers.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar }))}
+                    people={allUsers.map((u) => ({ id: u.id, name: displayName(u, language), avatar: u.avatar }))}
                     currentUserId={currentUser?.id}
                     runsTask={Boolean(currentUser?.isSuperAdmin || editableTask.ownerId === currentUser?.id || currentRole === 'Admin' || currentRole === 'Manager')}
                     onChanged={(saved) => {
@@ -594,7 +594,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                         {currentUser && <div className="flex items-start gap-3">
                             <Avatar className="h-9 w-9">
                                 <AvatarImage src={currentUser.avatar} />
-                                <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
+                                <AvatarFallback>{displayName(currentUser, language).charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 space-y-2">
                                 <MentionTextarea
@@ -602,7 +602,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     className="text-sm"
                                     value={newComment}
                                     onChange={setNewComment}
-                                    people={allUsers.filter((u) => u.id !== currentUser.id).map((u) => ({ id: u.id, name: u.name }))}
+                                    people={allUsers.filter((u) => u.id !== currentUser.id).map((u) => ({ id: u.id, name: displayName(u, language), keywords: allNames(u) }))}
                                     onPick={(person) => mentions.setPicked((p) => ({ ...p, [person.id]: person.name }))}
                                 />
                                 <div className="flex justify-end gap-2">
@@ -621,7 +621,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                        {commentUser ? (
                                            <>
                                             <AvatarImage src={commentUser.avatar ?? undefined} />
-                                            <AvatarFallback>{commentUser.name.charAt(0)}</AvatarFallback>
+                                            <AvatarFallback>{displayName(commentUser, language).charAt(0)}</AvatarFallback>
                                            </>
                                        ) : (
                                             <UserIcon className="h-5 w-5 text-muted-foreground" />
@@ -629,7 +629,7 @@ export function TaskDetailsSheet({ open, onOpenChange, onTaskUpdate, task }: Tas
                                     </Avatar>
                                     <div className='flex-1'>
                                         <div className="flex items-baseline gap-2">
-                                            <p className="font-semibold text-sm">{commentUser?.name || tr('Unknown User', 'مستخدم غير معروف')}</p>
+                                            <p className="font-semibold text-sm">{displayName(commentUser, language) || tr('Unknown User', 'مستخدم غير معروف')}</p>
                                             <p className="text-xs text-muted-foreground">
                                                 {formatDistanceToNow(comment.createdAt, { addSuffix: true })}
                                             </p>

@@ -13,6 +13,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName, allNames } from '@/lib/display-name';
+import { matchesSearch } from '@/lib/search-normalize';
 import { useToast } from '@/hooks/use-toast';
 import { useLiveRefresh } from '@/lib/live';
 import { cn } from '@/lib/utils';
@@ -63,7 +65,7 @@ export function TeamChatPage({ showClients }: { showClients: boolean }) {
   const open = (id: string | null) => router.replace(id ? `${pathname}?tab=team&team=${encodeURIComponent(id)}` : `${pathname}?tab=team`);
 
   const titleOf = React.useCallback((chat: TeamChat) =>
-    chat.kind === 'group' ? chat.name ?? '' : chat.members.find((m) => m.userId !== me)?.name ?? tr('Colleague', 'زميل'),
+    chat.kind === 'group' ? chat.name ?? '' : displayName(chat.members.find((m) => m.userId !== me), language) || tr('Colleague', 'زميل'),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [me, ar]);
 
@@ -73,7 +75,7 @@ export function TeamChatPage({ showClients }: { showClients: boolean }) {
     return new Intl.DateTimeFormat(ar ? 'ar-OM' : 'en-GB', today ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short' }).format(d);
   };
 
-  const shown = (chats ?? []).filter((c) => !query.trim() || titleOf(c).toLowerCase().includes(query.trim().toLowerCase()));
+  const shown = (chats ?? []).filter((c) => matchesSearch(query, titleOf(c), c.kind === 'group' ? '' : allNames(c.members.find((m) => m.userId !== me))));
   const active = chats?.find((c) => c.id === chatId) ?? null;
 
   return (
@@ -106,7 +108,7 @@ export function TeamChatPage({ showClients }: { showClients: boolean }) {
                 const preview = last
                   ? last.deletedAt
                     ? tr('Message deleted', 'رسالة محذوفة')
-                    : `${last.authorUserId === me ? tr('You: ', 'أنت: ') : chat.kind === 'group' ? `${chat.members.find((m) => m.userId === last.authorUserId)?.name.split(' ')[0] ?? ''}: ` : ''}${last.body}`
+                    : `${last.authorUserId === me ? tr('You: ', 'أنت: ') : chat.kind === 'group' ? `${displayName(chat.members.find((m) => m.userId === last.authorUserId), language).split(' ')[0]}: ` : ''}${last.body}`
                   : tr('No messages yet', 'لا توجد رسائل بعد');
                 return (
                   <li key={chat.id}>
@@ -242,7 +244,7 @@ function ChatView({
     setMore(r.messages.length >= 50);
   };
 
-  const nameOf = (userId: string) => members.find((m) => m.userId === userId)?.name ?? tr('Former member', 'عضو سابق');
+  const nameOf = (userId: string) => displayName(members.find((m) => m.userId === userId), language) || tr('Former member', 'عضو سابق');
   const title = chat ? titleOf(chat) : fallbackTitle;
   const editable = (m: TeamChatMessage) => m.authorUserId === me && !m.deletedAt && now - Date.parse(m.createdAt) < EDIT_WINDOW_MS;
 
@@ -302,7 +304,7 @@ function ChatView({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold"><bdi>{title || '…'}</bdi></p>
           {chat?.kind === 'group' && (
-            <p className="truncate text-xs text-muted-foreground">{members.map((m) => (m.userId === me ? tr('You', 'أنت') : m.name.split(' ')[0])).join('، ')}</p>
+            <p className="truncate text-xs text-muted-foreground">{members.map((m) => (m.userId === me ? tr('You', 'أنت') : displayName(m, language).split(' ')[0])).join('، ')}</p>
           )}
         </div>
         {chat && (
@@ -416,11 +418,12 @@ function Composer({
 
   // "@" followed by letters at the end of what is typed opens the people list.
   const at = /(?:^|\s)@([^\s@]*)$/.exec(text);
-  const suggestions = at ? members.filter((m) => m.name.toLowerCase().includes(at[1].toLowerCase())).slice(0, 5) : [];
+  const suggestions = at ? members.filter((m) => matchesSearch(at[1], allNames(m))).slice(0, 5) : [];
 
   const pick = (m: TeamChatMemberView) => {
-    setText((t) => t.replace(/@([^\s@]*)$/, `@${m.name} `));
-    setMentioned((x) => ({ ...x, [m.userId]: m.name }));
+    const name = displayName(m, language);
+    setText((t) => t.replace(/@([^\s@]*)$/, `@${name} `));
+    setMentioned((x) => ({ ...x, [m.userId]: name }));
     area.current?.focus();
   };
 
@@ -447,7 +450,7 @@ function Composer({
           {suggestions.map((m) => (
             <li key={m.userId}>
               <button type="button" onMouseDown={(e) => { e.preventDefault(); pick(m); }} className="flex w-full items-center gap-2 px-3 py-2 text-start text-sm hover:bg-muted">
-                <Avatar name={m.name} className="h-6 w-6 text-[10px]" /><bdi>{m.name}</bdi>
+                <Avatar name={displayName(m, language)} className="h-6 w-6 text-[10px]" /><bdi>{displayName(m, language)}</bdi>
               </button>
             </li>
           ))}
@@ -492,7 +495,7 @@ function PeoplePicker({
   const { language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const [q, setQ] = React.useState('');
-  const shown = people.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const shown = people.filter((p) => matchesSearch(q, allNames(p)));
   return (
     <div className="space-y-2">
       <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Search colleagues', 'ابحث عن زميل')} className="h-9" />
@@ -501,8 +504,8 @@ function PeoplePicker({
         {shown.map((p) => (
           <li key={p.id}>
             <button type="button" onClick={() => onToggle(p.id)} className={cn('flex w-full items-center gap-2 px-3 py-2 text-start text-sm hover:bg-muted', selected.has(p.id) && 'bg-primary/10')}>
-              <Avatar name={p.name} className="h-7 w-7 text-[10px]" />
-              <bdi className="flex-1">{p.name}</bdi>
+              <Avatar name={displayName(p, language)} className="h-7 w-7 text-[10px]" />
+              <bdi className="flex-1">{displayName(p, language)}</bdi>
               {multi && selected.has(p.id) && <Check className="h-4 w-4 text-primary" />}
             </button>
           </li>
@@ -645,8 +648,8 @@ function ChatSettings({
               <ul className="max-h-48 overflow-y-auto rounded-md border">
                 {chat.members.map((m) => (
                   <li key={m.userId} className="flex items-center gap-2 border-b px-3 py-2 text-sm last:border-0">
-                    <Avatar name={m.name} className="h-7 w-7 text-[10px]" />
-                    <bdi className="flex-1">{m.name}{m.userId === me ? ` (${tr('you', 'أنت')})` : ''}{m.userId === chat.createdBy ? ` · ${tr('started the group', 'أنشأ المجموعة')}` : ''}</bdi>
+                    <Avatar name={displayName(m, language)} className="h-7 w-7 text-[10px]" />
+                    <bdi className="flex-1">{displayName(m, language)}{m.userId === me ? ` (${tr('you', 'أنت')})` : ''}{m.userId === chat.createdBy ? ` · ${tr('started the group', 'أنشأ المجموعة')}` : ''}</bdi>
                     {owner && m.userId !== me && (
                       <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => void run(() => updateTeamChat(companyId, chat.id, { removeMemberIds: [m.userId] }))}>
                         {tr('Remove', 'إزالة')}

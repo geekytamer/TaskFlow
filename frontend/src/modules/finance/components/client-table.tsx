@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { usePermissions } from '@/context/permissions-context';
 import { HiddenValue } from '@/components/hidden-value';
 import { useCompanyCurrency } from '@/lib/currency';
@@ -534,7 +535,7 @@ export function ClientTable() {
                       <TableBody>
                         {clientProjects.map((project) => (
                           <TableRow key={project.id}>
-                            <TableCell className="font-medium">{project.name}</TableCell>
+                            <TableCell className="font-medium">{displayName(project, language)}</TableCell>
                             <TableCell>{project.visibility}</TableCell>
                           </TableRow>
                         ))}

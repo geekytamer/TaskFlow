@@ -16,6 +16,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName, allNames } from '@/lib/display-name';
+import { matchesSearch } from '@/lib/search-normalize';
 import { createEmployee, getEmployees, updateEmployee } from '@/services/hrService';
 import { getGroupPeople, removeFromGroup, setGroupAccess, type GroupPeople, type GroupPerson } from '@/services/groupPeopleService';
 import { employerAction } from '@/modules/groups/lib/employer';
@@ -70,8 +72,7 @@ export function GroupPeoplePanel() {
     return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label={tr('Loading', 'جارٍ التحميل')} /></div>;
   }
 
-  const q = query.trim().toLowerCase();
-  const people = data.people.filter((p) => !q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
+  const people = data.people.filter((p) => matchesSearch(query, allNames(p), p.email));
 
   return (
     <div className="space-y-4">
@@ -95,7 +96,7 @@ export function GroupPeoplePanel() {
           return (
             <li key={p.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-4">
               <div className="min-w-0 sm:w-56">
-                <div className="truncate text-sm font-medium">{p.name}</div>
+                <div className="truncate text-sm font-medium">{displayName(p, language)}</div>
                 <div className="truncate text-xs text-muted-foreground" dir="ltr">{p.email}</div>
                 <button
                   type="button"
