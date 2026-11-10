@@ -262,7 +262,7 @@ export function ProjectList() {
                           {stats.overdue}
                         </Badge>
                       )}
-                      {client && <Badge variant="outline">{client.name}</Badge>}
+                      {client && <Badge variant="outline">{displayName(client, language)}</Badge>}
                     </div>
                   </div>
                 </Card>

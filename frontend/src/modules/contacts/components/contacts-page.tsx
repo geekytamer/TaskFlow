@@ -353,7 +353,7 @@ export function ContactsPage() {
     setBulkOwner('');
     const failed = selectedContacts.length - done;
     toast({
-      title: language === 'ar' ? `تم تعيين ${owner?.name ?? ''} مسؤولاً عن ${done} جهة` : `${owner?.name ?? ''} now owns ${done} contact(s)`,
+      title: language === 'ar' ? `تم تعيين ${displayName(owner, language)} مسؤولاً عن ${done} جهة` : `${displayName(owner, language)} now owns ${done} contact(s)`,
       description: failed ? (language === 'ar' ? `تعذّر تعديل ${failed}.` : `${failed} could not be changed.`) : undefined,
       variant: failed ? 'destructive' : undefined,
     });
@@ -579,7 +579,7 @@ export function ContactsPage() {
                 <SelectTrigger className="h-8 w-48"><SelectValue placeholder={language === 'ar' ? 'اختر المسؤول' : 'Choose an owner'} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">{language === 'ar' ? 'اختر المسؤول' : 'Choose an owner'}</SelectItem>
-                  {(usersByCompany[selectedCompanies[0]] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                  {(usersByCompany[selectedCompanies[0]] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{displayName(u, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Button size="sm" className="h-8" onClick={assignOwner} disabled={!bulkOwner || bulkSaving}>
@@ -678,7 +678,7 @@ export function ContactsPage() {
                       {dayText(c.nextFollowupDate)}
                     </div>
                   ) : '—'}
-                  {c.ownerName && <div className="text-xs text-muted-foreground mt-0.5">{c.ownerName}</div>}
+                  {c.ownerName && <div className="text-xs text-muted-foreground mt-0.5">{displayName((usersByCompany[c.companyId] ?? []).find((u) => u.id === c.ownerUserId), language) || c.ownerName}</div>}
                   {c.lastActivityAt !== undefined && (
                     <div className="text-[11px] text-muted-foreground">
                       {language === 'ar' ? 'آخر تواصل: ' : 'Last contact: '}{sinceText(c.lastActivityAt, language) ?? (language === 'ar' ? 'لا يوجد' : 'never')}
@@ -814,7 +814,7 @@ export function ContactsPage() {
                       <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">—</SelectItem>
-                        {(usersByCompany[crmContact?.companyId ?? ''] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                        {(usersByCompany[crmContact?.companyId ?? ''] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{displayName(u, language)}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

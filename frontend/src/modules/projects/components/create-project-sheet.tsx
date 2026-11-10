@@ -25,7 +25,8 @@ import { projectVisibilities, type ProjectVisibility, type Client } from '@/lib/
 import { PlusCircle, User, Briefcase } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { MultiSelect, type MultiSelectItem } from '@/components/ui/multi-select';
-import { getCompanyPeople } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
+import { displayName, allNames } from '@/lib/display-name';
 import { getClients } from '@/services/financeService';
 import { useCompany } from '@/context/company-context';
 import { createProject } from '@/services/projectService';
@@ -42,7 +43,7 @@ export function CreateProjectSheet() {
   const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
   const [selectedMembers, setSelectedMembers] = React.useState<string[]>([]);
   const { selectedCompany, refreshProjects } = useCompany();
-  const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
+  const [people, setPeople] = React.useState<PersonSummary[]>([]);
   const [clients, setClients] = React.useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = React.useState<string | undefined>();
   const [plan, setPlan] = React.useState(emptyProjectPlan);
@@ -58,12 +59,7 @@ export function CreateProjectSheet() {
           getClients(selectedCompany.id)
         ]);
 
-        const userItems = users.map(user => ({
-          value: user.id,
-          label: user.name,
-          icon: User,
-        }));
-        setCompanyUsers(userItems);
+        setPeople(users);
         setClients(clientData);
       }
     }
@@ -71,6 +67,13 @@ export function CreateProjectSheet() {
         loadData();
     }
   }, [selectedCompany, open]);
+
+  const companyUsers: MultiSelectItem[] = people.map((user) => ({
+    value: user.id,
+    label: displayName(user, language),
+    keywords: allNames(user),
+    icon: User,
+  }));
 
   const defaultColors = [
     '#4A90E2', '#F5A623', '#7ED321', '#B452E5',
@@ -173,7 +176,7 @@ export function CreateProjectSheet() {
                             <SelectContent>
                                 {clients.map((client) => (
                                     <SelectItem key={client.id} value={client.id}>
-                                        {client.name}
+                                        {displayName(client, language)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

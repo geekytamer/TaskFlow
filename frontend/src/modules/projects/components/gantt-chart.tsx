@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { ProjectLegend } from './project-legend';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { Skeleton } from '@/components/ui/skeleton';
 import { canViewProject, useSeesAllProjects } from '@/modules/projects/lib/access';
 
@@ -54,7 +55,7 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
                 <span className="text-muted-foreground">{tr('Status:', 'الحالة:')}</span>
                 <Badge variant="outline">{data.status}</Badge>
             </div>
-            {project && <p className="text-muted-foreground mb-2">{tr('Project:', 'المشروع:')} {project.name}</p>}
+            {project && <p className="text-muted-foreground mb-2">{tr('Project:', 'المشروع:')} {displayName(project, language)}</p>}
             <div className="flex justify-between">
                 <span className="text-muted-foreground">{tr('Start:', 'البداية:')}</span>
                 <span>{data.startDate ? format(data.startDate, 'MMM d') : tr('N/A', 'غير متاح')}</span>
@@ -74,10 +75,10 @@ const GanttTooltip = ({ active, payload, allUsers, allProjects }: any) => {
                     {users.map((user: PersonSummary) => (
                       <Avatar key={user.id} className="h-6 w-6 border">
                           <AvatarImage src={user.avatar} />
-                          <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                          <AvatarFallback>{displayName(user, language).charAt(0)}</AvatarFallback>
                       </Avatar>
                     ))}
-                    <span className="ps-4 text-xs">{users.map((u: PersonSummary) => u.name).join(', ')}</span>
+                    <span className="ps-4 text-xs">{users.map((u: PersonSummary) => displayName(u, language)).join(', ')}</span>
                   </div>
                 </div>
             )}
@@ -186,7 +187,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
               differenceInDays(startDate, today),
               differenceInDays(endDate, today),
             ] as [number, number],
-            projectName: project?.name || tr('Uncategorized', 'غير مصنّف'),
+            projectName: (project ? displayName(project, language) : '') || tr('Uncategorized', 'غير مصنّف'),
             fill: task.color || project?.color || 'hsl(var(--chart-3))'
         }
     })
@@ -286,7 +287,7 @@ export function GanttChart({ projectId }: GanttChartProps) {
                             <SelectItem value="all">{tr('All Assignees', 'كل المكلّفين')}</SelectItem>
                             {companyUsers.map((user) => (
                             <SelectItem key={user.id} value={user.id}>
-                                {user.name}
+                                {displayName(user, language)}
                             </SelectItem>
                             ))}
                         </SelectContent>

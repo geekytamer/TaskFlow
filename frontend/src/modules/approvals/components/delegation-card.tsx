@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
 import { getMyDelegation, setMyDelegation, type Delegation } from '@/services/approvalService';
@@ -18,7 +19,7 @@ export function DelegationCard() {
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [current, setCurrent] = React.useState<Delegation | null>(null);
-  const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [people, setPeople] = React.useState<Array<{ id: string; name: string; nameAr?: string; nameEn?: string }>>([]);
   const [editing, setEditing] = React.useState(false);
   const [form, setForm] = React.useState<Delegation>({ toUserId: '', startsAt: '', endsAt: '' });
 
@@ -28,7 +29,7 @@ export function DelegationCard() {
     getUsersByCompany(selectedCompany.id).then((list) => setPeople(list.filter((u) => u.id !== currentUser?.id))).catch(() => setPeople([]));
   }, [selectedCompany, currentUser]);
 
-  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? tr('a colleague', 'زميل');
+  const nameOf = (id: string) => displayName(people.find((p) => p.id === id), language) || tr('a colleague', 'زميل');
   const save = async (d: Delegation | null) => {
     try {
       setCurrent(await setMyDelegation(d));
@@ -57,7 +58,7 @@ export function DelegationCard() {
     <div className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
       <Select value={form.toUserId} onValueChange={(v) => setForm((f) => ({ ...f, toUserId: v }))}>
         <SelectTrigger className="w-44" aria-label={tr('Colleague', 'الزميل')}><SelectValue placeholder={tr('Colleague', 'الزميل')} /></SelectTrigger>
-        <SelectContent>{people.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+        <SelectContent>{people.map((p) => <SelectItem key={p.id} value={p.id}>{displayName(p, language)}</SelectItem>)}</SelectContent>
       </Select>
       <Input type="date" className="w-40" aria-label={tr('From', 'من')} value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} />
       <Input type="date" className="w-40" aria-label={tr('To', 'إلى')} value={form.endsAt} onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))} />

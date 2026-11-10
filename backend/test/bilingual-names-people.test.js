@@ -91,6 +91,30 @@ test('users keep both names through create and edit; both empty is refused', asy
   })).status, 400);
 });
 
+test('member pickers get both names: /members and /team-members carry nameAr and nameEn, nothing private', async () => {
+  const { app, as } = setup();
+  const created = await as(request(app).post('/users')).send({
+    nameAr: 'خالد الريامي', nameEn: 'Khalid Al Riyami', email: 'khalid@example.com',
+    companyRoles: [{ companyId: '1', role: 'Employee' }],
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.user.id;
+
+  const members = await as(request(app).get('/companies/1/members'));
+  assert.equal(members.status, 200);
+  const member = members.body.find((m) => m.id === id);
+  assert.equal(member.nameAr, 'خالد الريامي');
+  assert.equal(member.nameEn, 'Khalid Al Riyami');
+  assert.equal(member.name, 'Khalid Al Riyami');
+  assert.deepEqual(Object.keys(member).sort(), ['avatar', 'id', 'name', 'nameAr', 'nameEn'], 'still no email, role or rates');
+
+  const team = await as(request(app).get('/companies/1/team-members'));
+  assert.equal(team.status, 200);
+  const colleague = team.body.find((m) => m.id === id);
+  assert.equal(colleague.nameAr, 'خالد الريامي');
+  assert.equal(colleague.nameEn, 'Khalid Al Riyami');
+});
+
 test('projects keep both names and search finds either name', async () => {
   const { app, as } = setup();
   const created = await as(request(app).post('/projects')).send({

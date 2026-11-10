@@ -22,6 +22,7 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import type { ActivityEvent } from '@/modules/finance/types';
 import { Download } from 'lucide-react';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 
 const entityTypes: Array<ActivityEvent['entityType']> = [
   'client',
@@ -85,9 +86,9 @@ export function ActivityLogPanel() {
 
   const actorNameMap = React.useMemo(() => {
     const map = new Map<string, string>();
-    users.forEach((user) => map.set(user.id, user.name));
+    users.forEach((user) => map.set(user.id, displayName(user, language)));
     return map;
-  }, [users]);
+  }, [users, language]);
 
   const handleExport = async () => {
     if (!selectedCompany) return;
@@ -164,7 +165,7 @@ export function ActivityLogPanel() {
               <SelectItem value="all">{tr('All users', 'جميع المستخدمين')}</SelectItem>
               {users.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
-                  {user.name}
+                  {displayName(user, language)}
                 </SelectItem>
               ))}
             </SelectContent>

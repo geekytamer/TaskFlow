@@ -26,11 +26,14 @@ export async function getUsersByCompany(companyId: string): Promise<User[]> {
 export interface CompanyMember {
   id: string;
   name: string;
+  /** Two-language names; show with displayName(member, language). */
+  nameAr?: string;
+  nameEn?: string;
   avatar?: string | null;
 }
 
 /** A person as the project pages show them: name and photo only. */
-export type PersonSummary = { id: string; name: string; avatar?: string };
+export type PersonSummary = { id: string; name: string; nameAr?: string; nameEn?: string; avatar?: string };
 
 /**
  * Everyone in the company as names and photos, for any member (Accountants and
@@ -39,7 +42,7 @@ export type PersonSummary = { id: string; name: string; avatar?: string };
  */
 export async function getCompanyPeople(companyId: string): Promise<PersonSummary[]> {
   const members = await getCompanyMembers(companyId);
-  return members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar ?? undefined }));
+  return members.map((m) => ({ id: m.id, name: m.name, nameAr: m.nameAr, nameEn: m.nameEn, avatar: m.avatar ?? undefined }));
 }
 
 /** Minimal member directory (id/name/avatar) readable by ANY company member —

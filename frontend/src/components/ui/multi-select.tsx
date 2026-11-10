@@ -5,6 +5,7 @@ import { Command as CommandPrimitive } from "cmdk"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { matchesSearch } from "@/lib/search-normalize"
 import { Badge } from "@/components/ui/badge"
 import {
   Command,
@@ -16,6 +17,8 @@ import {
 export interface MultiSelectItem {
   value: string
   label: string
+  /** Extra text searched but not shown (e.g. the other-language name). */
+  keywords?: string
   icon?: React.ComponentType<{ className?: string }>
 }
 
@@ -69,6 +72,11 @@ export function MultiSelect({
   return (
     <Command
       onKeyDown={handleKeyDown}
+      filter={(itemValue, search) => {
+        const item = items.find((i) => i.value.toLowerCase() === itemValue.toLowerCase())
+        // Both names count and أحمد finds احمد (spec 2026-11-10-bilingual-names-design).
+        return matchesSearch(search, item?.label, item?.keywords) ? 1 : 0
+      }}
       className={cn("overflow-visible bg-transparent", className)}
     >
       <div className="group rounded-md border border-input px-3 py-2 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
@@ -112,6 +120,7 @@ export function MultiSelect({
                 {items.map((item) => (
                   <CommandItem
                     key={item.value}
+                    value={item.value}
                     onMouseDown={(e) => {
                       e.preventDefault()
                       e.stopPropagation()

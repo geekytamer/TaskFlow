@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { getUsersByCompany } from '@/services/userService';
 import {
@@ -48,7 +49,8 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
   const companyId = selectedCompany?.id ?? '';
   const [teams, setTeams] = React.useState<ApprovalTeam[]>([]);
   const [policies, setPolicies] = React.useState<Record<string, ApprovalPolicy> | null>(null);
-  const [people, setPeople] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [users, setUsers] = React.useState<Array<{ id: string; name: string; nameAr?: string; nameEn?: string }>>([]);
+  const people = React.useMemo(() => users.map((x) => ({ id: x.id, name: displayName(x, language) })), [users, language]);
   const [editingTeam, setEditingTeam] = React.useState<Partial<ApprovalTeam> | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, ApprovalPolicy>>({});
   // Choices are this company's records; an inherited policy's records are named from the company it comes from.
@@ -61,7 +63,7 @@ export function ApprovalRulesPanel({ canEdit }: { canEdit: boolean }) {
     const [t, p, u] = await Promise.all([getApprovalTeams(companyId), getApprovalPolicies(companyId), getUsersByCompany(companyId).catch(() => [])]);
     setTeams(t);
     setPolicies(p);
-    setPeople(u.map((x) => ({ id: x.id, name: x.name })));
+    setUsers(u);
     setDrafts({});
   }, [companyId]);
   React.useEffect(() => { void load().catch(() => setPolicies({})); }, [load]);

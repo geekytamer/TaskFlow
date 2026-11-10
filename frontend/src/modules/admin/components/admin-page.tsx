@@ -16,6 +16,7 @@ import { useCompany } from '@/context/company-context';
 import { isCompanyMember } from '@/lib/company-membership';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import {
   adminService,
   startImpersonation,
@@ -453,7 +454,7 @@ export function AdminPage() {
               <TableBody>
                 {users.map((u) => (
                   <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.name}</TableCell>
+                    <TableCell className="font-medium">{displayName(u, language)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{u.email}</TableCell>
                     <TableCell><Badge variant="outline">{u.role}</Badge></TableCell>
                     <TableCell className="text-end">{u.companyIds.length}</TableCell>

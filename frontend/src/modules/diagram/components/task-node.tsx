@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { getProjectById } from '@/services/projectService';
 import type { Project } from '@/modules/projects/types';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 
 const priorityColors: Record<Task['priority'], string> = {
   Urgent: 'bg-red-600',
@@ -73,7 +74,7 @@ function TaskNode({ data }: NodeProps<TaskNodeData>) {
         <TooltipContent side="bottom">
           <div className="max-w-xs">
             <p className="font-bold">{data.title}</p>
-            {project && <p className="text-sm text-muted-foreground">{tr('Project', 'المشروع')}: {project.name}</p>}
+            {project && <p className="text-sm text-muted-foreground">{tr('Project', 'المشروع')}: {displayName(project, language)}</p>}
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{data.description}</p>
           </div>
         </TooltipContent>

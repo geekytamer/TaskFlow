@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName, allNames } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import { SectionPageShell } from '@/modules/operations/components/section-page-shell';
 import { getCompanyMembers, type CompanyMember } from '@/services/userService';
@@ -141,7 +142,10 @@ export function FollowupsPage() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const memberName = React.useCallback((id?: string) => members.find((m) => m.id === id)?.name, [members]);
+  const memberName = React.useCallback((id?: string) => {
+    const m = members.find((x) => x.id === id);
+    return m ? displayName(m, language) : undefined;
+  }, [members, language]);
 
   /** Which worklist a follow-up belongs to, from what it hangs off. */
   const streamOf = React.useCallback(
@@ -534,10 +538,10 @@ function FollowupCard({
             {f.isAuto && <span className="rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 dark:text-indigo-300" title={f.trigger}>{tr('Auto', 'تلقائي')}</span>}
             {ownerIsOther && <span className="text-xs text-muted-foreground">· {memberName(f.ownerUserId) || f.ownerName}</span>}
             {f.assignees && f.assignees.length > 0 && (
-              <span className="flex items-center -space-x-1.5" title={f.assignees.map((a) => a.name || memberName(a.userId)).filter(Boolean).join(', ')}>
+              <span className="flex items-center -space-x-1.5" title={f.assignees.map((a) => memberName(a.userId) || a.name).filter(Boolean).join(', ')}>
                 {f.assignees.slice(0, 3).map((a) => (
                   <span key={a.userId} className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-card bg-emerald-100 dark:bg-emerald-500/15 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
-                    {initials(a.name || memberName(a.userId))}
+                    {initials(memberName(a.userId) || a.name)}
                   </span>
                 ))}
                 {f.assignees.length > 3 && <span className="inline-flex h-5 items-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 px-1 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">+{f.assignees.length - 3}</span>}
@@ -612,7 +616,11 @@ function ShareDialog({
   onClose: () => void; onChanged: () => void;
   onAdd: (uid: string) => Promise<Followup>; onRemove: (uid: string) => Promise<Followup>;
 }) {
-  const memberName = (id?: string) => members.find((m) => m.id === id)?.name;
+  const { language } = useI18n();
+  const memberName = (id?: string) => {
+    const m = members.find((x) => x.id === id);
+    return m ? displayName(m, language) : undefined;
+  };
   const [assignees, setAssignees] = React.useState(f.assignees ?? []);
   const [pick, setPick] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -661,8 +669,8 @@ function ShareDialog({
               {/* Collaborators */}
               {assignees.map((a) => (
                 <div key={a.userId} className="flex items-center gap-2 rounded-md border px-2 py-1.5">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">{initials(a.name || memberName(a.userId))}</span>
-                  <span className="flex-1 truncate text-sm">{a.name || memberName(a.userId) || a.userId}{a.userId === meId ? ` (${tr('me', 'أنا')})` : ''}</span>
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">{initials(memberName(a.userId) || a.name)}</span>
+                  <span className="flex-1 truncate text-sm">{memberName(a.userId) || a.name || a.userId}{a.userId === meId ? ` (${tr('me', 'أنا')})` : ''}</span>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => remove(a.userId)}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
@@ -674,7 +682,7 @@ function ShareDialog({
             <Label className="text-xs text-muted-foreground">{tr('Add teammate', 'إضافة زميل')}</Label>
             <div className="mt-1.5">
               <Combobox
-                options={addable.map((m) => ({ value: m.id, label: m.id === meId ? `${m.name} (${tr('me', 'أنا')})` : m.name }))}
+                options={addable.map((m) => ({ value: m.id, label: m.id === meId ? `${displayName(m, language)} (${tr('me', 'أنا')})` : displayName(m, language), keywords: allNames(m) }))}
                 value={pick} onValueChange={(v) => { setPick(v); if (v) add(v); }}
                 placeholder={addable.length ? tr('Search teammate…', 'ابحث عن زميل…') : tr('Everyone is added', 'تمت إضافة الجميع')}
                 searchPlaceholder={tr('Search…', 'بحث…')} clearLabel="—" />
@@ -698,6 +706,11 @@ function TeamView({ companyId, tr, members, meId }: {
   companyId: string; tr: (e: string, a: string) => string; members: CompanyMember[]; meId?: string;
 }) {
   const { toast } = useToast();
+  const { language } = useI18n();
+  const memberName = (id: string | null) => {
+    const m = id ? members.find((x) => x.id === id) : undefined;
+    return m ? displayName(m, language) : undefined;
+  };
   const [workload, setWorkload] = React.useState<FollowupWorkload | null>(null);
   const [gaps, setGaps] = React.useState<CoverageGap[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -768,7 +781,7 @@ function TeamView({ companyId, tr, members, meId }: {
             return (
               <div key={u.userId ?? 'unassigned'} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
                 <div className="w-32 shrink-0 truncate text-sm font-medium">
-                  {u.userId === null ? <span className="text-amber-700 dark:text-amber-300">{tr('Unassigned', 'غير مُسندة')}</span> : u.name}{u.userId === meId ? ` (${tr('me', 'أنا')})` : ''}
+                  {u.userId === null ? <span className="text-amber-700 dark:text-amber-300">{tr('Unassigned', 'غير مُسندة')}</span> : memberName(u.userId) || u.name}{u.userId === meId ? ` (${tr('me', 'أنا')})` : ''}
                 </div>
                 <div className="flex h-3 flex-1 overflow-hidden rounded-full bg-muted">
                   {seg(u.overdue, 'bg-red-500')}
@@ -838,6 +851,7 @@ function BulkReassignDialog({ from, tr, companyId, members, onClose, onDone }: {
   members: CompanyMember[]; onClose: () => void; onDone: () => void;
 }) {
   const { toast } = useToast();
+  const { language } = useI18n();
   const [onlyOverdue, setOnlyOverdue] = React.useState(from.overdue > 0);
   const [roundRobin, setRoundRobin] = React.useState(false);
   const [toUserId, setToUserId] = React.useState('');
@@ -865,7 +879,7 @@ function BulkReassignDialog({ from, tr, companyId, members, onClose, onDone }: {
         <DialogHeader>
           <DialogTitle>{tr('Reassign load', 'إعادة توزيع العبء')}</DialogTitle>
           <DialogDescription>
-            {tr('Move follow-ups off ', 'نقل المتابعات من ')}<b>{from.userId === null ? tr('Unassigned', 'غير مُسندة') : from.name}</b>{tr(' to balance the team.', ' لموازنة الفريق.')}
+            {tr('Move follow-ups off ', 'نقل المتابعات من ')}<b>{from.userId === null ? tr('Unassigned', 'غير مُسندة') : (displayName(members.find((m) => m.id === from.userId), language) || from.name)}</b>{tr(' to balance the team.', ' لموازنة الفريق.')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
@@ -882,7 +896,7 @@ function BulkReassignDialog({ from, tr, companyId, members, onClose, onDone }: {
           {!roundRobin && (
             <div className="space-y-1">
               <Label>{tr('Assign to', 'إسناد إلى')}</Label>
-              <Combobox options={others.map((m) => ({ value: m.id, label: m.name }))} value={toUserId} onValueChange={setToUserId}
+              <Combobox options={others.map((m) => ({ value: m.id, label: displayName(m, language), keywords: allNames(m) }))} value={toUserId} onValueChange={setToUserId}
                 placeholder={tr('Search teammate…', 'ابحث عن زميل…')} searchPlaceholder={tr('Search…', 'بحث…')} clearLabel="—" />
             </div>
           )}
@@ -921,6 +935,7 @@ export function NewFollowupDialog({
   defaultContactId?: string;
 }) {
   const { toast } = useToast();
+  const { language } = useI18n();
   const [contactId, setContactId] = React.useState(defaultContactId ?? '');
   const [title, setTitle] = React.useState('');
   const [type, setType] = React.useState('Follow-up');
@@ -999,7 +1014,7 @@ export function NewFollowupDialog({
           <div className="space-y-1 sm:col-span-2">
             <Label>{tr('Assign to', 'إسناد إلى')}</Label>
             <Combobox
-              options={members.map((m) => ({ value: m.id, label: m.id === meId ? `${m.name} (${tr('me', 'أنا')})` : m.name }))}
+              options={members.map((m) => ({ value: m.id, label: m.id === meId ? `${displayName(m, language)} (${tr('me', 'أنا')})` : displayName(m, language), keywords: allNames(m) }))}
               value={ownerUserId} onValueChange={setOwnerUserId}
               placeholder={tr('Search teammate…', 'ابحث عن زميل…')} searchPlaceholder={tr('Search…', 'بحث…')} clearLabel="—" />
           </div>

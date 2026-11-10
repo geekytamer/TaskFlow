@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { Textarea } from '@/components/ui/textarea';
+import { matchesSearch } from '@/lib/search-normalize';
 
-type Person = { id: string; name: string };
+/** `name` is what is shown and written; `keywords` (e.g. the other-language name) also finds them. */
+type Person = { id: string; name: string; keywords?: string };
 
 /**
  * A text box where "@" suggests colleagues. Picking one writes "@Name" into the
@@ -32,7 +34,7 @@ export function MentionTextarea({
 }) {
   const ref = React.useRef<HTMLTextAreaElement>(null);
   const at = /(?:^|\s)@([^\s@]*)$/.exec(value);
-  const suggestions = at ? people.filter((p) => p.name.toLowerCase().includes(at[1].toLowerCase())).slice(0, 6) : [];
+  const suggestions = at ? people.filter((p) => matchesSearch(at[1], p.name, p.keywords)).slice(0, 6) : [];
 
   const pick = (person: Person) => {
     onChange(value.replace(/@([^\s@]*)$/, `@${person.name} `));

@@ -3202,7 +3202,7 @@ export function createServer(options: CreateServerOptions = {}) {
     }),
   );
 
-  // Minimal member directory (id/name/avatar only) readable by ANY company
+  // Minimal member directory (id/names/avatar only) readable by ANY company
   // member — used to populate assignee pickers without exposing the full,
   // sensitive user records (emails, roles, cost/commission rates).
   app.get(
@@ -3214,6 +3214,8 @@ export function createServer(options: CreateServerOptions = {}) {
         store.getUsersByCompany(req.params.companyId).map((u) => ({
           id: u.id,
           name: u.name,
+          nameAr: u.nameAr,
+          nameEn: u.nameEn,
           avatar: u.avatar ?? null,
         })),
       );

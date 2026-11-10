@@ -5,6 +5,8 @@ import { apiFetch } from '@/lib/api-client';
 export interface TeamChatMemberView {
   userId: string;
   name: string;
+  nameAr?: string;
+  nameEn?: string;
   avatar: string | null;
   lastReadAt: string | null;
 }
@@ -34,7 +36,7 @@ export interface TeamChat {
   lastMessage?: TeamChatMessage | null;
 }
 
-export interface TeamMember { id: string; name: string; avatar: string | null }
+export interface TeamMember { id: string; name: string; nameAr?: string; nameEn?: string; avatar: string | null }
 
 const base = (companyId: string) => `/companies/${encodeURIComponent(companyId)}/team-chats`;
 
