@@ -67,6 +67,7 @@ import {
 import {
   CheckCircle2,
   ChevronDown,
+  Loader2,
   ExternalLink,
   FileSpreadsheet,
   Link2,
@@ -147,8 +148,11 @@ function InfluencerCard({
   showPricing,
   showPayout,
   photoAt,
+  fetching,
 }: {
   c: Contact;
+  /** Its Instagram profile is being fetched right now. */
+  fetching?: boolean;
   /** The person may see payment details: then none on file is worth saying. */
   showPayout: boolean;
   photoAt?: string | null;
@@ -257,7 +261,14 @@ function InfluencerCard({
         <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground">{tr('No accounts yet', 'لا توجد حسابات بعد')}</p>
       )}
 
-      {gaps.length > 0 && (
+      {fetching && (
+        <p className="flex items-center gap-1.5 text-xs text-primary" role="status">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {tr('Fetching the profile from Instagram…', 'جارٍ جلب البروفايل من إنستغرام…')}
+        </p>
+      )}
+
+      {!fetching && gaps.length > 0 && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400">{tr('Missing', 'ناقص')}: {gaps.map((g) => missingLabel(tr, g)).join('، ')}</p>
       )}
 
@@ -315,7 +326,10 @@ function FilterSelect({
 
 export function InfluencersPage() {
   const { selectedCompany } = useCompany();
-  const photos = useInfluencerPhotos(selectedCompany?.id);
+  // New influencers whose Instagram profile is being fetched: id → when we started waiting.
+  const [pending, setPending] = React.useState<Record<string, number>>({});
+  const [photoVersion, setPhotoVersion] = React.useState(0);
+  const photos = useInfluencerPhotos(selectedCompany?.id, photoVersion);
   const { can, field } = usePermissions();
   const showPricing = field('rate_cards').view;
   const editPricing = field('rate_cards').edit;
@@ -360,21 +374,50 @@ export function InfluencersPage() {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   };
 
-  const loadInfluencers = React.useCallback(async () => {
+  const loadInfluencers = React.useCallback(async (quiet = false) => {
     if (!selectedCompany) {
       setInfluencers([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!quiet) setLoading(true);
     try {
       setInfluencers(await getContacts(selectedCompany.id, 'Influencer'));
     } catch {
-      toast({ title: t('influencers.loadError'), variant: 'destructive' });
+      if (!quiet) toast({ title: t('influencers.loadError'), variant: 'destructive' });
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [selectedCompany, t, toast]);
+
+  /** After adding: wait for these records' Instagram profiles when the server is fetching them. */
+  const onAdded = React.useCallback(async (added?: { ids: string[]; fetching: boolean }) => {
+    await loadInfluencers();
+    if (added?.fetching && added.ids.length) {
+      const now = Date.now();
+      setPending((prev) => ({ ...prev, ...Object.fromEntries(added.ids.map((id) => [id, now])) }));
+    }
+  }, [loadInfluencers]);
+
+  // While profiles are being fetched: look again every 5 seconds, for up to two and a half minutes.
+  const pendingKey = Object.keys(pending).sort().join(',');
+  React.useEffect(() => {
+    if (!pendingKey) return;
+    const timer = window.setInterval(() => { void loadInfluencers(true); setPhotoVersion((v) => v + 1); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [pendingKey, loadInfluencers]);
+  React.useEffect(() => {
+    if (!pendingKey) return;
+    const now = Date.now();
+    setPending((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([id, since]) => {
+        const c = influencers.find((x) => x.id === id);
+        const arrived = c ? totalFollowers(c) > 0 : false;
+        return !arrived && now - since < 150_000;
+      }));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [influencers, pendingKey]);
 
   React.useEffect(() => { void loadInfluencers(); }, [loadInfluencers]);
 
@@ -402,7 +445,7 @@ export function InfluencersPage() {
       const handle = cleanHandle(account.handle);
       const followers = account.followers ? Number(account.followers) : undefined;
       // The account and figures go in the same step; the server cleans the handle and builds the link.
-      await createContact({
+      const created = await createContact({
         companyId: selectedCompany.id,
         ...buildContactPayload(form, { customFields: createCustomValues, lockedRole: 'Influencer' }),
         ...(handle ? {
@@ -416,7 +459,7 @@ export function InfluencersPage() {
       });
       setOpenCreate(false);
       resetCreate();
-      await loadInfluencers();
+      await onAdded({ ids: [created.id], fetching: Boolean((created as Contact & { profileFetching?: boolean }).profileFetching) });
       toast({ title: t('contacts.created') });
     } catch (error: any) {
       const owner = duplicateHandleOf(error);
@@ -471,7 +514,7 @@ export function InfluencersPage() {
               exportPath={`/companies/${selectedCompany.id}/influencers/export`}
               exportFilename="influencers.csv"
               importPath={can('influencers.create') ? `/companies/${selectedCompany.id}/influencers/import` : undefined}
-              onImported={loadInfluencers}
+              onImported={() => loadInfluencers()}
               labels={{ template: tr('Template', 'القالب'), export: tr('Export', 'تصدير'), import: tr('Import', 'استيراد') }}
               template={{
                 filename: 'influencers-template.csv',
@@ -607,7 +650,7 @@ export function InfluencersPage() {
           </p>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((c) => (
-              <InfluencerCard key={c.id} c={c} money={money} onEdit={can('contacts.manage') ? () => setEditing(c) : undefined} showPricing={showPricing} showPayout={showPayout} photoAt={photos?.[c.id] ?? null} />
+              <InfluencerCard key={c.id} c={c} money={money} onEdit={can('contacts.manage') ? () => setEditing(c) : undefined} showPricing={showPricing} showPayout={showPayout} photoAt={photos?.[c.id] ?? null} fetching={c.id in pending} />
             ))}
           </div>
         </>
@@ -631,7 +674,7 @@ export function InfluencersPage() {
                   'الصق روابط إنستغرام أو تيك توك أو @الحساب، كل مؤثر في سطر. يُنشأ لكل واحد سجل، ويُجلب اسمه وعدد متابعيه من إنستغرام تلقائياً.',
                 )}
               </p>
-              {selectedCompany && <QuickAddPanel companyId={selectedCompany.id} onAdded={loadInfluencers} onOpen={openById} />}
+              {selectedCompany && <QuickAddPanel companyId={selectedCompany.id} onAdded={onAdded} onOpen={openById} />}
             </TabsContent>
             <TabsContent value="details" className="space-y-4 pt-2">
               <ContactFormFields form={form} setForm={setForm} lockedRole="Influencer" />

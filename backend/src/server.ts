@@ -65,7 +65,7 @@ import { sweepPortalPush } from './portal/push-alerts';
 import { releaseHeldPush } from './push/quiet-hours';
 import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
-import { discoverTick, refreshDue, syncRoster } from './discover/jobs';
+import { discoverTick, fetchNewRoster, syncRoster } from './discover/jobs';
 import { assertNoHandleClash, quickAddInfluencers } from './influencers/service';
 import { cleanHandle, profileUrlOf } from './influencers/handles';
 import { INFLUENCER_CSV_COLUMNS, importInfluencerRows, influencerCsvRow } from './influencers/csv';
@@ -4003,10 +4003,13 @@ export function createServer(options: CreateServerOptions = {}) {
       for (const r of rows) {
         if (r && typeof r === 'object') requireFieldEdits(req, req.params.companyId, 'contact', { rateCardAmount: (r as Record<string, unknown>).rateCard }, 'create');
       }
-      res.json(importInfluencerRows(store, companyId, rows, {
+      const imported = importInfluencerRows(store, companyId, rows, {
         create: (input) => withActor(req, () => store.createContact(input)),
         update: (id, input) => withActor(req, () => store.updateContact(id, input)),
-      }));
+      });
+      fetchNewInfluencers(companyId);
+      res.json(imported);
+
     }),
   );
 
@@ -4067,7 +4070,10 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not create contact.');
 	      }
-      res.status(201).json(maskFor(req, companyId, 'contact', contact));
+      // A new influencer's Instagram profile is fetched straight away (portal company);
+      // the page waits for its figures when this says so.
+      const profileFetching = contact.roles?.includes('Influencer') ? fetchNewInfluencers(companyId) : false;
+      res.status(201).json({ ...maskFor(req, companyId, 'contact', contact), profileFetching });
     }),
   );
 
@@ -4134,6 +4140,10 @@ export function createServer(options: CreateServerOptions = {}) {
 	        if (error instanceof HttpError) throw error;
 	        throw new HttpError(400, error?.message || 'Could not update contact.');
 	      }
+      // An Instagram account added or changed in an edit is fetched now.
+      if (contact.roles?.includes('Influencer') && (body.influencerAccounts !== undefined || body.influencerHandle !== undefined)) {
+        fetchNewInfluencers(existing.companyId);
+      }
       res.json(maskFor(req, existing.companyId, 'contact', contact));
     }),
   );
@@ -4167,6 +4177,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const role = requiredString(body.role, 'role') as any;
       if (role === 'Influencer' && !contact.roles?.includes('Influencer')) assertNoHandleClash(store, contact.companyId, contact);
       store.addContactRole(req.params.id, contact.companyId, role, 'Manual');
+      if (role === 'Influencer') fetchNewInfluencers(contact.companyId);
       res.json(maskFor(req, contact.companyId, 'contact', store.getContactById(req.params.id)));
     }),
   );
@@ -8874,6 +8885,27 @@ export function createServer(options: CreateServerOptions = {}) {
   // The influencer directory: figures from Apify, checked every hour (refresh after a week, discovery monthly).
   const discoverScraper = options.discoverScraper === undefined ? discoverScraperFromEnv() : options.discoverScraper ?? undefined;
   const discoverCap = Number(process.env.DISCOVER_MONTHLY_RESULTS) > 0 ? Number(process.env.DISCOVER_MONTHLY_RESULTS) : 1800;
+  /**
+   * Fetches the Instagram profile (name, photo, followers) of influencers just
+   * added or given an Instagram account, on the portal company, now. One fetch
+   * at a time; a request made meanwhile runs right after. True when it started
+   * or is queued, so the page knows to wait for the figures.
+   */
+  let newFetchBusy = false;
+  let newFetchAgain = false;
+  const fetchNewInfluencers = (companyId: string): boolean => {
+    if (companyId !== portalCompanyId || !discoverScraper) return false;
+    if (newFetchBusy) { newFetchAgain = true; return true; }
+    newFetchBusy = true;
+    void fetchNewRoster(store, discoverScraper, companyId, { monthlyCap: discoverCap })
+      .then((run) => { if (run) logger.info(`[discover] ${run.kind} ${run.status}: ${run.message ?? ''}`); })
+      .catch((error) => logger.error('[discover] new influencer fetch failed', error))
+      .finally(() => {
+        newFetchBusy = false;
+        if (newFetchAgain) { newFetchAgain = false; fetchNewInfluencers(companyId); }
+      });
+    return true;
+  };
   if (portalCompanyId && discoverScraper && process.env.NODE_ENV !== 'test') {
     if (store.getCompanyById(portalCompanyId)) store.discover.closeStaleRuns(portalCompanyId);
     let discovering = false;
@@ -8902,13 +8934,9 @@ export function createServer(options: CreateServerOptions = {}) {
       const results = quickAddInfluencers(store, companyId, body.text, (input) => withActor(req, () => store.createContact(input)));
       let fetching = false;
       if (companyId === portalCompanyId && results.some((r) => r.status === 'created')) {
-        if (discoverScraper && !store.discover.running(companyId)) {
-          fetching = true;
-          void refreshDue(store, discoverScraper, companyId, { monthlyCap: discoverCap }).catch((error) => logger.error('[discover] quick-add fetch failed', error));
-        } else {
-          // Accounts the directory already fetched write back now.
-          syncRoster(store, companyId);
-        }
+        // Accounts the directory already fetched write back now; the rest are fetched straight away.
+        syncRoster(store, companyId);
+        fetching = fetchNewInfluencers(companyId);
       }
       res.json({ results, fetching });
     }),
