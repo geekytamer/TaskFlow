@@ -59,3 +59,18 @@ test('summary: when we last dealt with the contact', async () => {
   assert.ok(after.body.lastActivityAt, 'set once a call is logged');
   assert.ok(Date.now() - new Date(after.body.lastActivityAt).getTime() < 60_000);
 });
+
+test('list: each contact carries when we last dealt with them', async () => {
+  const w = build();
+  const talked = w.store.createContact({ companyId: w.c, name: 'Talked Co', roles: ['Lead'] });
+  const quiet = w.store.createContact({ companyId: w.c, name: 'Quiet Co', roles: ['Lead'] });
+  w.store.runAsActor({ userId: w.admin.id, name: 'Admin' }, () => w.store.createCrmActivity({
+    companyId: w.c, contactId: talked.id, category: 'Meeting', summary: 'Coffee',
+  }));
+  const res = await w.get(`/companies/${w.c}/contacts`);
+  assert.equal(res.status, 200, res.text);
+  const byName = Object.fromEntries(res.body.map((c) => [c.name, c]));
+  assert.ok(byName['Talked Co'].lastActivityAt, 'set for the one we talked to');
+  assert.equal(byName['Quiet Co'].lastActivityAt, null);
+  void quiet;
+});

@@ -81,6 +81,8 @@ export interface Contact {
   convertedToClientAt?: Date;
   visibility?: 'Public' | 'Private';
   customFields?: Record<string, unknown>;
+  /** On the list only: when the latest call, meeting or message was logged (null: never). */
+  lastActivityAt?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
