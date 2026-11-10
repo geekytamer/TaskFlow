@@ -70,6 +70,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/companies/:companyId/quotations', permission: 'sales.view', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/quotations', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'GET', path: '/quotations/:id', permission: 'sales.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/quotations/:id/pdf', permission: 'sales.view', legacyRoles: MGMT },
   { method: 'PUT', path: '/quotations/:id', permission: 'sales.edit', legacyRoles: MGMT },
   { method: 'PATCH', path: '/quotations/:id/status', permission: 'sales.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/quotations/:id/sales-order', permission: 'sales.create', legacyRoles: MGMT },

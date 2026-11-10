@@ -4,7 +4,7 @@ import { allNames, displayName } from '@/lib/display-name';
 import * as React from 'react';
 import { STANDARD_VAT_RATE } from '@/lib/vat';
 import { format } from 'date-fns';
-import { FileText, Languages, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
+import { Download, FileText, Languages, Loader2, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Combobox } from '@/components/ui/combobox';
@@ -36,7 +36,7 @@ import { getServices } from '@/services/servicesService';
 import { createContact } from '@/services/contactService';
 import { ServiceDialog } from './services-panel';
 import {
-  convertQuotationToInvoice, convertQuotationToSalesOrder, createQuotation, deleteQuotation, getQuotations,
+  convertQuotationToInvoice, convertQuotationToSalesOrder, createQuotation, deleteQuotation, downloadQuotationPdf, getQuotations,
   setQuotationStatus, updateQuotation,
 } from '@/services/quotationService';
 import { SalesLineItemsEditor, emptyItemRow, formDiscountTotals, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
@@ -160,6 +160,17 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const dateLabel = (value: Date) => value.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
   const statusLabel = (status: QuotationStatus) => t(`quotes.status.${status}`);
 
+  const [downloading, setDownloading] = React.useState<string | null>(null);
+  const download = async (quote: Quotation) => {
+    setDownloading(quote.id);
+    try {
+      await downloadQuotationPdf(quote.id, quote.quoteNumber, language);
+    } catch (error) {
+      toast({ variant: 'destructive', title: tr('Could not download the quote', 'تعذّر تنزيل عرض السعر'), description: (error as Error).message });
+    } finally {
+      setDownloading(null);
+    }
+  };
   const openNew = () => { setForm({ ...blankForm(), templateId: chooseTemplateId(quoteTemplates), language: language === 'ar' ? 'ar' : 'en' }); setEditing('new'); };
   // Documents → New document → Quotation lands here with ?new=1: open the form once loaded, then drop the flag.
   const askedNew = React.useRef(false);
@@ -338,6 +349,16 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                       )}
                       <Button size="sm" variant="outline" onClick={() => window.open(`/quotation/${quote.id}`, '_blank', 'noopener')} aria-label={t('quotes.print')}>
                         <Printer className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => download(quote)}
+                        disabled={downloading === quote.id}
+                        aria-label={tr('Download PDF', 'تنزيل PDF')}
+                        title={tr('Download PDF', 'تنزيل PDF')}
+                      >
+                        {downloading === quote.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </Button>
                       {canManage && (
                         <DropdownMenu>

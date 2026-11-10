@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api-client';
+import { apiFetch, getStoredToken } from '@/lib/api-client';
 import type { Invoice, Quotation, QuotationStatus, SalesOrder, SalesOrderLineItem } from '@/modules/finance/types';
 import { mapSalesOrderLineItem } from '@/services/financeService';
 
@@ -66,4 +66,34 @@ export async function convertQuotationToSalesOrder(id: string): Promise<SalesOrd
 
 export async function convertQuotationToInvoice(id: string, data: { templateId?: string } = {}): Promise<Invoice> {
   return apiFetch<Invoice>(`/quotations/${id}/invoice`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
+
+/** Saves the quote as a PDF file; `lang` is used only when the quote has no language of its own. */
+export async function downloadQuotationPdf(quoteId: string, quoteNumber: string, lang?: string): Promise<void> {
+  const token = getStoredToken();
+  const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+  const res = await fetch(`${API_BASE_URL}/quotations/${quoteId}/pdf${query}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let message = 'Could not make the PDF.';
+    try {
+      const data = await res.json();
+      if (data?.message) message = data.message;
+    } catch {
+      // non-JSON error body; keep the default message
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = `Quotation-${quoteNumber.replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }

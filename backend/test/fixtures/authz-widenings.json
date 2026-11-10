@@ -269,7 +269,8 @@
   ],
   "sales:read": [
     "GET /companies/:companyId/services",
-    "GET /companies/:companyId/shipments"
+    "GET /companies/:companyId/shipments",
+    "GET /quotations/:id/pdf"
   ],
   "sales:write": [
     "POST /shipments/:id/status",

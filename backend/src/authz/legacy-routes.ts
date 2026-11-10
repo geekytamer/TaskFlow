@@ -24,6 +24,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /companies/:companyId/customer-returns': { module: 'sales', action: 'read' },
   'GET /companies/:companyId/quotations': { module: 'sales', action: 'read' },
   'GET /quotations/:id': { module: 'sales', action: 'read' },
+  'GET /quotations/:id/pdf': { module: 'sales', action: 'read' },
   'GET /companies/:companyId/deliveries': { module: 'sales', action: 'read' },
   'GET /sales-orders/:id/deliveries': { module: 'sales', action: 'read' },
   'GET /invoices/:id/pdf': { module: 'invoices', action: 'invoices.pdf.read' },
