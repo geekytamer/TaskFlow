@@ -115,6 +115,8 @@ export interface ContactSummary {
     campaignCount?: number;
     deliverableCount?: number;
     quotationCount?: number;
+    /** What they paid us, company currency. */
+    paymentTotal?: number;
   };
   invoices: any[];
   salesOrders: any[];
@@ -126,6 +128,10 @@ export interface ContactSummary {
   /** Campaign pieces the contact is paid for; `cost` absent without rate cards. */
   deliverables?: Array<{ id: string; campaignId: string; campaignName: string; title: string; platform: string | null; status: string; dueDate: string | null; cost?: number | null; vendorBillId: string | null }>;
   quotations?: any[];
+  /** Payments against their invoices, newest first. */
+  payments?: Array<{ id: string; invoiceId: string; invoiceNumber: string; amount: number; method: string | null; paidAt: string; currency?: string; exchangeRate?: number }>;
+  /** The latest call, meeting or message logged against them. */
+  lastActivityAt?: string | null;
 }
 
 export async function getContactSummary(id: string): Promise<ContactSummary> {

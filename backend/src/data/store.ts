@@ -9291,6 +9291,15 @@ export class DataStore {
    * single-platform record, its followers and engagement). Other platforms and
    * fields are left alone; nothing else on the contact changes.
    */
+  /** The latest call, meeting, message or note logged against a contact (CRM activities), or null. */
+  lastContactActivityAt(companyId: string, contactId: string): string | null {
+    const row = this.db.prepare(
+      `SELECT MAX(createdAt) AS at FROM activity_events
+       WHERE companyId = ? AND entityType = 'contact' AND entityId = ? AND category IS NOT NULL`,
+    ).get(companyId, contactId) as { at: string | null } | undefined;
+    return row?.at ?? null;
+  }
+
   /**
    * Campaign deliverables a contact is paid for (the vendor on it, else the
    * influencer on it), newest first, with their campaign's name. Cancelled

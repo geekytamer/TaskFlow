@@ -91,6 +91,7 @@ import {
   ContactFormFields,
   emptyContactForm as emptyForm,
   contactToForm,
+  buildContactPayload,
   type ContactForm,
 } from './contact-form-fields';
 import { useLiveRefresh } from '@/lib/live';
@@ -341,9 +342,10 @@ export function ContactsPage() {
     if (!editingContact || !editForm.name.trim()) return;
     setSaving(true);
     try {
+      // Kind and both names from the shared form; roles go through their own routes below.
+      const { roles: _roles, customFields: _custom, ...base } = buildContactPayload(editForm);
       let updated = await updateContact(editingContact.id, {
-        kind: editForm.kind,
-        name: editForm.name.trim(),
+        ...base,
         // An emptied field is sent as null: the server clears it.
         legalName: editForm.legalName.trim() || null,
         contactPerson: editForm.contactPerson.trim() || null,

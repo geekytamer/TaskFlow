@@ -4210,6 +4210,15 @@ export function createServer(options: CreateServerOptions = {}) {
         .map((d) => ({ ...d, cost: showCost ? d.cost : undefined }));
       const quotations = (on('sales') ? store.listQuotations(companyId) : ([] as ReturnType<typeof store.listQuotations>))
         .filter((q) => q.contactId === contact.id || q.clientId === linkedClientId);
+      // What they paid us, newest first, for the statement on the contact page.
+      const payments = invoices
+        .flatMap((inv) => store.listPayments(inv.id).map((p) => ({
+          id: p.id, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, amount: p.amount, method: p.method ?? null,
+          paidAt: p.paidAt, currency: inv.currency, exchangeRate: inv.exchangeRate ?? 1,
+        })))
+        .sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime());
+      // When we last dealt with them: the latest call, meeting or message logged against the contact.
+      const lastActivityAt = store.lastContactActivityAt(companyId, contact.id);
       // Opportunities and projects: only those the person may see (authz/visible.ts).
       const opportunities = (on('crm') ? store.listOpportunities(companyId, viewerOf(req)) : ([] as ReturnType<typeof store.listOpportunities>))
         .filter((opp) => opp.contactId === contact.id);
@@ -4240,6 +4249,8 @@ export function createServer(options: CreateServerOptions = {}) {
         campaignCount: campaigns.length,
         deliverableCount: deliverables.length,
         quotationCount: quotations.length,
+        // In the company currency, like invoiceTotal.
+        paymentTotal: payments.reduce((sum, p) => sum + p.amount * (p.exchangeRate || 1), 0),
         opportunityCount: opportunities.length,
         projectCount: projects.length,
       };
@@ -4260,6 +4271,8 @@ export function createServer(options: CreateServerOptions = {}) {
         })),
         deliverables: deliverables.slice(0, 50),
         quotations: quotations.slice(0, 50),
+        payments: payments.slice(0, 100),
+        lastActivityAt,
       });
     }),
   );

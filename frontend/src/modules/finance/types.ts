@@ -601,6 +601,7 @@ export interface ActivityEvent {
 
 export type RecordEntityType =
   | ActivityEvent['entityType']
+  | 'contact'
   | 'company'
   | 'ledger_account'
   | 'journal_entry'
