@@ -17,6 +17,7 @@ import { downloadCsv } from '@/modules/finance/lib/csv';
 import { useToast } from '@/hooks/use-toast';
 import { useCompanyCurrency } from '@/lib/currency';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 
 export function ExpenseTable() {
   const { selectedCompany, projects, currentUser } = useCompany();
@@ -24,7 +25,7 @@ export function ExpenseTable() {
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { amount } = useCompanyCurrency();
 
   React.useEffect(() => {
@@ -171,7 +172,7 @@ export function ExpenseTable() {
                       {project ? (
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: task.color || project.color }} />
-                          {project.name}
+                          {displayName(project, language)}
                         </div>
                       ) : (
                         '—'

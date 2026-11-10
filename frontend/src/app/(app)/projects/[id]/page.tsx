@@ -338,7 +338,7 @@ export default function ProjectDetailsPage() {
                           <SelectTrigger className="w-[180px]"><SelectValue placeholder={tr('Invite member', 'دعوة عضو')} /></SelectTrigger>
                           <SelectContent>
                             {availableMembers.map((user) => (
-                              <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                              <SelectItem key={user.id} value={user.id}>{displayName(user, language)}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -353,7 +353,7 @@ export default function ProjectDetailsPage() {
                         <div key={user.id} className="flex items-center justify-between rounded border px-3 py-2 bg-card">
                           <div className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: project.color || '#999' }} />
-                            <span>{user.name}</span>
+                            <span>{displayName(user, language)}</span>
                           </div>
                           <Button variant="ghost" size="sm" onClick={() => handleRemoveMember(user.id)}>
                             <UserMinus className="h-4 w-4" />

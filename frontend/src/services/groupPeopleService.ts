@@ -4,6 +4,8 @@ import { apiFetch } from '@/lib/api-client';
 export interface GroupPerson {
   id: string;
   name: string;
+  nameAr?: string;
+  nameEn?: string;
   email: string;
   avatar?: string;
   memberships: Array<{ companyId: string; role: string; positionId?: string }>;

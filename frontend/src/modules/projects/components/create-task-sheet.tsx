@@ -32,7 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { getCompanyMembers } from '@/services/userService';
+import { getCompanyMembers, type CompanyMember } from '@/services/userService';
+import { displayName, allNames } from '@/lib/display-name';
 import { createTask, getTasks } from '@/services/projectService';
 import type { Project } from '@/lib/types';
 import { taskPriorities, taskRecurrences } from '@/modules/projects/types';
@@ -90,7 +91,13 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
   const seesAllProjects = useSeesAllProjects();
 
   const [visibleProjects, setVisibleProjects] = React.useState<Project[]>([]);
-  const [companyUsers, setCompanyUsers] = React.useState<MultiSelectItem[]>([]);
+  const [members, setMembers] = React.useState<CompanyMember[]>([]);
+  const companyUsers: MultiSelectItem[] = members.map((u) => ({
+    value: u.id,
+    label: displayName(u, language),
+    keywords: allNames(u),
+    icon: User,
+  }));
   const [companyTasks, setCompanyTasks] = React.useState<Task[]>([]);
 
   const form = useForm<CreateTaskFormValues>({
@@ -125,12 +132,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
         setVisibleProjects(filteredProjects);
         setCompanyTasks(tasks.filter(t => t.companyId === selectedCompany.id));
         
-        const userItems = users.map(u => ({
-            value: u.id,
-            label: u.name,
-            icon: User,
-        }));
-        setCompanyUsers(userItems);
+        setMembers(users);
     }
     if (open) {
       loadData();
@@ -239,7 +241,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                         return (
                           <>
                             {p && <span className="h-3 w-3 rounded-full" style={{ backgroundColor: p.color }} />}
-                            {p?.name ?? '—'}
+                            {p ? displayName(p, language) : '—'}
                           </>
                         );
                       })()}
@@ -270,7 +272,7 @@ export function CreateTaskSheet({ lockedProjectId }: { lockedProjectId?: string 
                                 <SelectItem key={project.id} value={project.id}>
                                   <div className="flex items-center gap-2">
                                     <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                                    {project.name}
+                                    {displayName(project, language)}
                                   </div>
                                 </SelectItem>
                               ))}

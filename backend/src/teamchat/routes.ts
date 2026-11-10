@@ -53,7 +53,7 @@ export function createTeamChatRouter(
     ...chat,
     members: chats.members(chat.id).map((m) => {
       const user = store.getUserById(m.userId);
-      return { userId: m.userId, name: user?.name ?? '', avatar: user?.avatar ?? null, lastReadAt: m.lastReadAt };
+      return { userId: m.userId, name: user?.name ?? '', nameAr: user?.nameAr, nameEn: user?.nameEn, avatar: user?.avatar ?? null, lastReadAt: m.lastReadAt };
     }),
   });
 
@@ -104,7 +104,7 @@ export function createTeamChatRouter(
     res.json(
       store.listUsers()
         .filter((u) => reaches(u, companyId))
-        .map((u) => ({ id: u.id, name: u.name, avatar: u.avatar ?? null }))
+        .map((u) => ({ id: u.id, name: u.name, nameAr: u.nameAr, nameEn: u.nameEn, avatar: u.avatar ?? null }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     );
   }));

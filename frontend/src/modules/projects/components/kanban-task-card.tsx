@@ -10,6 +10,7 @@ import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { CheckCircle2, ListChecks } from 'lucide-react';
 import { PRIORITY_DOT, formatTaskDates, partsProgress, priorityName, statusName, taskSpanDays } from '@/modules/projects/lib/task-meta';
 
@@ -96,14 +97,14 @@ export function KanbanTaskCard({ task }: KanbanTaskCardProps) {
                                     <TooltipTrigger className="relative">
                                         <Avatar className="h-6 w-6 border-2 border-background">
                                             <AvatarImage src={user.avatar} />
-                                            <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                                            <AvatarFallback>{displayName(user, language).charAt(0)}</AvatarFallback>
                                         </Avatar>
                                         {partOf(user.id)?.status === 'Done' && (
                                             <CheckCircle2 className="absolute -bottom-1 -end-1 h-3.5 w-3.5 rounded-full bg-background text-emerald-500" aria-label={tr('Part done', 'أنهى جزءه')} />
                                         )}
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>{user.name}{partOf(user.id)?.label ? ` · ${partOf(user.id)!.label}` : ''}{partOf(user.id) ? ` · ${statusName(partOf(user.id)!.status, language)}` : ''}</p>
+                                        <p>{displayName(user, language)}{partOf(user.id)?.label ? ` · ${partOf(user.id)!.label}` : ''}{partOf(user.id) ? ` · ${statusName(partOf(user.id)!.status, language)}` : ''}</p>
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>

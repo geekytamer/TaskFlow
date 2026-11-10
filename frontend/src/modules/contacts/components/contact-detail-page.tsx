@@ -19,6 +19,7 @@ import { getContactActivities, type CrmActivity } from '@/services/crmService';
 import { getCustomFieldDefinitions, type CustomFieldDefinition } from '@/services/customFieldService';
 import { getUsersByCompany } from '@/services/userService';
 import type { User as UserType } from '@/modules/users/types';
+import { displayName } from '@/lib/display-name';
 import { ContactConversation } from '@/modules/conversations/components/contact-conversation';
 import { ActivityFeed } from '@/modules/crm/components/activity-feed';
 import { LogActivityDialog } from '@/modules/crm/components/log-activity-dialog';
@@ -33,7 +34,7 @@ import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/com
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { agingOf, dayText, quickLinks, sinceText, statementOf } from '../lib/contact-finance';
-import { accountLinks, displayName } from '@/modules/influencers/lib/influencer-list';
+import { accountLinks, displayName as cleanInfluencerName } from '@/modules/influencers/lib/influencer-list';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -225,7 +226,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
   const status = (v?: string) => (v ? (language === 'ar' ? STATUS_AR[v] ?? v : v) : empty);
   const followupDue = c.nextFollowupDate ? new Date(c.nextFollowupDate) : null;
   const followupLate = followupDue ? followupDue.getTime() < new Date(new Date().toDateString()).getTime() : false;
-  const ownerName = c.ownerName ?? users.find((u) => u.id === c.ownerUserId)?.name;
+  const ownerName = displayName(users.find((u) => u.id === c.ownerUserId), language) || c.ownerName;
   const vendorBillsTitle = isInfluencer ? tr('Payouts', 'المدفوعات') : t('whatsapp.summaryVendorBills');
   const onContactChanged = (updated: Contact) => setSummary((s) => (s ? { ...s, contact: { ...s.contact, ...updated } } : s));
 
@@ -296,7 +297,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             )}
             <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight md:text-3xl" dir="auto">{displayName(c.name)}</h1>
+                <h1 className="text-2xl font-bold tracking-tight md:text-3xl" dir="auto">{cleanInfluencerName(displayName(c, language) || c.name)}</h1>
                 {c.visibility === 'Private' && (
                   <span title={t('crm.visibilityPrivate')}><Lock className="h-4 w-4 text-red-500" /></span>
                 )}
@@ -566,7 +567,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             href="/projects"
             columns={[t('contact360.colName'), t('contact360.colDescription')]}
             rows={summary.projects.slice(0, 15).map((p) => [
-              <Link key={p.id} href={`/projects/${p.id}`} className="text-primary hover:underline">{p.name}</Link>,
+              <Link key={p.id} href={`/projects/${p.id}`} className="text-primary hover:underline">{displayName(p, language)}</Link>,
               p.description || empty,
             ])}
             total={totals.projectCount}

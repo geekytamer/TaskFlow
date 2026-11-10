@@ -11,11 +11,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useCompany } from '@/context/company-context';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useLiveRefresh } from '@/lib/live';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api-client';
 import { getTasks } from '@/services/projectService';
-import { getCompanyPeople } from '@/services/userService';
+import { getCompanyPeople, type PersonSummary } from '@/services/userService';
 import type { Task } from '../types';
 import { dayKey, hoursText, monthGrid, tasksByDay, weekStart, workload } from '../lib/task-planning';
 import { TaskDetailsSheet } from './task-details-sheet';
@@ -31,16 +32,18 @@ function usePlanningData() {
   const { companyIds } = useCompanyScope();
   const { selectedCompany } = useCompany();
   const [tasks, setTasks] = React.useState<Task[] | null>(null);
-  const [names, setNames] = React.useState<Map<string, string>>(new Map());
+  const { language } = useI18n();
+  const [people, setPeople] = React.useState<PersonSummary[]>([]);
+  const names = React.useMemo(() => new Map(people.map((p) => [p.id, displayName(p, language)])), [people, language]);
   const scopeKey = companyIds.join(',');
   const load = React.useCallback(async () => {
     const ids = scopeKey ? scopeKey.split(',') : selectedCompany ? [selectedCompany.id] : [];
-    const [all, people] = await Promise.all([
+    const [all, lists] = await Promise.all([
       getTasks().catch(() => [] as Task[]),
-      Promise.all(ids.map((id) => getCompanyPeople(id).catch(() => []))),
+      Promise.all(ids.map((id) => getCompanyPeople(id).catch(() => [] as PersonSummary[]))),
     ]);
     setTasks(all.filter((t) => ids.includes(t.companyId)));
-    setNames(new Map(people.flat().map((p) => [p.id, p.name])));
+    setPeople(lists.flat());
   }, [scopeKey, selectedCompany]);
   React.useEffect(() => { void load(); }, [load]);
   useLiveRefresh(['tasks', 'time-entries'], () => void load());

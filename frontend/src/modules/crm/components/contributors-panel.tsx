@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useI18n } from '@/context/i18n-context';
+import { displayName } from '@/lib/display-name';
 import { useToast } from '@/hooks/use-toast';
 import {
   contributionRoles,
@@ -59,11 +60,11 @@ export function ContributorsPanel({
   readOnly = false,
   compact = false,
 }: ContributorsPanelProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const [items, setItems] = React.useState<Contribution[]>([]);
   // Full records for Admins and Managers (shows commission eligibility); names only for everyone else.
-  const [users, setUsers] = React.useState<Array<Pick<User, 'id' | 'name'> & { commissionEligible?: boolean }>>([]);
+  const [users, setUsers] = React.useState<Array<Pick<User, 'id' | 'name' | 'nameAr' | 'nameEn'> & { commissionEligible?: boolean }>>([]);
   const [loading, setLoading] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Contribution | null>(null);
@@ -210,7 +211,7 @@ export function ContributorsPanel({
                     <SelectContent>
                       {users.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
-                          {u.name} {u.commissionEligible === false && (
+                          {displayName(u, language)} {u.commissionEligible === false && (
                             <span className="text-xs text-muted-foreground"> · {t('contributors.notEligible')}</span>
                           )}
                         </SelectItem>
@@ -281,7 +282,7 @@ export function ContributorsPanel({
             <li key={row.id} className="flex items-center gap-2 rounded-md border bg-card px-2.5 py-1.5">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">
-                  {row.userName || row.userId}{' '}
+                  {displayName(users.find((u) => u.id === row.userId), language) || row.userName || row.userId}{' '}
                   <span className="text-xs text-muted-foreground">· {row.role}</span>
                   {row.roleNote && (
                     <span className="text-xs text-muted-foreground"> · {row.roleNote}</span>

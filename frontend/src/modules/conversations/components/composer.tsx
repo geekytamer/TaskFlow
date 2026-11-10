@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useI18n } from '@/context/i18n-context';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { displayName, allNames } from '@/lib/display-name';
+import { matchesSearch } from '@/lib/search-normalize';
 import { uploadThreadFile, type ConvFile, type SendInput } from '@/services/conversationService';
 import type { PersonSummary } from '@/services/userService';
 import { mentionedIds, stripMentions } from '../lib/compose';
@@ -88,7 +90,9 @@ export function Composer({ threadId, portalUsers, people, onSend }: Props) {
     setKind(next);
   };
 
-  const addMention = (person: PersonSummary) => {
+  const addMention = (picked: PersonSummary) => {
+    // The @name typed is the one the writer reads; mentions match on it.
+    const person = { ...picked, name: displayName(picked, language) };
     setMentions((current) => (current.some((p) => p.id === person.id) ? current : [...current, person]));
     setBody((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${person.name} `);
     setPickerOpen(false);
@@ -115,7 +119,7 @@ export function Composer({ threadId, portalUsers, people, onSend }: Props) {
   };
 
   const isNote = kind === 'note';
-  const shown = people.filter((p) => p.name.toLowerCase().includes(filter.trim().toLowerCase()));
+  const shown = people.filter((p) => matchesSearch(filter, allNames(p)));
 
   return (
     <div
@@ -214,7 +218,7 @@ export function Composer({ threadId, portalUsers, people, onSend }: Props) {
                   {shown.map((p) => (
                     <li key={p.id}>
                       <button type="button" onClick={() => addMention(p)} className="w-full rounded px-2 py-1.5 text-start text-sm hover:bg-muted">
-                        <bdi>{p.name}</bdi>
+                        <bdi>{displayName(p, language)}</bdi>
                       </button>
                     </li>
                   ))}

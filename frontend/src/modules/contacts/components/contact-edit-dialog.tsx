@@ -23,6 +23,7 @@ import {
   type LeadStatus,
 } from '@/services/crmService';
 import type { User as UserType } from '@/modules/users/types';
+import { displayName } from '@/lib/display-name';
 import { ContactFormFields, buildContactPayload, contactToForm, type ContactForm } from './contact-form-fields';
 
 const NONE = '__none__';
@@ -190,7 +191,7 @@ export function ContactEditDialog({
               crm.ownerUserId,
               // The current owner is offered even when not in the company's list, so it never shows blank.
               [...users.map((u) => u.id), ...(contact.ownerUserId && !users.some((u) => u.id === contact.ownerUserId) ? [contact.ownerUserId] : [])],
-              (id) => users.find((u) => u.id === id)?.name ?? (id === contact.ownerUserId ? contact.ownerName ?? id : id),
+              (id) => displayName(users.find((u) => u.id === id), language) || (id === contact.ownerUserId ? contact.ownerName ?? id : id),
               (v) => setCrm((f) => ({ ...f, ownerUserId: v })),
             )}
             <div className="space-y-1">
