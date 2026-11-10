@@ -166,6 +166,9 @@ export interface CompanyRoleAssignment {
 export interface User {
   id: string;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   email: string;
   role: UserRole;
   companyIds: string[];
@@ -225,6 +228,9 @@ export type ProjectVisibility = 'Public' | 'Private';
 export interface Project {
   id: string;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   description: string;
   color: string;
   companyId: string;
@@ -2221,6 +2227,9 @@ export interface Employee {
   companyId: string;
   userId?: string;
   name: string;
+  /** Two-language names; `name` stays filled and on its first side (spec 2026-11-10). */
+  nameAr?: string;
+  nameEn?: string;
   email?: string;
   phone?: string;
   jobTitle?: string;

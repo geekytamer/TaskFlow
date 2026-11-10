@@ -26,6 +26,9 @@ export const projectVisibilities: ProjectVisibility[] = ['Public', 'Private'];
 export interface Project {
   id: string;
   name: string;
+  /** Two-language names; `name` stays filled (spec 2026-11-10-bilingual-names-design). */
+  nameAr?: string;
+  nameEn?: string;
   description: string;
   color: string;
   companyId: string;

@@ -69,6 +69,7 @@ import { RecordSupportPanel } from '@/modules/shared/components/record-support-p
 import { useI18n } from '@/context/i18n-context';
 import { usePermissions } from '@/context/permissions-context';
 import { useLiveRefresh } from '@/lib/live';
+import { displayName } from '@/lib/display-name';
 import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
 import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
@@ -411,7 +412,8 @@ export function PurchasesPage() {
         return {
           inventoryItemId: inventoryItem.id,
           sku: inventoryItem.sku,
-          description: inventoryItem.name,
+          // The item's name in the reader's language (two-language names).
+          description: displayName(inventoryItem, language),
           quantity,
           unitCost,
           lineTotal: quantity * unitCost,
@@ -814,7 +816,7 @@ export function PurchasesPage() {
                       <SelectContent>
                         {formItems.map((inventoryItem) => (
                           <SelectItem key={inventoryItem.id} value={inventoryItem.id}>
-                            {inventoryItem.sku}-{inventoryItem.name}-{inventoryItem.barcode || tr('No Barcode', 'بدون باركود')}
+                            {inventoryItem.sku}-{displayName(inventoryItem, language)}-{inventoryItem.barcode || tr('No Barcode', 'بدون باركود')}
                           </SelectItem>
                         ))}
                       </SelectContent>
