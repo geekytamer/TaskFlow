@@ -1,6 +1,5 @@
 'use client';
 
-import { matchesSearch } from '@/lib/search-normalize';
 import { displayName } from '@/lib/display-name';
 import { useCompanyScope } from '@/context/company-scope-context';
 import { fanOut, type MissingCompany } from '@/lib/fan-out';
@@ -96,6 +95,10 @@ import {
 } from './contact-form-fields';
 import { useLiveRefresh } from '@/lib/live';
 import { contactInUse, describeBlockers } from '../lib/contact-in-use';
+import { findDuplicates, isFollowupLate, matchesContactSearch, matchesQuickFilter, type QuickFilter } from '../lib/contact-list';
+import { dayText, quickLinks, sinceText } from '../lib/contact-finance';
+import { Checkbox } from '@/components/ui/checkbox';
+import { MessageCircle, Users as UsersIcon, X as XIcon, AlertTriangle } from 'lucide-react';
 
 const LEAD_STATUS_COLORS: Record<LeadStatus, string> = {
   New: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300',
@@ -115,7 +118,7 @@ const PRIORITY_COLORS: Record<ContactPriority, string> = {
 
 
 export function ContactsPage() {
-  const { selectedCompany } = useCompany();
+  const { selectedCompany, currentUser } = useCompany();
   const { t, language } = useI18n();
   // Rate cards are a sensitive field: no input without edit, "Hidden" without view.
   const { can, field } = usePermissions();
@@ -125,6 +128,13 @@ export function ContactsPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [roleFilter, setRoleFilter] = React.useState<ContactRoleType | 'All'>('All');
+  const [quickFilter, setQuickFilter] = React.useState<QuickFilter>('all');
+  // Select many, then assign an owner to all of them.
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [bulkOwner, setBulkOwner] = React.useState('');
+  const [bulkSaving, setBulkSaving] = React.useState(false);
+  // Contacts that look like the one being added: shown before it is created.
+  const [duplicates, setDuplicates] = React.useState<ReturnType<typeof findDuplicates>>([]);
 
   // Create / Edit / Delete
   const [openCreate, setOpenCreate] = React.useState(false);
@@ -295,12 +305,59 @@ export function ContactsPage() {
   const filtered = React.useMemo(() => {
     let result = contacts;
     if (roleFilter !== 'All') result = result.filter(c => (c.roles as ContactRoleType[])?.includes(roleFilter as ContactRoleType));
+    if (quickFilter !== 'all') result = result.filter(c => matchesQuickFilter(quickFilter, c, currentUser?.id));
     if (search.trim()) {
-      // Both names count and أحمد finds احمد (spec 2026-11-10-bilingual-names-design).
-      result = result.filter(c => matchesSearch(search, c.name, c.nameAr, c.nameEn, c.email, c.contactPerson));
+      // Both names, email, contact person, and any part of the phone (أحمد finds احمد; 9123 finds +968 9123 4567).
+      result = result.filter(c => matchesContactSearch(search, c));
     }
     return result;
-  }, [contacts, roleFilter, search]);
+  }, [contacts, roleFilter, quickFilter, search, currentUser?.id]);
+
+  const quickCounts = React.useMemo(() => ({
+    all: contacts.length,
+    mine: contacts.filter(c => matchesQuickFilter('mine', c, currentUser?.id)).length,
+    late: contacts.filter(c => matchesQuickFilter('late', c, currentUser?.id)).length,
+    quiet: contacts.filter(c => matchesQuickFilter('quiet', c, currentUser?.id)).length,
+  }), [contacts, currentUser?.id]);
+
+  // Selection only holds contacts still on screen.
+  React.useEffect(() => {
+    setSelected(prev => {
+      const visible = new Set(filtered.map(c => c.id));
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered]);
+  const toggleSelected = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const selectedContacts = filtered.filter(c => selected.has(c.id));
+  const selectedCompanies = [...new Set(selectedContacts.map(c => c.companyId))];
+
+  const assignOwner = async () => {
+    if (!bulkOwner || selectedContacts.length === 0 || selectedCompanies.length !== 1) return;
+    const owner = (usersByCompany[selectedCompanies[0]] ?? []).find(u => u.id === bulkOwner);
+    setBulkSaving(true);
+    let done = 0;
+    for (const c of selectedContacts) {
+      try {
+        await patchContactCrm(c.id, { ownerUserId: bulkOwner, ownerName: owner?.name ?? null });
+        done += 1;
+      } catch { /* counted below */ }
+    }
+    setBulkSaving(false);
+    await reloadContacts().catch(() => undefined);
+    setSelected(new Set());
+    setBulkOwner('');
+    const failed = selectedContacts.length - done;
+    toast({
+      title: language === 'ar' ? `تم تعيين ${owner?.name ?? ''} مسؤولاً عن ${done} جهة` : `${owner?.name ?? ''} now owns ${done} contact(s)`,
+      description: failed ? (language === 'ar' ? `تعذّر تعديل ${failed}.` : `${failed} could not be changed.`) : undefined,
+      variant: failed ? 'destructive' : undefined,
+    });
+  };
 
   const roleCounts = React.useMemo(() => {
     const counts: Record<string, number> = { All: contacts.length };
@@ -308,14 +365,21 @@ export function ContactsPage() {
     return counts;
   }, [contacts]);
 
-  const handleCreate = async () => {
+  const handleCreate = async (allowDuplicate = false) => {
     if (!createTarget.target || !createForm.name.trim()) return;
+    // Same phone, email or name already in this company: say so before adding a second one.
+    if (!allowDuplicate) {
+      const found = findDuplicates(createForm, contacts.filter(c => c.companyId === createTarget.target));
+      if (found.length) { setDuplicates(found); return; }
+    }
+    setDuplicates([]);
     setSaving(true);
     try {
+      const { roles: _roles, customFields: _custom, ...base } = buildContactPayload(createForm);
       const contact = await createContact({
         companyId: createTarget.target,
-        kind: createForm.kind,
-        name: createForm.name.trim(),
+        ...base,
+        name: base.name ?? createForm.name.trim(),
         legalName: createForm.legalName.trim() || undefined,
         contactPerson: createForm.contactPerson.trim() || undefined,
         email: createForm.email.trim() || undefined,
@@ -328,6 +392,7 @@ export function ContactsPage() {
       });
       setContacts(prev => [...prev, contact].sort((a, b) => a.name.localeCompare(b.name)));
       setOpenCreate(false);
+      setDuplicates([]);
       setCreateForm(emptyForm());
       setCreateCustomValues({});
       toast({ title: t('contacts.created') });
@@ -412,7 +477,7 @@ export function ContactsPage() {
           />
         ) : null}
         <CreateTargetSelect {...createTarget} />
-        {createTarget.target && <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+        {createTarget.target && <Dialog open={openCreate} onOpenChange={(o) => { setOpenCreate(o); if (!o) setDuplicates([]); }}>
           <DialogTrigger asChild>
             <Button size="sm" data-tutorial="contacts-create"><Plus className="h-4 w-4 me-1" />{t('contacts.create')}</Button>
           </DialogTrigger>
@@ -428,9 +493,38 @@ export function ContactsPage() {
                 />
               </div>
             )}
+            {duplicates.length > 0 && (
+              <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-500/10" role="alert">
+                <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="h-4 w-4" />
+                  {language === 'ar' ? 'يبدو أن هذه الجهة موجودة مسبقاً:' : 'This contact may already exist:'}
+                </p>
+                <ul className="space-y-1">
+                  {duplicates.slice(0, 5).map(({ contact: d, reasons }) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2">
+                      <span>
+                        {d.name}
+                        <span className="text-xs text-muted-foreground"> · {reasons.map(r => language === 'ar'
+                          ? { phone: 'نفس الهاتف', email: 'نفس الإيميل', name: 'نفس الاسم' }[r]
+                          : { phone: 'same phone', email: 'same email', name: 'same name' }[r]).join('، ')}</span>
+                      </span>
+                      <Link href={`/contacts/${d.id}`} className="shrink-0 text-xs text-primary hover:underline">
+                        {language === 'ar' ? 'فتح الموجود' : 'Open it'}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpenCreate(false)}>{t('common.cancel')}</Button>
-              <Button onClick={handleCreate} disabled={saving || !createForm.name.trim()}>{t('common.save')}</Button>
+              {duplicates.length > 0 ? (
+                <Button variant="secondary" onClick={() => handleCreate(true)} disabled={saving}>
+                  {language === 'ar' ? 'إضافة رغم ذلك' : 'Add anyway'}
+                </Button>
+              ) : (
+                <Button onClick={() => handleCreate()} disabled={saving || !createForm.name.trim()}>{t('common.save')}</Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>}
@@ -441,8 +535,8 @@ export function ContactsPage() {
       {/* Search + role filter */}
       <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-sm" data-tutorial="contacts-search">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder={t('contacts.searchPlaceholder')} value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input className="ps-8" placeholder={language === 'ar' ? 'ابحث بالاسم أو الإيميل أو رقم الهاتف…' : 'Search by name, email or phone…'} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex flex-wrap gap-2">
           {(['All', ...ALL_ROLES] as const).map(r => (
@@ -459,6 +553,48 @@ export function ContactsPage() {
         </div>
       </div>
 
+      {/* Quick filters */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(['all', 'mine', 'late', 'quiet'] as const).map(f => (
+          <button key={f} type="button" onClick={() => setQuickFilter(f)}
+            className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
+              quickFilter === f ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+            } ${f === 'late' && quickCounts.late > 0 && quickFilter !== f ? 'text-red-600 dark:text-red-400' : ''}`}
+          >
+            {language === 'ar'
+              ? { all: 'الكل', mine: 'جهاتي', late: 'متابعات متأخرة', quiet: 'بلا تواصل منذ شهر' }[f]
+              : { all: 'Everyone', mine: 'Mine', late: 'Late follow-ups', quiet: 'No contact for a month' }[f]} ({quickCounts[f]})
+          </button>
+        ))}
+      </div>
+
+      {/* Select many: assign an owner */}
+      {selectedContacts.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2 text-sm">
+          <span className="font-medium">{language === 'ar' ? `تم تحديد ${selectedContacts.length}` : `${selectedContacts.length} selected`}</span>
+          {selectedCompanies.length === 1 ? (
+            <>
+              <UsersIcon className="h-4 w-4 text-muted-foreground" />
+              <Select value={bulkOwner || '__none__'} onValueChange={v => setBulkOwner(v === '__none__' ? '' : v)}>
+                <SelectTrigger className="h-8 w-48"><SelectValue placeholder={language === 'ar' ? 'اختر المسؤول' : 'Choose an owner'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{language === 'ar' ? 'اختر المسؤول' : 'Choose an owner'}</SelectItem>
+                  {(usersByCompany[selectedCompanies[0]] ?? []).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" className="h-8" onClick={assignOwner} disabled={!bulkOwner || bulkSaving}>
+                {language === 'ar' ? 'تعيين' : 'Assign'}
+              </Button>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">{language === 'ar' ? 'اختر جهات من شركة واحدة لتعيين مسؤول.' : 'Pick contacts from one company to assign an owner.'}</span>
+          )}
+          <Button size="sm" variant="ghost" className="h-8 gap-1" onClick={() => setSelected(new Set())}>
+            <XIcon className="h-3.5 w-3.5" />{language === 'ar' ? 'إلغاء التحديد' : 'Clear'}
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
       ) : filtered.length === 0 ? (
@@ -467,9 +603,20 @@ export function ContactsPage() {
         <Table data-tutorial="contacts-table">
           <TableHeader>
             <TableRow>
+              {canManage && (
+                <TableHead className="w-8">
+                  <Checkbox
+                    aria-label={language === 'ar' ? 'تحديد الكل' : 'Select all'}
+                    checked={filtered.length > 0 && filtered.every(c => selected.has(c.id))}
+                    onCheckedChange={(v) => setSelected(v ? new Set(filtered.map(c => c.id)) : new Set())}
+                  />
+                </TableHead>
+              )}
               <TableHead>{t('contacts.name')}</TableHead>
-              <TableHead>{t('contacts.contactPerson')}</TableHead>
-              <TableHead>{t('contacts.email')}</TableHead>
+              <TableHead>{language === 'ar' ? 'الهاتف' : 'Phone'}</TableHead>
+              {/* Contact person and email give way on medium screens; the contact page has them. */}
+              <TableHead className="hidden xl:table-cell">{t('contacts.contactPerson')}</TableHead>
+              <TableHead className="hidden xl:table-cell">{t('contacts.email')}</TableHead>
               <TableHead>{t('crm.leadStatus')}</TableHead>
               <TableHead>{t('crm.nextFollowup')}</TableHead>
               <TableHead>{t('contacts.roles')}</TableHead>
@@ -478,11 +625,22 @@ export function ContactsPage() {
           </TableHeader>
           <TableBody>
             {filtered.map(c => (
-              <TableRow key={c.id} data-tutorial="contact-row" className="cursor-pointer hover:bg-muted/40" onClick={() => openCrmPanel(c)}>
+              <TableRow key={c.id} data-tutorial="contact-row" data-state={selected.has(c.id) ? 'selected' : undefined} className="cursor-pointer hover:bg-muted/40" onClick={() => openCrmPanel(c)}>
+                {canManage && (
+                  <TableCell className="w-8" onClick={e => e.stopPropagation()}>
+                    <Checkbox aria-label={displayName(c, language)} checked={selected.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
+                  </TableCell>
+                )}
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     {c.kind === 'Organization' ? <Building2 className="h-4 w-4 text-muted-foreground shrink-0" /> : <User className="h-4 w-4 text-muted-foreground shrink-0" />}
-                    <span><bdi>{displayName(c, language)}</bdi><CompanyLabel companyId={c.companyId} /></span>
+                    {/* The name opens the contact's page; the rest of the row opens the quick side panel. */}
+                    <span>
+                      <Link href={`/contacts/${c.id}`} onClick={e => e.stopPropagation()} className="hover:text-primary hover:underline">
+                        <bdi>{displayName(c, language)}</bdi>
+                      </Link>
+                      <CompanyLabel companyId={c.companyId} />
+                    </span>
                     {c.visibility === 'Private' && <Lock className="h-3 w-3 text-red-400 shrink-0" />}
                     {(c as any).priority && (
                       <span className={`text-xs font-bold ${PRIORITY_COLORS[(c as any).priority as ContactPriority]}`}>
@@ -491,8 +649,21 @@ export function ContactsPage() {
                     )}
                   </div>
                 </TableCell>
-                <TableCell>{c.contactPerson ?? '—'}</TableCell>
-                <TableCell>{c.email ?? '—'}</TableCell>
+                <TableCell onClick={e => e.stopPropagation()}>
+                  {c.phone ? (
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <a href={quickLinks(c).call ?? undefined} dir="ltr" className="hover:underline">{c.phone}</a>
+                      {quickLinks(c).whatsapp && (
+                        <a href={quickLinks(c).whatsapp!} target="_blank" rel="noreferrer" title={language === 'ar' ? 'واتساب' : 'WhatsApp'}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
+                          <MessageCircle className="h-4 w-4" />
+                        </a>
+                      )}
+                    </div>
+                  ) : '—'}
+                </TableCell>
+                <TableCell className="hidden xl:table-cell">{c.contactPerson ?? '—'}</TableCell>
+                <TableCell className="hidden xl:table-cell">{c.email ?? '—'}</TableCell>
                 <TableCell>
                   {(c as any).leadStatus ? (
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${LEAD_STATUS_COLORS[(c as any).leadStatus as LeadStatus]}`}>
@@ -501,13 +672,18 @@ export function ContactsPage() {
                   ) : '—'}
                 </TableCell>
                 <TableCell>
-                  {(c as any).nextFollowupDate ? (
-                    <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300">
+                  {c.nextFollowupDate ? (
+                    <div className={`flex items-center gap-1 text-xs ${isFollowupLate(c) ? 'font-medium text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-300'}`}>
                       <CalendarClock className="h-3 w-3" />
-                      {new Date((c as any).nextFollowupDate).toLocaleDateString()}
+                      {dayText(c.nextFollowupDate)}
                     </div>
                   ) : '—'}
                   {c.ownerName && <div className="text-xs text-muted-foreground mt-0.5">{c.ownerName}</div>}
+                  {c.lastActivityAt !== undefined && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {language === 'ar' ? 'آخر تواصل: ' : 'Last contact: '}{sinceText(c.lastActivityAt, language) ?? (language === 'ar' ? 'لا يوجد' : 'never')}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">

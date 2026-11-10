@@ -9291,6 +9291,16 @@ export class DataStore {
    * single-platform record, its followers and engagement). Other platforms and
    * fields are left alone; nothing else on the contact changes.
    */
+  /** For every contact of a company that has any: when the latest CRM activity was logged (one query). */
+  lastContactActivityByContact(companyId: string): Map<string, string> {
+    const rows = this.db.prepare(
+      `SELECT entityId AS id, MAX(createdAt) AS at FROM activity_events
+       WHERE companyId = ? AND entityType = 'contact' AND category IS NOT NULL
+       GROUP BY entityId`,
+    ).all(companyId) as Array<{ id: string; at: string }>;
+    return new Map(rows.map((r) => [r.id, r.at]));
+  }
+
   /** The latest call, meeting, message or note logged against a contact (CRM activities), or null. */
   lastContactActivityAt(companyId: string, contactId: string): string | null {
     const row = this.db.prepare(

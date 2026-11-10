@@ -3888,8 +3888,13 @@ export function createServer(options: CreateServerOptions = {}) {
 	      requireCompanyRoles(req, req.params.companyId, ['Admin', 'Manager', 'Employee', 'Accountant']);
 	      const role = req.query.role as string | undefined;
 	      const contacts = store.listContacts(req.params.companyId, role as any, viewerOf(req));
+	      // When we last dealt with each one, for the list's "no contact for a month" filter.
+	      const lastActivity = store.lastContactActivityByContact(req.params.companyId);
 	      // Rate cards: the rate_cards field (authz/mask.ts).
-	      res.json(contacts.map((contact) => maskFor(req, req.params.companyId, 'contact', contact, { moduleLock: true })));
+	      res.json(contacts.map((contact) => ({
+	        ...maskFor(req, req.params.companyId, 'contact', contact, { moduleLock: true }),
+	        lastActivityAt: lastActivity.get(contact.id) ?? null,
+	      })));
 	    }),
 	  );
 
