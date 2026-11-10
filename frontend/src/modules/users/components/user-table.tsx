@@ -25,6 +25,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { getUsers, getUsersByCompany, deleteUser, sendPasswordReset } from '@/services/userService';
 import { getPositions } from '@/services/companyService';
 import type { User } from '@/modules/users/types';
+import { displayName } from '@/lib/display-name';
 import type { Position } from '@/modules/companies/types';
 import { useCompany } from '@/context/company-context';
 import { usePermissions } from '@/context/permissions-context';
@@ -71,10 +72,10 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
       if (result.sent) {
         toast({
           title: tr('Reset link sent', 'تم إرسال الرابط'),
-          description: tr(`${person.name} got an email with a link to set a new password (valid 1 hour).`, `وصل ${person.name} بريد فيه رابط لتعيين كلمة مرور جديدة (صالح لمدة ساعة).`),
+          description: tr(`${displayName(person, language)} got an email with a link to set a new password (valid 1 hour).`, `وصل ${displayName(person, language)} بريد فيه رابط لتعيين كلمة مرور جديدة (صالح لمدة ساعة).`),
         });
       } else if (result.link) {
-        showPasswordLink({ name: person.name, link: result.link, purpose: 'reset' });
+        showPasswordLink({ name: displayName(person, language), link: result.link, purpose: 'reset' });
       }
     } catch (error: any) {
       toast({ variant: 'destructive', title: tr('Could not send the link', 'تعذّر إرسال الرابط'), description: error?.message });
@@ -188,7 +189,7 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
       await deleteUser(userToDelete.id);
       toast({
         title: tr('User Deleted', 'تم حذف المستخدم'),
-        description: tr(`User "${userToDelete.name}" has been deleted.`, `تم حذف المستخدم "${userToDelete.name}".`),
+        description: tr(`User "${displayName(userToDelete, language)}" has been deleted.`, `تم حذف المستخدم "${displayName(userToDelete, language)}".`),
       });
       fetchData();
       setUserToDelete(null);
@@ -305,10 +306,10 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
                     <div className="flex items-center gap-3">
                       <Avatar>
                         <AvatarImage src={user.avatar} />
-                        <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                        <AvatarFallback>{displayName(user, language).charAt(0)}</AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{user.name}</p>
+                        <p className="font-medium"><bdi>{displayName(user, language)}</bdi></p>
                         <p className="text-sm text-muted-foreground">
                           {user.email}
                         </p>
@@ -364,8 +365,8 @@ export function UserTable({ onUserUpdated, refreshToken = 0 }: UserTableProps) {
                                 <AlertDialogTitle>{tr('Are you absolutely sure?', 'هل أنت متأكد تمامًا؟')}</AlertDialogTitle>
                                 <AlertDialogDescription>
                                 {tr(
-                                  `This action cannot be undone. This will permanently delete the user "${userToDelete.name}" and revoke their access.`,
-                                  `لا يمكن التراجع عن هذا الإجراء. سيؤدي ذلك إلى حذف المستخدم "${userToDelete.name}" نهائيًا وإلغاء صلاحيات وصوله.`,
+                                  `This action cannot be undone. This will permanently delete the user "${displayName(userToDelete, language)}" and revoke their access.`,
+                                  `لا يمكن التراجع عن هذا الإجراء. سيؤدي ذلك إلى حذف المستخدم "${displayName(userToDelete, language)}" نهائيًا وإلغاء صلاحيات وصوله.`,
                                 )}
                                 </AlertDialogDescription>
                             </AlertDialogHeader>

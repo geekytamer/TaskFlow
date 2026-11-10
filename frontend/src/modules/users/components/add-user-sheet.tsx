@@ -46,16 +46,28 @@ import { Label } from '@/components/ui/label';
 import type { CommissionBasis } from '@/modules/users/types';
 import { isApiError } from '@/lib/api-client';
 import { useI18n } from '@/context/i18n-context';
+import { BilingualNameFields, namesOf, namesPayload } from '@/components/bilingual-name-fields';
+import { displayName } from '@/lib/display-name';
 
 const allUserRoles: UserRole[] = ['Admin', 'Manager', 'Employee', 'Accountant'];
 
 const buildAddUserSchema = (tr: (en: string, ar: string) => string) =>
   z.object({
-    name: z.string().min(2, tr('Name must be at least 2 characters.', 'يجب أن لا يقل الاسم عن حرفين.')),
+    // Two-language name (spec 2026-11-10-bilingual-names-design): at least one side.
+    nameAr: z.string(),
+    nameEn: z.string(),
     email: z.string().email(tr('Please enter a valid email.', 'يرجى إدخال بريد إلكتروني صالح.')),
     companyIds: z
       .array(z.string())
       .min(1, tr('Please select at least one company.', 'يرجى اختيار شركة واحدة على الأقل.')),
+  }).superRefine((v, ctx) => {
+    const ar = v.nameAr.trim();
+    const en = v.nameEn.trim();
+    if (!ar && !en) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nameEn'], message: tr('Enter the name in Arabic or English.', 'اكتب الاسم بالعربي أو بالإنجليزي.') });
+    } else if ((ar && ar.length < 2) || (en && en.length < 2)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nameEn'], message: tr('Name must be at least 2 characters.', 'يجب أن لا يقل الاسم عن حرفين.') });
+    }
   });
 
 type AddUserFormValues = z.infer<ReturnType<typeof buildAddUserSchema>>;
@@ -104,7 +116,8 @@ export function AddUserSheet({
   const form = useForm<AddUserFormValues>({
     resolver: zodResolver(addUserSchema),
     defaultValues: {
-      name: '',
+      nameAr: '',
+      nameEn: '',
       email: '',
       companyIds: [],
     },
@@ -209,7 +222,7 @@ export function AddUserSheet({
         manageableCompanyIds.has(companyId),
       );
       form.reset({
-        name: userToEdit.name,
+        ...namesOf(userToEdit),
         email: userToEdit.email,
         companyIds: editableCompanyIds,
       });
@@ -222,7 +235,8 @@ export function AddUserSheet({
       });
     } else {
       form.reset({
-        name: '',
+        nameAr: '',
+        nameEn: '',
         email: '',
         companyIds:
           selectedCompany && companyItems.some((company) => company.value === selectedCompany.id)
@@ -271,9 +285,15 @@ export function AddUserSheet({
         costRatePerHour:
           commission.costRatePerHour.trim() === '' ? undefined : Number(commission.costRatePerHour),
       };
+      // An edit sends the two sides only: the server keeps `name` on its side,
+      // and an unchanged name is not an identity change.
+      const names = namesPayload({ nameAr: data.nameAr, nameEn: data.nameEn }, language);
+      const shownName = displayName(names, language);
       if (isEditMode && userToEdit) {
         await updateUser(userToEdit.id, {
           ...data,
+          nameAr: names.nameAr,
+          nameEn: names.nameEn,
           companyRoles,
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
@@ -282,13 +302,14 @@ export function AddUserSheet({
         toast({
           title: tr('User Updated', 'تم تحديث المستخدم'),
           description: tr(
-            `User "${data.name}" has been successfully updated.`,
-            `تم تحديث المستخدم "${data.name}" بنجاح.`,
+            `User "${shownName}" has been successfully updated.`,
+            `تم تحديث المستخدم "${shownName}" بنجاح.`,
           ),
         });
       } else {
         const result = await createUser({
           ...data,
+          ...names,
           companyRoles,
           role: companyRoles[0]?.role || 'Employee',
           positionId: undefined,
@@ -305,7 +326,7 @@ export function AddUserSheet({
             ),
           });
         } else if (result.invite?.link) {
-          showPasswordLink({ name: data.name, link: result.invite.link, purpose: 'invite' });
+          showPasswordLink({ name: shownName, link: result.invite.link, purpose: 'invite' });
         }
       }
       onUserAdded();
@@ -336,13 +357,21 @@ export function AddUserSheet({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <FormField
               control={form.control}
-              name="name"
-              render={({ field }) => (
+              name="nameEn"
+              render={() => (
                 <FormItem>
-                  <FormLabel>{t('userForm.fullNameLabel')}</FormLabel>
-                  <FormControl>
-                    <Input placeholder={t('userForm.fullNamePlaceholder')} {...field} />
-                  </FormControl>
+                  <BilingualNameFields
+                    value={{ nameAr: form.watch('nameAr'), nameEn: form.watch('nameEn') }}
+                    onChange={(next) => {
+                      const validate = form.formState.isSubmitted;
+                      form.setValue('nameAr', next.nameAr, { shouldValidate: validate, shouldDirty: true });
+                      form.setValue('nameEn', next.nameEn, { shouldValidate: validate, shouldDirty: true });
+                    }}
+                    companyId={selectedCompany?.id}
+                    kind="name"
+                    idPrefix="user-name"
+                    required={false}
+                  />
                   <FormMessage />
                 </FormItem>
               )}

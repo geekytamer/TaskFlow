@@ -1,5 +1,5 @@
 import { canAccessCompany, HttpError } from '../http';
-import { resolveNames, scriptSide } from '../names';
+import { type Names, resolveNames, scriptSide } from '../names';
 import { DocumentTextStore } from '../documents/text-store';
 import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import { taskWeek, weekStartOf } from '../tasks/task-week';
@@ -6006,6 +6006,26 @@ export class DataStore {
           }
         },
       },
+      {
+        // Phase 2 of two-language names: employees, users and projects, filled
+        // from `name` by its letters. ('171' is left for another branch.)
+        id: '172_bilingual_names_people',
+        run: () => {
+          for (const table of ['employees', 'users', 'projects']) {
+            const columns = (this.db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map((c) => c.name);
+            if (!columns.includes('nameAr')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN nameAr TEXT;`);
+            if (!columns.includes('nameEn')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN nameEn TEXT;`);
+            const rows = this.db.prepare(`SELECT id, name FROM ${table} WHERE nameAr IS NULL AND nameEn IS NULL`).all() as Array<{ id: string; name: string | null }>;
+            const toAr = this.db.prepare(`UPDATE ${table} SET nameAr = ? WHERE id = ?`);
+            const toEn = this.db.prepare(`UPDATE ${table} SET nameEn = ? WHERE id = ?`);
+            for (const row of rows) {
+              const name = (row.name ?? '').trim();
+              if (!name) continue;
+              (scriptSide(name) === 'ar' ? toAr : toEn).run(name, row.id);
+            }
+          }
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -6979,6 +6999,8 @@ export class DataStore {
     return {
       id: row.id,
       name: row.name,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       email: row.email,
       role: row.role as UserRole,
       companyIds,
@@ -7948,6 +7970,7 @@ export class DataStore {
         const updatedUser: User = {
           ...existingByEmail,
           ...user,
+          ...resolveNames(user, existingByEmail),
           password: user.password ? hashPassword(user.password) : existingByEmail.password,
           companyIds: normalizedCompanyIds.length > 0 ? normalizedCompanyIds : existingByEmail.companyIds,
           companyRoles: normalizedCompanyRoles.length > 0 ? normalizedCompanyRoles : existingByEmail.companyRoles,
@@ -7957,10 +7980,12 @@ export class DataStore {
         };
         this.db
           .prepare(
-            'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
+            'UPDATE users SET name=@name, nameAr=@nameAr, nameEn=@nameEn, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
           )
           .run({
             ...updatedUser,
+            nameAr: updatedUser.nameAr ?? null,
+            nameEn: updatedUser.nameEn ?? null,
             companyIds: JSON.stringify(updatedUser.companyIds || []),
             positionId: updatedUser.positionId ?? null,
             companyRoles: JSON.stringify(updatedUser.companyRoles || []),
@@ -7983,6 +8008,7 @@ export class DataStore {
 
     const newUser: User = {
       ...user,
+      ...resolveNames(user),
       id: user.id ?? uuid(),
       password: hashPassword(user.password),
       companyIds: normalizedCompanyIds,
@@ -7994,10 +8020,12 @@ export class DataStore {
 
     this.db
       .prepare(
-        'INSERT INTO users (id, name, email, role, companyIds, positionId, companyRoles, avatar, password, isSuperAdmin, commissionEligible, defaultCommissionRate, defaultCommissionBasis, costRatePerHour) VALUES (@id, @name, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password, @isSuperAdmin, @commissionEligible, @defaultCommissionRate, @defaultCommissionBasis, @costRatePerHour)',
+        'INSERT INTO users (id, name, nameAr, nameEn, email, role, companyIds, positionId, companyRoles, avatar, password, isSuperAdmin, commissionEligible, defaultCommissionRate, defaultCommissionBasis, costRatePerHour) VALUES (@id, @name, @nameAr, @nameEn, @email, @role, @companyIds, @positionId, @companyRoles, @avatar, @password, @isSuperAdmin, @commissionEligible, @defaultCommissionRate, @defaultCommissionBasis, @costRatePerHour)',
       )
       .run({
         ...newUser,
+        nameAr: newUser.nameAr ?? null,
+        nameEn: newUser.nameEn ?? null,
         companyIds: JSON.stringify(newUser.companyIds || []),
         positionId: newUser.positionId ?? null,
         companyRoles: JSON.stringify(newUser.companyRoles || []),
@@ -8039,10 +8067,13 @@ export class DataStore {
 
     const updatedCompanyIds = updates.companyIds ?? nextCompanyRoles.map((c) => c.companyId);
 
+    const names = this.namesAfter(updates, existing);
     const updated = {
       ...existing,
       ...updates,
-      name: updates.name ?? existing.name,
+      name: names.name,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       email: updates.email ?? existing.email,
       role: updates.role || existing.role,
       positionId: updates.positionId ?? existing.positionId ?? null,
@@ -8079,7 +8110,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'UPDATE users SET name=@name, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
+        'UPDATE users SET name=@name, nameAr=@nameAr, nameEn=@nameEn, email=@email, role=@role, companyIds=@companyIds, positionId=@positionId, companyRoles=@companyRoles, avatar=@avatar, password=@password, isSuperAdmin=@isSuperAdmin, commissionEligible=@commissionEligible, defaultCommissionRate=@defaultCommissionRate, defaultCommissionBasis=@defaultCommissionBasis, costRatePerHour=@costRatePerHour WHERE id=@id',
       )
       .run(updated);
     const after = this.db.prepare('SELECT role, companyRoles, companyIds FROM users WHERE id = ?').get(userId) as { role: string; companyRoles: string | null; companyIds: string } | undefined;
@@ -8156,6 +8187,19 @@ export class DataStore {
     this.bumpAuthzVersion();
   }
 
+  /**
+   * The names a row keeps after an update: worked out again only when the
+   * update sends a name or a side, so other edits never trip on an old row.
+   */
+  private namesAfter(
+    updates: { name?: unknown; nameAr?: unknown; nameEn?: unknown },
+    existing: { name?: string | null; nameAr?: string | null; nameEn?: string | null },
+  ): Names {
+    const current: Names = { name: existing.name ?? '', nameAr: existing.nameAr ?? undefined, nameEn: existing.nameEn ?? undefined };
+    if (updates.name === undefined && updates.nameAr === undefined && updates.nameEn === undefined) return current;
+    return resolveNames(updates, current);
+  }
+
   listProjects(): Project[] {
     const rows = this.db.prepare('SELECT * FROM projects').all() as any[];
     return rows.map((r) => this.decodeProject(r));
@@ -8171,6 +8215,8 @@ export class DataStore {
     const { budgetAlertLevel: _alert, ...rest } = row;
     return {
       ...rest,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       memberIds: this.parseJson<string[]>(row.memberIds) || [],
       clientId: row.clientId || undefined,
       status: row.status || 'Active',
@@ -8185,6 +8231,7 @@ export class DataStore {
   createProject(project: Omit<Project, 'id'>): Project {
     const newProject: Project = {
       ...project,
+      ...resolveNames(project),
       id: uuid(),
       memberIds: project.memberIds || [],
       clientId: project.clientId ?? undefined,
@@ -8193,7 +8240,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'INSERT INTO projects (id, name, description, color, companyId, visibility, memberIds, clientId, status, priority, startDate, endDate, budget) VALUES (@id, @name, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @priority, @startDate, @endDate, @budget)',
+        'INSERT INTO projects (id, name, nameAr, nameEn, description, color, companyId, visibility, memberIds, clientId, status, priority, startDate, endDate, budget) VALUES (@id, @name, @nameAr, @nameEn, @description, @color, @companyId, @visibility, @memberIds, @clientId, @status, @priority, @startDate, @endDate, @budget)',
       )
       .run({
         status: newProject.status ?? 'Active',
@@ -8203,6 +8250,8 @@ export class DataStore {
         budget: newProject.budget ?? null,
         id: newProject.id,
         name: newProject.name,
+        nameAr: newProject.nameAr ?? null,
+        nameEn: newProject.nameEn ?? null,
         description: newProject.description,
         color: newProject.color,
         companyId: newProject.companyId,
@@ -8242,9 +8291,13 @@ export class DataStore {
     const updates = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined)) as typeof changes;
     const updatedMemberIds =
       updates.memberIds ?? (this.parseJson<string[]>(existing.memberIds) || []);
+    const names = this.namesAfter(updates, existing);
     const updated = {
       ...existing,
       ...updates,
+      ...names,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       memberIds: JSON.stringify(updatedMemberIds),
       clientId: updates.clientId ?? existing.clientId ?? undefined,
       description: updates.description ?? existing.description ?? null,
@@ -8258,7 +8311,7 @@ export class DataStore {
     };
     this.db
       .prepare(
-        'UPDATE projects SET name=@name, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, priority=@priority, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
+        'UPDATE projects SET name=@name, nameAr=@nameAr, nameEn=@nameEn, description=@description, color=@color, companyId=@companyId, visibility=@visibility, memberIds=@memberIds, clientId=@clientId, status=@status, priority=@priority, startDate=@startDate, endDate=@endDate, budget=@budget WHERE id=@id',
       )
       .run(updated);
     // A changed budget is judged afresh by the next budget sweep.
@@ -8266,6 +8319,9 @@ export class DataStore {
     const result = {
       ...existing,
       ...updates,
+      name: names.name,
+      nameAr: names.nameAr,
+      nameEn: names.nameEn,
       memberIds: updatedMemberIds,
       clientId: updated.clientId,
       description: updated.description,
@@ -10090,6 +10146,8 @@ export class DataStore {
       companyId: row.companyId,
       userId: row.userId ?? undefined,
       name: row.name,
+      nameAr: row.nameAr ?? undefined,
+      nameEn: row.nameEn ?? undefined,
       email: row.email ?? undefined,
       phone: row.phone ?? undefined,
       jobTitle: row.jobTitle ?? undefined,
@@ -10125,11 +10183,14 @@ export class DataStore {
 
   createEmployee(input: CreateEmployeeInput): Employee {
     const now = new Date().toISOString();
+    const names = resolveNames(input);
     const row = {
       id: uuid(),
       companyId: input.companyId,
       userId: input.userId ?? null,
-      name: input.name,
+      name: names.name,
+      nameAr: names.nameAr ?? null,
+      nameEn: names.nameEn ?? null,
       email: input.email ?? null,
       phone: input.phone ?? null,
       jobTitle: input.jobTitle ?? null,
@@ -10154,8 +10215,8 @@ export class DataStore {
     };
     this.db
       .prepare(
-        `INSERT INTO employees (id, companyId, userId, name, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, bankCode, idType, idNumber, createdAt, updatedAt)
-         VALUES (@id, @companyId, @userId, @name, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @bankCode, @idType, @idNumber, @createdAt, @updatedAt)`,
+        `INSERT INTO employees (id, companyId, userId, name, nameAr, nameEn, email, phone, jobTitle, departmentId, managerId, employmentType, status, hireDate, endDate, annualLeaveAllowance, notes, basicSalary, allowances, deductions, bankName, iban, bankCode, idType, idNumber, createdAt, updatedAt)
+         VALUES (@id, @companyId, @userId, @name, @nameAr, @nameEn, @email, @phone, @jobTitle, @departmentId, @managerId, @employmentType, @status, @hireDate, @endDate, @annualLeaveAllowance, @notes, @basicSalary, @allowances, @deductions, @bankName, @iban, @bankCode, @idType, @idNumber, @createdAt, @updatedAt)`,
       )
       .run(row);
     return this.getEmployeeById(row.id)!;
@@ -10165,14 +10226,17 @@ export class DataStore {
     const e = this.getEmployeeById(id);
     if (!e) return undefined;
     const merged = { ...e, ...updates };
+    const names = this.namesAfter(updates, e);
     this.db
       .prepare(
-        `UPDATE employees SET userId=@userId, name=@name, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, bankCode=@bankCode, idType=@idType, idNumber=@idNumber, updatedAt=@updatedAt WHERE id=@id`,
+        `UPDATE employees SET userId=@userId, name=@name, nameAr=@nameAr, nameEn=@nameEn, email=@email, phone=@phone, jobTitle=@jobTitle, departmentId=@departmentId, managerId=@managerId, employmentType=@employmentType, status=@status, hireDate=@hireDate, endDate=@endDate, annualLeaveAllowance=@annualLeaveAllowance, notes=@notes, basicSalary=@basicSalary, allowances=@allowances, deductions=@deductions, bankName=@bankName, iban=@iban, bankCode=@bankCode, idType=@idType, idNumber=@idNumber, updatedAt=@updatedAt WHERE id=@id`,
       )
       .run({
         id,
         userId: merged.userId ?? null,
-        name: merged.name,
+        name: names.name,
+        nameAr: names.nameAr ?? null,
+        nameEn: names.nameEn ?? null,
         email: merged.email ?? null,
         phone: merged.phone ?? null,
         jobTitle: merged.jobTitle ?? null,

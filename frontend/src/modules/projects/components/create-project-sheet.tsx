@@ -32,10 +32,11 @@ import { createProject } from '@/services/projectService';
 import { useToast } from '@/hooks/use-toast';
 import { useI18n } from '@/context/i18n-context';
 import { ProjectPlanFields, emptyProjectPlan, projectPlanPayload } from './project-plan-fields';
+import { BilingualNameFields, namesOf, namesPayload, type BilingualNames } from '@/components/bilingual-name-fields';
 
 export function CreateProjectSheet() {
   const [open, setOpen] = React.useState(false);
-  const [name, setName] = React.useState('');
+  const [names, setNames] = React.useState<BilingualNames>(namesOf(null));
   const [description, setDescription] = React.useState('');
   const [color, setColor] = React.useState('#4A90E2');
   const [visibility, setVisibility] = React.useState<ProjectVisibility>('Public');
@@ -78,6 +79,8 @@ export function CreateProjectSheet() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const nameFields = namesPayload(names, language);
+    const name = nameFields.name;
     if (!name || !selectedCompany) {
       toast({
         variant: 'destructive',
@@ -89,7 +92,7 @@ export function CreateProjectSheet() {
 
     try {
       await createProject({
-        name,
+        ...nameFields,
         description,
         color,
         companyId: selectedCompany.id,
@@ -104,7 +107,7 @@ export function CreateProjectSheet() {
       });
       refreshProjects(); // Refresh the centralized project list
       // Reset form and close sheet
-      setName('');
+      setNames(namesOf(null));
       setDescription('');
       setColor('#4A90E2');
       setVisibility('Public');
@@ -136,11 +139,9 @@ export function CreateProjectSheet() {
             </SheetHeader>
             <div className="-me-6 min-h-0 flex-1 overflow-y-auto pe-6">
             <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-end">
-                    {tr('Project Name', 'اسم المشروع')}
-                </Label>
-                <Input id="name" placeholder={tr('e.g. Q4 Marketing Campaign', 'مثال: حملة تسويق الربع الرابع')} className="col-span-3" value={name} onChange={e => setName(e.target.value)} />
+                <div className="space-y-1">
+                <p className="text-sm font-medium">{tr('Project Name', 'اسم المشروع')}</p>
+                <BilingualNameFields value={names} onChange={setNames} companyId={selectedCompany?.id} kind="term" idPrefix="project-name" />
                 </div>
 
                  <div className="grid grid-cols-4 items-center gap-4">

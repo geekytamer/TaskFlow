@@ -2,7 +2,7 @@ import { WpsDataError } from '../hr/wps';
 import { subtreeIds, topOf } from '../companies/tree';
 import type { Employee, PayrollRun } from '../types';
 import { HttpError, canAccessCompany } from '../http';
-import { asRecord, enumValue, optionalString, requiredNumber, requiredString } from '../validation';
+import { asRecord, enumValue, nameOf, optionalString, parseNameSides, requireNamesLeft, requiredNumber, requiredString } from '../validation';
 import type { RouteContext } from './context';
 import { type AuthedRequest, companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
@@ -85,11 +85,14 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
   }));
   app.post('/companies/:companyId/employees', authMiddleware, handler((req, res) => {
     requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const body = asRecord(req.body ?? {}, 'body');
+    const sides = parseNameSides(body);
+    const plain = nameOf(body);
+    const name = typeof plain === 'string' ? plain.trim() : '';
     if (!name) throw new HttpError(400, 'Employee name is required.');
     requireFieldEdits(req, req.params.companyId, 'employee', req.body, 'create');
     requireUserLink(req, req.params.companyId, req.body);
-    res.status(201).json(employeeFor(req, store.createEmployee({ ...req.body, companyId: req.params.companyId, name })));
+    res.status(201).json(employeeFor(req, store.createEmployee({ ...req.body, ...sides, companyId: req.params.companyId, name })));
   }));
   app.get('/employees/:id', authMiddleware, handler((req, res) => {
     const employee = store.getEmployeeById(req.params.id);
@@ -103,7 +106,12 @@ export function registerHrRoutes(app: Express, ctx: RouteContext): void {
     requireCompanyRoles(req, employee.companyId, companyManagementRoles);
     requireFieldEdits(req, employee.companyId, 'employee', req.body, employee);
     requireUserLink(req, employee.companyId, req.body, employee);
-    const updated = store.updateEmployee(req.params.id, req.body || {});
+    const body = asRecord(req.body ?? {}, 'body');
+    const changes = { ...body, ...parseNameSides(body) };
+    if (changes.nameAr === undefined) delete changes.nameAr;
+    if (changes.nameEn === undefined) delete changes.nameEn;
+    requireNamesLeft(changes, employee);
+    const updated = store.updateEmployee(req.params.id, changes);
     res.json(updated ? employeeFor(req, updated) : updated);
   }));
   app.get('/employees/:id/leave-balance', authMiddleware, handler((req, res) => {

@@ -1,4 +1,5 @@
 import { HttpError } from './http';
+import { resolveNames } from './names';
 
 export const asRecord = (value: unknown, name: string): Record<string, any> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -142,4 +143,20 @@ export const nameOf = (body: Record<string, unknown>): unknown => {
   const ar = typeof body.nameAr === 'string' ? body.nameAr.trim() : '';
   const en = typeof body.nameEn === 'string' ? body.nameEn.trim() : '';
   return en || ar || body.name;
+};
+
+/**
+ * An update that would leave a record with no name in either language is
+ * refused with a 400 (the store would otherwise throw a plain error).
+ */
+export const requireNamesLeft = (
+  update: { name?: unknown; nameAr?: unknown; nameEn?: unknown },
+  existing: { name?: string | null; nameAr?: string | null; nameEn?: string | null },
+): void => {
+  if (update.name === undefined && update.nameAr === undefined && update.nameEn === undefined) return;
+  try {
+    resolveNames(update, { name: existing.name ?? '', nameAr: existing.nameAr ?? undefined, nameEn: existing.nameEn ?? undefined });
+  } catch (error) {
+    throw new HttpError(400, (error as Error).message);
+  }
 };

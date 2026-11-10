@@ -19,6 +19,9 @@ export interface Employee {
   companyId: string;
   userId?: string;
   name: string;
+  /** Two-language names; `name` stays filled (spec 2026-11-10-bilingual-names-design). */
+  nameAr?: string;
+  nameEn?: string;
   email?: string;
   phone?: string;
   jobTitle?: string;
