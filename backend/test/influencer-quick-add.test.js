@@ -198,3 +198,44 @@ test('quick add refuses text too long to read whole, instead of cutting a link',
   assert.equal(res.status, 400);
   assert.equal(ctx.store.listContacts(ctx.company.id, 'Influencer').length, 0);
 });
+
+test('adding one by one fetches the Instagram profile too, not only paste links', async () => {
+  const ctx = build({ portal: true });
+  const res = await request(ctx.server).post(`/companies/${ctx.company.id}/contacts`).set(ctx.admin).send({
+    name: '@muscat.eats', kind: 'Person', roles: ['Influencer'],
+    influencerPlatform: 'Instagram', influencerHandle: '@muscat.eats',
+    influencerAccounts: [{ platform: 'Instagram', handle: '@muscat.eats' }],
+  });
+  assert.equal(res.status, 201, res.text);
+  await waitForRuns(ctx);
+  const contact = ctx.store.getContactById(res.body.id);
+  assert.equal(contact.influencerAccounts[0].followers, 248000);
+  assert.equal(contact.name, 'Muscat Eats');
+});
+
+test('a new influencer is fetched straight away even while a long run is going', async () => {
+  const ctx = build({ portal: true });
+  // A run already in progress (the weekly refresh of everyone).
+  const busy = ctx.store.discover.startRun(ctx.company.id, 'refresh');
+  const res = await request(ctx.server).post(`/companies/${ctx.company.id}/influencers/quick-add`).set(ctx.admin).send({ text: '@salalah.travels' });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.body.fetching, true, 'the new one does not wait for the long run');
+  for (let i = 0; i < 100; i++) {
+    if (ctx.store.getContactById(res.body.results[0].contact.id).influencerAccounts[0].followers) break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(ctx.store.getContactById(res.body.results[0].contact.id).influencerAccounts[0].followers, 96500);
+  ctx.store.discover.finishRun(busy.id, 'done', 0, 'test');
+});
+
+test('adding an Instagram account to an influencer in an edit fetches it', async () => {
+  const ctx = build({ portal: true });
+  const c = influencer(ctx, 'Travels', [['TikTok', 'travels_tt']]);
+  const res = await request(ctx.server).put(`/contacts/${c.id}`).set(ctx.admin).send({
+    influencerAccounts: [...c.influencerAccounts, { platform: 'Instagram', handle: 'salalah.travels' }],
+  });
+  assert.equal(res.status, 200, res.text);
+  await waitForRuns(ctx);
+  const ig = ctx.store.getContactById(c.id).influencerAccounts.find((a) => a.platform === 'Instagram');
+  assert.equal(ig.followers, 96500);
+});

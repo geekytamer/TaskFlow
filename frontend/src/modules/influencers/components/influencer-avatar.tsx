@@ -6,7 +6,8 @@ import { getInfluencerPhotos, influencerPhotoUrl } from '@/services/discoverServ
 import { cn } from '@/lib/utils';
 
 /** Which influencers have a photo (from the weekly Instagram check or their connection). Null while loading. */
-export function useInfluencerPhotos(companyId: string | undefined): Record<string, string> | null {
+/** Photos by contact id; `version` reloads them (after new profiles were fetched). */
+export function useInfluencerPhotos(companyId: string | undefined, version = 0): Record<string, string> | null {
   const [photos, setPhotos] = React.useState<Record<string, string> | null>(null);
   const { moduleOn } = usePermissions();
   const on = moduleOn('influencers');
@@ -15,7 +16,7 @@ export function useInfluencerPhotos(companyId: string | undefined): Record<strin
     let cancelled = false;
     void getInfluencerPhotos(companyId).then((p) => { if (!cancelled) setPhotos(p); });
     return () => { cancelled = true; };
-  }, [companyId, on]);
+  }, [companyId, on, version]);
   return photos;
 }
 

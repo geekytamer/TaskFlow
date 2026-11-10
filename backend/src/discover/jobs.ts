@@ -1,6 +1,6 @@
 import type { DataStore } from '../data/store';
 import type { DiscoverScraper } from './apify';
-import type { DiscoverRun } from './discover-store';
+import type { DiscoverProfile, DiscoverRun } from './discover-store';
 import { omaniSignal, parseHandleList } from './discover';
 import type { Contact } from '../types';
 import { cleanDisplayName } from '../influencers/handles';
@@ -100,20 +100,51 @@ export async function refreshDue(store: DataStore, scraper: DiscoverScraper, com
 
   const run = store.discover.startRun(companyId, 'refresh');
   try {
-    const fetched = await scraper.profiles(due.map((p) => p.username));
-    const byName = new Map(fetched.map((p) => [p.username, p]));
-    for (const profile of due) {
-      const found = byName.get(profile.username);
-      if (!found) { store.discover.markMissing(profile.id, 'Not found: the account may be renamed, private or deleted.', now); continue; }
-      const photo = found.photoUrl ? await scraper.photo(found.photoUrl) : null;
-      const saved = store.discover.saveFetched(companyId, found, photo, { status: profile.status, source: profile.source }, now);
-      // Peak's own influencers: the fresh figures go onto their record too.
-      if (saved.isRoster && saved.contactId) {
-        store.syncInfluencerInstagram(saved.contactId, saved.username, { followers: found.followers, engagementRate: saved.engagementRate }, now.toISOString());
-        nameFromInstagram(store, saved.contactId, saved.username, found.fullName);
-      }
+    const fetched = await fetchInto(store, scraper, companyId, due, now);
+    store.discover.finishRun(run.id, 'done', fetched, `${fetched} of ${due.length} profiles updated.`);
+  } catch (error) {
+    store.discover.finishRun(run.id, 'failed', 0, (error as Error).message.slice(0, 300));
+  }
+  return store.discover.runs(companyId, 1)[0];
+}
+
+/** Fetches these profiles and saves them; Peak's own influencers get the figures, photo and name on their record. */
+async function fetchInto(store: DataStore, scraper: DiscoverScraper, companyId: string, profiles: DiscoverProfile[], now: Date): Promise<number> {
+  const fetched = await scraper.profiles(profiles.map((p) => p.username));
+  const byName = new Map(fetched.map((p) => [p.username, p]));
+  for (const profile of profiles) {
+    const found = byName.get(profile.username);
+    if (!found) { store.discover.markMissing(profile.id, 'Not found: the account may be renamed, private or deleted.', now); continue; }
+    const photo = found.photoUrl ? await scraper.photo(found.photoUrl) : null;
+    const saved = store.discover.saveFetched(companyId, found, photo, { status: profile.status, source: profile.source }, now);
+    // Peak's own influencers: the fresh figures go onto their record too.
+    if (saved.isRoster && saved.contactId) {
+      store.syncInfluencerInstagram(saved.contactId, saved.username, { followers: found.followers, engagementRate: saved.engagementRate }, now.toISOString());
+      nameFromInstagram(store, saved.contactId, saved.username, found.fullName);
     }
-    store.discover.finishRun(run.id, 'done', fetched.length, `${fetched.length} of ${due.length} profiles updated.`);
+  }
+  return fetched.length;
+}
+
+/**
+ * Influencers just added (or given an Instagram account) that were never
+ * fetched: fetched now, on their own, without waiting for the weekly refresh
+ * of everyone or for a run already going. Null when there is nothing new.
+ */
+export async function fetchNewRoster(store: DataStore, scraper: DiscoverScraper, companyId: string, opts: JobOptions): Promise<DiscoverRun | null> {
+  const now = opts.now ?? new Date();
+  syncRoster(store, companyId);
+  const connected = connectedContactIds(store, companyId);
+  const fresh = store.discover.rosterProfiles(companyId)
+    .filter((p) => !p.lastFetchedAt && !(p.contactId && connected.has(p.contactId)))
+    .slice(0, 50);
+  if (fresh.length === 0) return null;
+  const used = store.discover.resultsThisMonth(companyId, now);
+  if (used + fresh.length > opts.monthlyCap) return refuse(store, companyId, 'refresh', budgetMessage(used, fresh.length, opts.monthlyCap));
+  const run = store.discover.startRun(companyId, 'refresh');
+  try {
+    const fetched = await fetchInto(store, scraper, companyId, fresh, now);
+    store.discover.finishRun(run.id, 'done', fetched, `${fetched} new influencer profile(s) fetched.`);
   } catch (error) {
     store.discover.finishRun(run.id, 'failed', 0, (error as Error).message.slice(0, 300));
   }
