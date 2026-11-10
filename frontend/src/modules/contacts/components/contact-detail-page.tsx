@@ -33,6 +33,7 @@ import { InfluencerAvatar, useInfluencerPhotos } from '@/modules/influencers/com
 import { PortalAccessPanel } from '@/modules/portal-access/components/portal-access-panel';
 import { useCanManagePortal } from '@/modules/portal-access/lib/use-can-manage-portal';
 import { agingOf, dayText, quickLinks, sinceText, statementOf } from '../lib/contact-finance';
+import { accountLinks, displayName } from '@/modules/influencers/lib/influencer-list';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -295,7 +296,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             )}
             <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{c.name}</h1>
+                <h1 className="text-2xl font-bold tracking-tight md:text-3xl" dir="auto">{displayName(c.name)}</h1>
                 {c.visibility === 'Private' && (
                   <span title={t('crm.visibilityPrivate')}><Lock className="h-4 w-4 text-red-500" /></span>
                 )}
@@ -629,14 +630,14 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                     value={!canSeePricing && c.rateCardAmount == null ? hiddenText(language) : c.rateCardAmount != null ? money(c.rateCardAmount) : empty}
                   />
                 </div>
-                {(c.influencerAccounts || []).length > 0 ? (
+                {accountLinks(c).length > 0 ? (
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {(c.influencerAccounts || []).map((acc) => (
-                      <div key={acc.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    {accountLinks(c).map((acc) => (
+                      <div key={acc.key} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium">{acc.platform}</span>
-                            {acc.handle && <span className="truncate text-xs text-muted-foreground" dir="ltr">{acc.handle}</span>}
+                            {acc.handle && <span className="truncate text-xs text-muted-foreground" dir="ltr">@{acc.handle}</span>}
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
                             {acc.followers ? `${compact(acc.followers)} ${tr('followers', 'متابع')}` : tr('No follower count', 'لا يوجد عدد متابعين')}
@@ -644,8 +645,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                           </p>
                         </div>
                         {acc.url && (
-                          <a href={acc.url} target="_blank" rel="noreferrer" className="shrink-0 text-primary" title={tr('Open profile', 'فتح الحساب')}>
-                            <ExternalLink className="h-4 w-4" />
+                          <a href={acc.url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+                            {tr('Open', 'فتح')}<ExternalLink className="h-3.5 w-3.5" />
                           </a>
                         )}
                       </div>

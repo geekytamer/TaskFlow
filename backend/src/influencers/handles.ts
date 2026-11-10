@@ -33,6 +33,41 @@ const siteOf = (raw: string) => {
 };
 
 /**
+ * A handle as stored: without the "@" the page adds, spaces or a trailing
+ * slash. A pasted profile link of a known platform gives its handle.
+ */
+export function cleanHandle(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const text = raw.trim();
+  if (!text) return undefined;
+  const site = siteOf(text);
+  const url = site ? asUrl(text) : null;
+  if (site && url) {
+    const fromLink = url.pathname.match(site.handle)?.[1];
+    if (fromLink && !site.notProfiles?.includes(fromLink.toLowerCase())) return decodeURIComponent(fromLink);
+  }
+  const handle = text.replace(/^@+/, '').replace(/\/+$/, '').trim();
+  return handle || undefined;
+}
+
+/** The profile link of an account on a known platform; undefined for Other or without a handle. */
+export function profileUrlOf(platform: string, handle: string | undefined): string | undefined {
+  if (!handle) return undefined;
+  return SITES.find((s) => s.platform === platform)?.url(handle);
+}
+
+/**
+ * A name as shown: without the replacement character (from a name cut in the
+ * middle of an emoji) or control characters, spaces tidied. Real emoji stay.
+ */
+export function cleanDisplayName(raw: string): string {
+  return raw
+    .replace(/[\uFFFD\u0000-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * A profile link of a known platform, or a bare handle (with or without @),
  * which means Instagram: the platform the directory fetches. Post links, other
  * sites and anything that is not a handle give null. Handles can look like

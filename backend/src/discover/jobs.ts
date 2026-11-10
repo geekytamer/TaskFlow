@@ -3,6 +3,7 @@ import type { DiscoverScraper } from './apify';
 import type { DiscoverRun } from './discover-store';
 import { omaniSignal, parseHandleList } from './discover';
 import type { Contact } from '../types';
+import { cleanDisplayName } from '../influencers/handles';
 
 /** The directory holds at most this many listed and candidate profiles. */
 export const DIRECTORY_LIMIT = 200;
@@ -39,7 +40,7 @@ export function instagramHandleOf(contact: Contact): string | null {
 
 /** A record added by its handle alone (named "@handle") takes the Instagram name once it is known. */
 function nameFromInstagram(store: DataStore, contactId: string, username: string, fullName: string | null): void {
-  const name = fullName?.trim();
+  const name = fullName ? cleanDisplayName(fullName) : '';
   if (!name || store.getContactById(contactId)?.name !== `@${username}`) return;
   store.updateContact(contactId, { name });
 }

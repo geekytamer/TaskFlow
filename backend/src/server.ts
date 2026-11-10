@@ -67,6 +67,7 @@ import { createDiscoverStaffRouter } from './discover/staff-routes';
 import { discoverScraperFromEnv, downloadImage, type DiscoverScraper } from './discover/apify';
 import { discoverTick, refreshDue, syncRoster } from './discover/jobs';
 import { assertNoHandleClash, quickAddInfluencers } from './influencers/service';
+import { cleanHandle, profileUrlOf } from './influencers/handles';
 import { INFLUENCER_CSV_COLUMNS, importInfluencerRows, influencerCsvRow } from './influencers/csv';
 import {
   influencerPlatforms,
@@ -195,8 +196,9 @@ function parseInfluencerAccounts(raw: unknown): InfluencerAccount[] | undefined 
     .map((a) => ({
       id: typeof a.id === 'string' && a.id ? a.id : randomUUID(),
       platform: enumValue(a.platform, 'platform', influencerPlatforms),
-      handle: optionalString(a.handle),
-      url: optionalString(a.url),
+      // Stored without "@"; the profile link is built from the handle when none was given.
+      handle: cleanHandle(a.handle),
+      url: optionalString(a.url) ?? profileUrlOf(String(a.platform), cleanHandle(a.handle)),
       followers: optionalNumber(a.followers),
       avgViews: optionalNumber(a.avgViews),
       engagementRate: optionalNumber(a.engagementRate),
@@ -4019,7 +4021,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	      if (Array.isArray(body.roles) && body.roles.includes('Influencer')) {
 	        assertNoHandleClash(store, companyId, {
 	          influencerPlatform: optionalString(body.influencerPlatform),
-	          influencerHandle: optionalString(body.influencerHandle),
+	          influencerHandle: cleanHandle(body.influencerHandle),
 	          influencerAccounts,
 	        });
 	      }
@@ -4048,7 +4050,7 @@ export function createServer(options: CreateServerOptions = {}) {
 		        nextFollowupDate: body.nextFollowupDate ? new Date(optionalDateInput(body.nextFollowupDate)!) : undefined,
 		        nextFollowupNote: optionalString(body.nextFollowupNote),
 		        influencerPlatform: optionalString(body.influencerPlatform),
-	        influencerHandle: optionalString(body.influencerHandle),
+	        influencerHandle: cleanHandle(body.influencerHandle),
 	        influencerNiche: normalizeNiches(optionalString(body.influencerNiche)) ?? undefined,
 	        followerCount: optionalNumber(body.followerCount),
 	        engagementRate: optionalNumber(body.engagementRate),
@@ -4094,7 +4096,7 @@ export function createServer(options: CreateServerOptions = {}) {
       if (existing.roles?.includes('Influencer')) {
         assertNoHandleClash(store, existing.companyId, {
           influencerPlatform: body.influencerPlatform !== undefined ? optionalString(body.influencerPlatform) : existing.influencerPlatform,
-          influencerHandle: body.influencerHandle !== undefined ? optionalString(body.influencerHandle) : existing.influencerHandle,
+          influencerHandle: body.influencerHandle !== undefined ? cleanHandle(body.influencerHandle) : existing.influencerHandle,
           influencerAccounts: influencerAccounts ?? existing.influencerAccounts,
         }, existing);
       }
@@ -4113,7 +4115,7 @@ export function createServer(options: CreateServerOptions = {}) {
 	        tags: Array.isArray(body.tags) ? body.tags : undefined,
 	        notes: clearableString(body, 'notes'),
 	        influencerPlatform: clearableString(body, 'influencerPlatform'),
-	        influencerHandle: clearableString(body, 'influencerHandle'),
+	        influencerHandle: (() => { const v = clearableString(body, 'influencerHandle'); return v ? cleanHandle(v) ?? null : v; })(),
 	        influencerNiche: (() => { const v = clearableString(body, 'influencerNiche'); return v ? normalizeNiches(v) ?? null : v; })(),
 	        followerCount: clearableNumber(body, 'followerCount'),
 	        engagementRate: clearableNumber(body, 'engagementRate'),
