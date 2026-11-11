@@ -711,6 +711,10 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/whatsapp/chats/:chatId/read', permission: 'whatsapp.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/whatsapp/chats/:chatId/sync-history', permission: 'whatsapp.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/whatsapp/open-chat', permission: 'whatsapp.send', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/window', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/templates', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/whatsapp/send-template', permission: 'whatsapp.send', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/media/:mediaId', permission: 'whatsapp.view', legacyRoles: MGMT },
 
   // ─── settings ──────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:id', permission: 'settings.view', legacyRoles: ALL },
@@ -821,6 +825,8 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/auth/set-password', permission: 'public', note: 'routes/password.ts: the one-time token is the credential; rate-limited' },
   { method: 'GET', path: '/public/documents/:id', permission: 'public', note: 'unguessable share link' },
   { method: 'POST', path: '/whatsapp/webhook/:webhookToken', permission: 'public', note: 'Green API webhook: the secret token in the path identifies the company' },
+  { method: 'GET', path: '/whatsapp/cloud-webhook/:webhookToken', permission: 'public', note: 'Meta Cloud API webhook check: verify token = the company webhook token' },
+  { method: 'POST', path: '/whatsapp/cloud-webhook/:webhookToken', permission: 'public', note: 'Meta Cloud API webhook: X-Hub-Signature-256 with the company app secret' },
   { method: 'GET', path: '/push/public-key', permission: 'public' },
   { method: 'POST', path: '/push-actions/:token', permission: 'public', note: 'no session: a signed single-purpose token; on use the user must still pass contacts:write (store.listUserIdsWithPermission, i.e. inbox.send), see the contact, and the Academy contacts lock' },
   { method: 'GET', path: '/portal-api/:audience/branding', permission: 'public' },

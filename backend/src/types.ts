@@ -1296,11 +1296,20 @@ export type WhatsAppInstanceState =
   | 'yellowCard'
   | 'unknown';
 
+/** green = Green API (QR-linked number); cloud = Meta's official Cloud API. */
+export type WhatsAppProvider = 'green' | 'cloud';
+
 export interface WhatsAppInstance {
   id: string;
   companyId: string;
+  provider: WhatsAppProvider;
+  /** Green: instance id. Cloud: the Phone Number ID. */
   idInstance: string;
-  // apiToken is intentionally never returned to the frontend.
+  /** Cloud only: the WhatsApp Business Account ID (for templates). */
+  wabaId?: string;
+  /** Cloud only: whether an app secret is stored (webhook signatures). */
+  hasAppSecret?: boolean;
+  // apiToken and appSecret are intentionally never returned to the frontend.
   phoneNumber?: string;
   displayName?: string;
   state: WhatsAppInstanceState;

@@ -159,6 +159,7 @@ import {
   DeliveryLineItem,
   WhatsAppInstance,
   WhatsAppInstanceState,
+  WhatsAppProvider,
   WhatsAppMessage,
   WhatsAppMessageDirection,
   WhatsAppMessageStatus,
@@ -6024,6 +6025,18 @@ export class DataStore {
               (scriptSide(name) === 'ar' ? toAr : toEn).run(name, row.id);
             }
           }
+        },
+      },
+      {
+        // Meta's official WhatsApp Cloud API next to Green API: a provider per
+        // connection, the business account id (templates) and the app secret
+        // (webhook signatures). Existing connections stay on Green API.
+        id: '173_whatsapp_cloud_api',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(whatsapp_instances)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('provider')) this.db.exec(`ALTER TABLE whatsapp_instances ADD COLUMN provider TEXT NOT NULL DEFAULT 'green';`);
+          if (!columns.includes('wabaId')) this.db.exec('ALTER TABLE whatsapp_instances ADD COLUMN wabaId TEXT;');
+          if (!columns.includes('appSecretEncrypted')) this.db.exec('ALTER TABLE whatsapp_instances ADD COLUMN appSecretEncrypted TEXT;');
         },
       },
     ];
@@ -16663,7 +16676,10 @@ export class DataStore {
     return {
       id: row.id,
       companyId: row.companyId,
+      provider: row.provider === 'cloud' ? 'cloud' : 'green',
       idInstance: row.idInstance,
+      wabaId: row.wabaId ?? undefined,
+      hasAppSecret: row.provider === 'cloud' ? Boolean(row.appSecretEncrypted) : undefined,
       phoneNumber: row.phoneNumber ?? undefined,
       displayName: row.displayName ?? undefined,
       state: row.state as WhatsAppInstanceState,
@@ -16704,35 +16720,91 @@ export class DataStore {
     };
   }
 
+  /** Cloud API credentials (decrypted), or undefined for a Green API company. */
+  getWhatsappCloudCredentials(
+    companyId: string,
+  ): { phoneNumberId: string; accessToken: string; wabaId?: string; appSecret?: string } | undefined {
+    const row = this.db
+      .prepare('SELECT provider, idInstance, apiTokenEncrypted, wabaId, appSecretEncrypted FROM whatsapp_instances WHERE companyId = ?')
+      .get(companyId) as any;
+    if (!row || row.provider !== 'cloud') return undefined;
+    return {
+      phoneNumberId: row.idInstance,
+      accessToken: this.decryptApiToken(row.apiTokenEncrypted),
+      wabaId: row.wabaId ?? undefined,
+      appSecret: row.appSecretEncrypted ? this.decryptApiToken(row.appSecretEncrypted) : undefined,
+    };
+  }
+
+  /** The message a media link belongs to (to check who may open it). */
+  findWhatsappMessageByMedia(companyId: string, mediaUrl: string): WhatsAppMessage | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_messages WHERE companyId = ? AND mediaUrl = ? LIMIT 1')
+      .get(companyId, mediaUrl) as any;
+    return row ? this.decodeWhatsappMessage(row) : undefined;
+  }
+
+  /** When the customer last wrote in this chat (opens Meta's 24-hour window). */
+  lastWhatsappInboundAt(companyId: string, chatId: string): Date | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT MAX(COALESCE(receivedAt, createdAt)) AS at FROM whatsapp_messages
+          WHERE companyId = ? AND chatId = ? AND direction = 'inbound'`,
+      )
+      .get(companyId, chatId) as { at: string | null } | undefined;
+    return row?.at ? new Date(row.at) : undefined;
+  }
+
   upsertWhatsappInstance(
     companyId: string,
     input: {
+      provider?: WhatsAppProvider;
       idInstance: string;
-      apiToken: string;
+      /** Empty on an update keeps the stored token (same provider only). */
+      apiToken?: string;
       apiHost?: string;
       phoneNumber?: string;
       displayName?: string;
+      wabaId?: string;
+      /** Empty on an update keeps the stored secret. */
+      appSecret?: string;
     },
   ): WhatsAppInstance {
+    const provider: WhatsAppProvider = input.provider === 'cloud' ? 'cloud' : 'green';
     const idInstance = String(input.idInstance || '').trim();
     const apiToken = String(input.apiToken || '').trim();
-    if (!idInstance) throw new Error('idInstance is required.');
-    if (!apiToken) throw new Error('apiToken is required.');
+    const appSecret = String(input.appSecret || '').trim();
+    if (!idInstance) throw new Error(provider === 'cloud' ? 'Phone Number ID is required.' : 'idInstance is required.');
 
     const now = new Date().toISOString();
     const existing = this.getWhatsappInstanceForCompany(companyId);
-    const encrypted = this.encryptApiToken(apiToken);
+    // A token may be left out only when it is already stored for this same provider.
+    const keepToken = !apiToken && existing && existing.provider === provider;
+    if (!apiToken && !keepToken) throw new Error(provider === 'cloud' ? 'Access token is required.' : 'apiToken is required.');
+    const keepSecret = !appSecret && existing && existing.provider === provider;
+    if (provider === 'cloud' && !appSecret && !(keepSecret && existing?.hasAppSecret)) {
+      throw new Error('App secret is required to verify WhatsApp webhooks.');
+    }
+    const encrypted = keepToken ? null : this.encryptApiToken(apiToken);
+    const encryptedSecret = provider === 'cloud' && appSecret ? this.encryptApiToken(appSecret) : null;
+    const wabaId = provider === 'cloud' ? String(input.wabaId || '').trim() || null : null;
     if (existing) {
+      const switching = existing.provider !== provider || existing.idInstance !== idInstance;
       this.db
         .prepare(
-          `UPDATE whatsapp_instances SET idInstance = ?, apiTokenEncrypted = ?, apiHost = ?,
-             phoneNumber = COALESCE(?, phoneNumber), displayName = COALESCE(?, displayName), updatedAt = ?
+          `UPDATE whatsapp_instances SET provider = ?, idInstance = ?, apiTokenEncrypted = COALESCE(?, apiTokenEncrypted), apiHost = ?,
+             wabaId = ?, appSecretEncrypted = ${provider === 'cloud' ? 'COALESCE(?, appSecretEncrypted)' : '?'},
+             phoneNumber = COALESCE(?, phoneNumber), displayName = COALESCE(?, displayName),
+             state = ${switching ? "'notAuthorized'" : 'state'}, updatedAt = ?
              WHERE companyId = ?`,
         )
         .run(
+          provider,
           idInstance,
           encrypted,
-          input.apiHost ?? null,
+          provider === 'green' ? input.apiHost ?? null : null,
+          wabaId,
+          encryptedSecret,
           input.phoneNumber ?? null,
           input.displayName ?? null,
           now,
@@ -16741,15 +16813,18 @@ export class DataStore {
     } else {
       this.db
         .prepare(
-          `INSERT INTO whatsapp_instances (id, companyId, idInstance, apiTokenEncrypted, apiHost, phoneNumber, displayName, state, webhookToken, createdAt, updatedAt)
-           VALUES (@id, @companyId, @idInstance, @apiTokenEncrypted, @apiHost, @phoneNumber, @displayName, @state, @webhookToken, @createdAt, @updatedAt)`,
+          `INSERT INTO whatsapp_instances (id, companyId, provider, idInstance, apiTokenEncrypted, apiHost, wabaId, appSecretEncrypted, phoneNumber, displayName, state, webhookToken, createdAt, updatedAt)
+           VALUES (@id, @companyId, @provider, @idInstance, @apiTokenEncrypted, @apiHost, @wabaId, @appSecretEncrypted, @phoneNumber, @displayName, @state, @webhookToken, @createdAt, @updatedAt)`,
         )
         .run({
           id: uuid(),
           companyId,
+          provider,
           idInstance,
           apiTokenEncrypted: encrypted,
-          apiHost: input.apiHost ?? null,
+          wabaId,
+          appSecretEncrypted: encryptedSecret,
+          apiHost: provider === 'green' ? input.apiHost ?? null : null,
           phoneNumber: input.phoneNumber ?? null,
           displayName: input.displayName ?? null,
           state: 'notAuthorized',
@@ -17203,6 +17278,7 @@ export class DataStore {
     externalId: string,
     status: WhatsAppMessageStatus,
     timestamp?: Date,
+    error?: string,
   ): WhatsAppMessage | undefined {
     if (!externalId) return undefined;
     const ts = (timestamp || new Date()).toISOString();
@@ -17214,9 +17290,19 @@ export class DataStore {
           : status === 'sent'
             ? 'sentAt = COALESCE(sentAt, ?)'
             : 'createdAt = COALESCE(createdAt, ?)';
+    // A status never moves backwards: a late "delivered" does not undo "read".
+    // "failed" always wins (Meta can fail a message it first accepted).
+    const rank: Record<string, number> = { pending: 0, sent: 1, delivered: 2, read: 3 };
+    const current = this.db
+      .prepare('SELECT status FROM whatsapp_messages WHERE externalId = ?')
+      .get(externalId) as { status: string } | undefined;
+    if (current && status !== 'failed' && current.status !== 'failed' && (rank[current.status] ?? 0) > (rank[status] ?? 0)) {
+      const kept = this.db.prepare('SELECT * FROM whatsapp_messages WHERE externalId = ?').get(externalId) as any;
+      return kept ? this.decodeWhatsappMessage(kept) : undefined;
+    }
     this.db
-      .prepare(`UPDATE whatsapp_messages SET status = ?, ${setColumn} WHERE externalId = ?`)
-      .run(status, ts, externalId);
+      .prepare(`UPDATE whatsapp_messages SET status = ?, ${setColumn}${status === 'failed' && error ? ', error = ?' : ''} WHERE externalId = ?`)
+      .run(...(status === 'failed' && error ? [status, ts, error, externalId] : [status, ts, externalId]));
     const row = this.db
       .prepare('SELECT * FROM whatsapp_messages WHERE externalId = ?')
       .get(externalId) as any;

@@ -75,6 +75,9 @@ const KNOWN_UNGATED = new Set([
     'POST /tasks/mark-invoiced',
     'DELETE /time-entries/:id',
     'POST /whatsapp/webhook/:webhookToken',
+    // Meta Cloud API webhook: the company's secret token in the path, and a signature made with its app secret.
+    'GET /whatsapp/cloud-webhook/:webhookToken',
+    'POST /whatsapp/cloud-webhook/:webhookToken',
     'POST /seed',
     // Phone notifications: the public key, and each signed-in person's own devices. No company data.
     'GET /push/public-key',
