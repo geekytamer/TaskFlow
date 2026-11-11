@@ -1,14 +1,61 @@
 import { HttpError } from '../http';
 import { asRecord, optionalString, requiredString } from '../validation';
 import { greenApi, toChatId, GreenApiError } from '../services/greenApi';
+import { metaWhatsapp, CloudApiError, renderTemplate, verifyCloudSignature } from '../services/metaWhatsapp';
+import { conversationWindow, sendWhatsappText, toSendError, WhatsappSendError } from '../services/whatsappSender';
+import { ingestCloudWebhook } from '../services/whatsappCloudWebhook';
+import type { DataStore } from '../data/store';
 import type { RouteContext } from './context';
 import { scopeOf } from '../authz/can';
 import { companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
 
-/** WhatsApp (Green API) integration. */
+/** Messages Meta's Cloud API does not offer (Green API only). */
+const CLOUD_UNSUPPORTED = 'Not available on the official WhatsApp Cloud API.';
+
+function scheduleInboundFollowup(store: DataStore, logger: RouteContext['logger'], companyId: string, messageId: string, contactId: string) {
+  try {
+    store.scheduleAutomaticFollowup({
+      companyId,
+      contactId,
+      trigger: 'InboundWhatsapp',
+      sourceType: 'whatsapp_message',
+      sourceId: messageId,
+      summary: 'New WhatsApp message — reply needed.',
+      nextAction: 'Reply to the inbound WhatsApp message.',
+      offsetDays: 0,
+      category: 'WhatsApp',
+    });
+  } catch (error) {
+    logger.error('Failed to schedule InboundWhatsapp follow-up', error);
+  }
+}
+
+/** WhatsApp integration: Green API (QR-linked number) or Meta's Cloud API. */
 export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
   const { store, authMiddleware, requireCompanyRoles, viewerOf, canSee, logger } = ctx;
+
+  const requireCloud = (companyId: string) => {
+    const instance = store.getWhatsappInstanceForCompany(companyId);
+    if (!instance) throw new HttpError(404, 'WhatsApp instance is not configured for this company.');
+    if (instance.provider !== 'cloud') throw new HttpError(400, 'Only for the official WhatsApp Cloud API.');
+    const creds = store.getWhatsappCloudCredentials(companyId);
+    if (!creds) throw new HttpError(500, 'WhatsApp credentials missing.');
+    return { instance, creds };
+  };
+
+  const wrapCloud = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof CloudApiError) {
+        throw new HttpError(error.status >= 400 && error.status < 600 ? error.status : 502, error.message);
+      }
+      throw error;
+    }
+  };
+
+  const isCloud = (companyId: string) => store.getWhatsappInstanceForCompany(companyId)?.provider === 'cloud';
 
   const requireWhatsapp = (companyId: string) => {
     const instance = store.getWhatsappInstanceForCompany(companyId);
@@ -45,15 +92,18 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     handler((req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin']);
       const body = asRecord(req.body, 'body');
-      const idInstance = requiredString(body.idInstance, 'idInstance');
-      const apiToken = requiredString(body.apiToken, 'apiToken');
+      const provider = optionalString(body.provider) === 'cloud' ? 'cloud' : 'green';
+      const idInstance = requiredString(body.idInstance, provider === 'cloud' ? 'phoneNumberId' : 'idInstance');
       try {
         const instance = store.upsertWhatsappInstance(req.params.companyId, {
+          provider,
           idInstance,
-          apiToken,
+          apiToken: optionalString(body.apiToken) || undefined,
           apiHost: optionalString(body.apiHost) || undefined,
           phoneNumber: optionalString(body.phoneNumber) || undefined,
           displayName: optionalString(body.displayName) || undefined,
+          wabaId: optionalString(body.wabaId) || undefined,
+          appSecret: optionalString(body.appSecret) || undefined,
         });
         res.json(instance);
       } catch (error) {
@@ -77,6 +127,26 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      if (isCloud(req.params.companyId)) {
+        const { creds } = requireCloud(req.params.companyId);
+        try {
+          const number = await metaWhatsapp.getPhoneNumber(creds);
+          const updated = store.updateWhatsappInstanceState(
+            req.params.companyId,
+            'authorized',
+            number.display_phone_number || undefined,
+            number.verified_name || undefined,
+          );
+          res.json(updated);
+        } catch (error) {
+          // A rejected token or number id: not connected. Other failures say nothing about the link.
+          if (error instanceof CloudApiError && (error.status === 401 || error.status === 400 || error.code === 190)) {
+            store.updateWhatsappInstanceState(req.params.companyId, 'notAuthorized');
+          }
+          throw error instanceof CloudApiError ? new HttpError(error.status >= 400 && error.status < 600 ? error.status : 502, error.message) : error;
+        }
+        return;
+      }
       const { creds } = requireWhatsapp(req.params.companyId);
       const state = await wrapGreenApi(() => greenApi.getStateInstance(creds));
       const updated = store.updateWhatsappInstanceState(req.params.companyId, state);
@@ -89,6 +159,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      if (isCloud(req.params.companyId)) throw new HttpError(400, CLOUD_UNSUPPORTED);
       const { creds } = requireWhatsapp(req.params.companyId);
       const qr = await wrapGreenApi(() => greenApi.getQrCode(creds));
       res.json(qr);
@@ -100,12 +171,23 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin']);
-      const { instance, creds } = requireWhatsapp(req.params.companyId);
       const body = asRecord(req.body ?? {}, 'body');
       const publicBaseUrl =
         optionalString(body.baseUrl) ||
         process.env.PUBLIC_BASE_URL ||
         `${req.protocol}://${req.get('host')}`;
+      if (isCloud(req.params.companyId)) {
+        // Meta takes the webhook in its own dashboard: hand back what to paste there.
+        const { instance } = requireCloud(req.params.companyId);
+        res.json({
+          success: true,
+          manual: true,
+          webhookUrl: `${publicBaseUrl.replace(/\/$/, '')}/whatsapp/cloud-webhook/${instance.webhookToken}`,
+          verifyToken: instance.webhookToken,
+        });
+        return;
+      }
+      const { instance, creds } = requireWhatsapp(req.params.companyId);
       const webhookUrl = `${publicBaseUrl.replace(/\/$/, '')}/whatsapp/webhook/${instance.webhookToken}`;
       await wrapGreenApi(() => greenApi.configureWebhook(creds, webhookUrl, instance.webhookToken));
       res.json({ success: true, webhookUrl });
@@ -117,6 +199,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, ['Admin']);
+      if (isCloud(req.params.companyId)) throw new HttpError(400, CLOUD_UNSUPPORTED);
       const { creds } = requireWhatsapp(req.params.companyId);
       const result = await wrapGreenApi(() => greenApi.logout(creds));
       const refreshed = store.updateWhatsappInstanceState(req.params.companyId, 'notAuthorized');
@@ -129,7 +212,8 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
-      const { instance, creds } = requireWhatsapp(req.params.companyId);
+      const instance = store.getWhatsappInstanceForCompany(req.params.companyId);
+      if (!instance) throw new HttpError(404, 'WhatsApp instance is not configured for this company.');
       const body = asRecord(req.body, 'body');
       const phone = requiredString(body.phone, 'phone');
       const message = requiredString(body.message, 'message');
@@ -140,7 +224,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       const actorUserId = req.user?.id;
       const actorName = req.user?.name;
       try {
-        const sent = await wrapGreenApi(() => greenApi.sendMessage(creds, chatId, message));
+        const sent = await sendWhatsappText(store, req.params.companyId, phone, message);
         const stored = store.createWhatsappMessage({
           companyId: req.params.companyId,
           instanceId: instance.id,
@@ -160,6 +244,10 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
         });
         res.status(201).json(stored);
       } catch (error) {
+        // A closed 24-hour window is refused before Meta: nothing was sent, nothing to record.
+        if (error instanceof WhatsappSendError && error.reason === 'windowClosed') {
+          throw new HttpError(409, error.message, { code: 'windowClosed' });
+        }
         store.createWhatsappMessage({
           companyId: req.params.companyId,
           instanceId: instance.id,
@@ -176,8 +264,106 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
           actorUserId,
           actorName,
         });
+        if (error instanceof WhatsappSendError) throw new HttpError(error.status, error.message);
         throw error;
       }
+    }),
+  );
+
+  /** Cloud API: can free text go to this chat now, or only a template? */
+  app.get(
+    '/companies/:companyId/whatsapp/window',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const raw = String(req.query.chatId || req.query.phone || '');
+      if (!raw) throw new HttpError(400, 'chatId is required.');
+      const chatId = raw.endsWith('@c.us') ? raw : toChatId(raw);
+      res.json(conversationWindow(store, req.params.companyId, chatId));
+    }),
+  );
+
+  /** Cloud API: the company's approved message templates. */
+  app.get(
+    '/companies/:companyId/whatsapp/templates',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { creds } = requireCloud(req.params.companyId);
+      res.json(await wrapCloud(() => metaWhatsapp.listTemplates(creds)));
+    }),
+  );
+
+  /** Cloud API: sends an approved template (works outside the 24-hour window). */
+  app.post(
+    '/companies/:companyId/whatsapp/send-template',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { instance, creds } = requireCloud(req.params.companyId);
+      const body = asRecord(req.body, 'body');
+      const phone = requiredString(body.phone, 'phone');
+      const name = requiredString(body.name, 'name');
+      const language = requiredString(body.language, 'language');
+      const variables = Array.isArray(body.variables) ? body.variables.map((v) => String(v ?? '').trim()) : [];
+      if (variables.some((v) => !v)) throw new HttpError(400, 'Every template variable needs a value.');
+      const contactId = optionalString(body.contactId) || undefined;
+      const chatId = toChatId(phone);
+      // The stored text is the approved body with its variables filled, so the chat reads naturally.
+      const templates = await wrapCloud(() => metaWhatsapp.listTemplates(creds));
+      const template = templates.find((t) => t.name === name && t.language === language);
+      if (!template) throw new HttpError(404, 'This template is not approved for this number.');
+      if (variables.length !== template.variableCount) {
+        throw new HttpError(400, `This template takes ${template.variableCount} variable(s).`);
+      }
+      const text = [template.headerText, renderTemplate(template.bodyText, variables), template.footerText]
+        .filter(Boolean)
+        .join('\n\n');
+      const base = {
+        companyId: req.params.companyId,
+        instanceId: instance.id,
+        direction: 'outbound' as const,
+        chatId,
+        phone,
+        contactId,
+        type: 'text' as const,
+        body: text,
+        contextEntityType: 'whatsapp_template',
+        contextEntityId: `${name}:${language}`,
+        actorUserId: req.user?.id,
+        actorName: req.user?.name,
+      };
+      try {
+        const sent = await metaWhatsapp.sendTemplate(creds, chatId, { name, language, variables });
+        res.status(201).json(store.createWhatsappMessage({ ...base, externalId: sent.idMessage, status: 'sent', sentAt: new Date() }));
+      } catch (error) {
+        store.createWhatsappMessage({ ...base, status: 'failed', error: error instanceof Error ? error.message : String(error) });
+        const mapped = toSendError(error);
+        if (mapped instanceof WhatsappSendError) throw new HttpError(mapped.status, mapped.message);
+        throw mapped;
+      }
+    }),
+  );
+
+  /** Cloud API: an inbound photo/file, fetched from Meta with the company's token. */
+  app.get(
+    '/companies/:companyId/whatsapp/media/:mediaId',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const { creds } = requireCloud(req.params.companyId);
+      const mediaId = req.params.mediaId;
+      if (!/^\d{1,40}$/.test(mediaId)) throw new HttpError(400, 'Invalid media id.');
+      // Only media that arrived in a chat this person may read.
+      const message = store.findWhatsappMessageByMedia(req.params.companyId, `cloud-media:${mediaId}`);
+      if (!message) throw new HttpError(404, 'Media not found.');
+      if (!canSee(req, 'whatsapp_chats', req.params.companyId, message.chatId)) {
+        throw new HttpError(403, 'You do not have access to this private chat.');
+      }
+      const file = await wrapCloud(() => metaWhatsapp.downloadMedia(creds, mediaId));
+      res.setHeader('Content-Type', file.mimeType);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(file.data);
     }),
   );
 
@@ -273,6 +459,11 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      // Meta keeps no history to fetch: the inbox fills from the webhook.
+      if (isCloud(req.params.companyId)) {
+        res.json({ inserted: 0, fetched: 0, unsupported: true });
+        return;
+      }
       const { instance, creds } = requireWhatsapp(req.params.companyId);
       const count = Math.min(Math.max(Number(req.query.count) || 100, 1), 100);
       const raw = await wrapGreenApi(() =>
@@ -297,6 +488,13 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      if (isCloud(req.params.companyId)) {
+        // No number check or history on the Cloud API: just open the chat.
+        const body = asRecord(req.body, 'body');
+        const chatId = toChatId(requiredString(body.phone, 'phone'));
+        res.json({ chatId, phone: chatId.replace(/@c\.us$/, ''), imported: 0 });
+        return;
+      }
       const { instance, creds } = requireWhatsapp(req.params.companyId);
       const body = asRecord(req.body, 'body');
       const phone = requiredString(body.phone, 'phone');
@@ -337,8 +535,8 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       const token = req.params.webhookToken;
       const instance = store.getWhatsappInstanceByWebhookToken(token);
       // A switched-off WhatsApp module takes in nothing. Still answer 200, or
-      // the provider keeps retrying the delivery.
-      if (!instance || !store.isModuleEnabled(instance.companyId, 'whatsapp')) {
+      // the provider keeps retrying the delivery. A Cloud API number has its own webhook.
+      if (!instance || instance.provider !== 'green' || !store.isModuleEnabled(instance.companyId, 'whatsapp')) {
         res.status(200).json({ ok: true, ignored: true });
         return;
       }
@@ -381,21 +579,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
           // Auto-follow-up: if the inbound message is linked to a known
           // contact, schedule a same-day reply reminder.
           if (savedMessage.contactId) {
-            try {
-              store.scheduleAutomaticFollowup({
-                companyId: instance.companyId,
-                contactId: savedMessage.contactId,
-                trigger: 'InboundWhatsapp',
-                sourceType: 'whatsapp_message',
-                sourceId: savedMessage.id,
-                summary: 'New WhatsApp message — reply needed.',
-                nextAction: 'Reply to the inbound WhatsApp message.',
-                offsetDays: 0,
-                category: 'WhatsApp',
-              });
-            } catch (error) {
-              logger.error('Failed to schedule InboundWhatsapp follow-up', error);
-            }
+            scheduleInboundFollowup(store, logger, instance.companyId, savedMessage.id, savedMessage.contactId);
           }
         } else if (
           typeWebhook === 'outgoingMessageStatus' ||
@@ -418,6 +602,66 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
         }
       } catch (err) {
         logger.error('WhatsApp webhook handler error', err);
+      }
+      res.status(200).json({ ok: true });
+    }),
+  );
+
+  /**
+   * Meta's webhook check: Meta sends the verify token it was given (the
+   * company's webhook token) and expects the challenge echoed back.
+   */
+  app.get(
+    '/whatsapp/cloud-webhook/:webhookToken',
+    handler((req, res) => {
+      const instance = store.getWhatsappInstanceByWebhookToken(req.params.webhookToken);
+      if (
+        instance &&
+        instance.provider === 'cloud' &&
+        req.query['hub.mode'] === 'subscribe' &&
+        req.query['hub.verify_token'] === instance.webhookToken &&
+        typeof req.query['hub.challenge'] === 'string'
+      ) {
+        res.type('text/plain').send(req.query['hub.challenge']);
+        return;
+      }
+      res.status(403).end();
+    }),
+  );
+
+  /**
+   * Meta Cloud API events. Signed with the app secret (X-Hub-Signature-256):
+   * an unsigned or wrongly signed call is refused. Valid deliveries get 200
+   * at once, even when ignored, so Meta does not retry.
+   */
+  app.post(
+    '/whatsapp/cloud-webhook/:webhookToken',
+    handler((req, res) => {
+      const instance = store.getWhatsappInstanceByWebhookToken(req.params.webhookToken);
+      if (!instance || instance.provider !== 'cloud') {
+        res.status(404).end();
+        return;
+      }
+      const creds = store.getWhatsappCloudCredentials(instance.companyId);
+      const raw = (req as typeof req & { rawBody?: Buffer }).rawBody;
+      if (!creds?.appSecret || !verifyCloudSignature(creds.appSecret, raw, String(req.headers['x-hub-signature-256'] ?? ''))) {
+        res.status(401).json({ message: 'Invalid signature.' });
+        return;
+      }
+      if (!store.isModuleEnabled(instance.companyId, 'whatsapp')) {
+        res.status(200).json({ ok: true, ignored: true });
+        return;
+      }
+      try {
+        const result = ingestCloudWebhook(store, instance, req.body);
+        for (const linked of result.linkedInbound) {
+          scheduleInboundFollowup(store, logger, instance.companyId, linked.id, linked.contactId);
+        }
+        if (instance.state !== 'authorized' && (result.messages > 0 || result.statuses > 0)) {
+          store.updateWhatsappInstanceState(instance.companyId, 'authorized');
+        }
+      } catch (err) {
+        logger.error('WhatsApp Cloud webhook handler error', err);
       }
       res.status(200).json({ ok: true });
     }),

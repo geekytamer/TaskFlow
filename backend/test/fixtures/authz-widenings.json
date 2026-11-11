@@ -339,7 +339,8 @@
   ],
   "whatsapp:create": [
     "PATCH /companies/:companyId/whatsapp/chats/:chatId/settings",
-    "POST /companies/:companyId/whatsapp/send"
+    "POST /companies/:companyId/whatsapp/send",
+    "POST /companies/:companyId/whatsapp/send-template"
   ],
   "whatsapp:delete": [
     "POST /companies/:companyId/whatsapp/configure-webhook",
@@ -347,15 +348,22 @@
     "PUT /companies/:companyId/whatsapp/instance"
   ],
   "whatsapp:send": [
-    "POST /companies/:companyId/whatsapp/open-chat"
+    "POST /companies/:companyId/whatsapp/open-chat",
+    "POST /companies/:companyId/whatsapp/send-template"
   ],
   "whatsapp:whatsapp.chats.read": [
     "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
-    "GET /companies/:companyId/whatsapp/messages"
+    "GET /companies/:companyId/whatsapp/media/:mediaId",
+    "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/templates",
+    "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:whatsapp.chats.settings.read": [
     "GET /companies/:companyId/whatsapp/chats",
-    "GET /companies/:companyId/whatsapp/messages"
+    "GET /companies/:companyId/whatsapp/media/:mediaId",
+    "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/templates",
+    "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:whatsapp.chats.settings.write": [
     "POST /companies/:companyId/whatsapp/chats/:chatId/read",
@@ -373,7 +381,10 @@
   ],
   "whatsapp:whatsapp.messages.read": [
     "GET /companies/:companyId/whatsapp/chats",
-    "GET /companies/:companyId/whatsapp/chats/:chatId/settings"
+    "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
+    "GET /companies/:companyId/whatsapp/media/:mediaId",
+    "GET /companies/:companyId/whatsapp/templates",
+    "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:write": [
     "DELETE /companies/:companyId/whatsapp/instance",

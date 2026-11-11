@@ -23,7 +23,10 @@ import {
   getWhatsappChats,
   getWhatsappInstance,
   getWhatsappMessages,
+  getWhatsappWindow,
   markWhatsappChatRead,
+  openWhatsappCloudMedia,
+  CLOUD_MEDIA_PREFIX,
   openWhatsappChat,
   sendWhatsappMessage,
   syncWhatsappChatHistory,
@@ -31,11 +34,15 @@ import {
   type WhatsAppChatSummary,
   type WhatsAppInstance,
   type WhatsAppMessage,
+  type WhatsAppWindow,
 } from '@/services/whatsappService';
+import { isApiError } from '@/lib/api-client';
+import { WhatsappTemplateDialog } from './whatsapp-template-dialog';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   Check,
   CheckCheck,
+  FileText,
   History,
   Lock,
   MessageSquarePlus,
@@ -190,6 +197,10 @@ export function WhatsappInboxPage() {
   const [newChatPhone, setNewChatPhone] = React.useState('');
   const [historyAttemptedFor, setHistoryAttemptedFor] = React.useState<Set<string>>(new Set());
 
+  const [chatWindow, setChatWindow] = React.useState<WhatsAppWindow | null>(null);
+  const [templateOpen, setTemplateOpen] = React.useState(false);
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
+
   const threadRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const companyId = selectedCompany?.id;
@@ -270,7 +281,8 @@ export function WhatsappInboxPage() {
     loadMessages(activeChatId);
     markWhatsappChatRead(companyId, activeChatId).catch(() => undefined);
 
-    if (instance?.state === 'authorized' && !historyAttemptedFor.has(activeChatId)) {
+    // Meta's Cloud API keeps no history to fetch.
+    if (instance?.state === 'authorized' && instance.provider !== 'cloud' && !historyAttemptedFor.has(activeChatId)) {
       setHistoryAttemptedFor((prev) => new Set(prev).add(activeChatId));
       syncWhatsappChatHistory(companyId, activeChatId, 100)
         .then((res) => {
@@ -281,7 +293,39 @@ export function WhatsappInboxPage() {
         })
         .catch(() => undefined);
     }
-  }, [activeChatId, companyId, instance?.state, historyAttemptedFor, loadMessages, loadChats]);
+  }, [activeChatId, companyId, instance?.state, instance?.provider, historyAttemptedFor, loadMessages, loadChats]);
+
+  // Cloud API: free text only within 24 hours of the customer's last message.
+  const isCloud = instance?.provider === 'cloud';
+  const lastInboundKey = messages.filter((m) => m.direction === 'inbound').length;
+  React.useEffect(() => {
+    if (!isCloud || !activeChatId || !companyId) {
+      setChatWindow(null);
+      return;
+    }
+    let alive = true;
+    getWhatsappWindow(companyId, activeChatId)
+      .then((w) => alive && setChatWindow(w))
+      .catch(() => alive && setChatWindow(null));
+    return () => {
+      alive = false;
+    };
+  }, [isCloud, activeChatId, companyId, lastInboundKey]);
+  const windowClosed = isCloud && chatWindow?.open === false;
+
+  const handleOpenMedia = async (mediaUrl: string) => {
+    if (!companyId) return;
+    if (!mediaUrl.startsWith(CLOUD_MEDIA_PREFIX)) {
+      window.open(mediaUrl, '_blank', 'noopener');
+      return;
+    }
+    try {
+      const url = await openWhatsappCloudMedia(companyId, mediaUrl);
+      window.open(url, '_blank', 'noopener');
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: tr('Could not open the file', 'تعذّر فتح الملف'), description: error?.message });
+    }
+  };
 
   // Poll active thread every 5s
   React.useEffect(() => {
@@ -317,12 +361,18 @@ export function WhatsappInboxPage() {
       await loadMessages(activeChat.chatId, { silent: true });
       await loadChats();
     } catch (error: any) {
+      setComposing(text);
+      // The 24-hour window closed (Cloud API): offer a template instead of an error.
+      if (isApiError(error) && (error.details as { code?: string } | undefined)?.code === 'windowClosed') {
+        setChatWindow((prev) => ({ ...(prev || { provider: 'cloud' }), open: false }));
+        setTemplateOpen(true);
+        return;
+      }
       toast({
         variant: 'destructive',
         title: t('whatsapp.sendFailedTitle'),
         description: error?.message || t('whatsapp.sendFailedDescription'),
       });
-      setComposing(text);
     } finally {
       setSending(false);
       composerRef.current?.focus();
@@ -618,16 +668,18 @@ export function WhatsappInboxPage() {
                   )}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLoadEarlier}
-                disabled={syncingHistory}
-                title={t('whatsapp.loadEarlier')}
-              >
-                <History className={`me-2 h-4 w-4 ${syncingHistory ? 'animate-spin' : ''}`} />
-                {t('whatsapp.loadEarlier')}
-              </Button>
+              {!isCloud && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLoadEarlier}
+                  disabled={syncingHistory}
+                  title={t('whatsapp.loadEarlier')}
+                >
+                  <History className={`me-2 h-4 w-4 ${syncingHistory ? 'animate-spin' : ''}`} />
+                  {t('whatsapp.loadEarlier')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -671,18 +723,21 @@ export function WhatsappInboxPage() {
                               : 'rounded-ss-sm bg-white text-slate-900 dark:bg-[#202c33] dark:text-[#e9edef]'
                           }`}
                         >
-                          {m.body || (m.mediaUrl ? (
-                            <a
-                              href={m.mediaUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-primary underline underline-offset-2"
+                          {m.mediaUrl && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMedia(m.mediaUrl!)}
+                              className="flex items-center gap-1 text-primary underline underline-offset-2"
                             >
+                              <FileText className="h-3.5 w-3.5" />
                               {m.fileName || t('whatsapp.attachment')}
-                            </a>
-                          ) : (
+                            </button>
+                          )}
+                          {m.body ? (
+                            <span className={m.mediaUrl ? 'mt-1 block' : undefined}>{m.body}</span>
+                          ) : !m.mediaUrl ? (
                             <span className="italic opacity-60">({t('whatsapp.emptyMessage')})</span>
-                          ))}
+                          ) : null}
                           <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-500">
                             {out && m.actorName && (
                               <span className="me-1 italic opacity-80">
@@ -705,6 +760,20 @@ export function WhatsappInboxPage() {
 
             {/* Composer */}
             <footer className="border-t bg-card p-3">
+              {windowClosed && instance.state === 'authorized' && (
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                  <span>
+                    {tr(
+                      'More than 24 hours since the customer last wrote: only an approved template can be sent.',
+                      'مرّت أكثر من ٢٤ ساعة على آخر رسالة من العميل: يمكن إرسال قالب معتمد فقط.',
+                    )}
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => setTemplateOpen(true)}>
+                    <FileText className="me-2 h-4 w-4" />
+                    {tr('Send template', 'إرسال قالب')}
+                  </Button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <Textarea
                   ref={composerRef}
@@ -719,11 +788,23 @@ export function WhatsappInboxPage() {
                   }}
                   placeholder={t('whatsapp.composerPlaceholder')}
                   className="min-h-[40px] max-h-32 resize-none"
-                  disabled={instance.state !== 'authorized' || sending}
+                  disabled={instance.state !== 'authorized' || sending || windowClosed}
                 />
+                {isCloud && !windowClosed && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => setTemplateOpen(true)}
+                    disabled={instance.state !== 'authorized'}
+                    title={tr('Send template', 'إرسال قالب')}
+                  >
+                    <FileText className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button
                   onClick={handleSend}
-                  disabled={!composing.trim() || sending || instance.state !== 'authorized'}
+                  disabled={!composing.trim() || sending || instance.state !== 'authorized' || windowClosed}
                   size="icon"
                   className="shrink-0"
                   title={t('whatsapp.send')}
@@ -743,6 +824,20 @@ export function WhatsappInboxPage() {
           </>
         )}
       </section>
+
+      {isCloud && companyId && activeChat && (
+        <WhatsappTemplateDialog
+          open={templateOpen}
+          onOpenChange={setTemplateOpen}
+          companyId={companyId}
+          phone={activeChat.phone}
+          contactId={activeChat.contactId}
+          onSent={() => {
+            loadMessages(activeChat.chatId, { silent: true });
+            loadChats();
+          }}
+        />
+      )}
 
       <ContactDetailSheet
         open={contactSheetOpen}

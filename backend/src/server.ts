@@ -341,7 +341,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
 ];
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 
-import { greenApi, toChatId } from './services/greenApi';
+import { sendWhatsappText } from './services/whatsappSender';
 import { normalizeNiches } from './niches';
 import { subtreeIds } from './companies/tree';
 import { askedCompanyIds, groupDashboard } from './authz/group-dashboard';
@@ -972,7 +972,7 @@ export function createServer(options: CreateServerOptions = {}) {
     limit: '4mb',
     // Meta signs the exact bytes it sent; keep them for the webhook's signature check.
     verify: (req, _res, buf) => {
-      if (req.url?.startsWith('/social/meta/webhook')) (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      if (req.url?.startsWith('/social/meta/webhook') || req.url?.startsWith('/whatsapp/cloud-webhook/')) (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
     },
   }));
 
@@ -8872,13 +8872,10 @@ export function createServer(options: CreateServerOptions = {}) {
   }
   // Portal alerts go out from the company's connected WhatsApp number and show in its WhatsApp inbox.
   const portalWhatsApp: WhatsAppSender = options.portalWhatsApp ?? (async (companyId, phone, text, contactId) => {
-    const instance = store.getWhatsappInstanceForCompany(companyId);
-    const creds = store.getWhatsappCredentials(companyId);
-    if (!instance || !creds) throw new Error('WhatsApp is not connected.');
-    const chatId = toChatId(phone);
-    const sent = await greenApi.sendMessage(creds, chatId, text);
+    // Green API or Meta's Cloud API, whichever the company connected.
+    const sent = await sendWhatsappText(store, companyId, phone, text);
     store.createWhatsappMessage({
-      companyId, instanceId: instance.id, direction: 'outbound', externalId: sent.idMessage, chatId, phone, contactId,
+      companyId, instanceId: sent.instanceId, direction: 'outbound', externalId: sent.idMessage, chatId: sent.chatId, phone, contactId,
       type: 'text', body: text, status: 'sent', contextEntityType: 'portal_alert', actorName: 'Portal alerts', sentAt: new Date(),
     });
   });
