@@ -17,6 +17,7 @@ import { useCompany } from '@/context/company-context';
 import { useI18n } from '@/context/i18n-context';
 import { useBrand } from '@/modules/branding/brand-context';
 import { useToast } from '@/hooks/use-toast';
+import { API_BASE_URL } from '@/lib/api-client';
 import type { WhatsAppInstance, WhatsAppInstanceState, WhatsAppProvider } from '@/services/whatsappService';
 import {
   configureWhatsappWebhook,
@@ -324,6 +325,13 @@ export function WhatsappSettingsPanel() {
 
   const isAuthorized = instance?.state === 'authorized';
   const savedCloud = instance?.provider === 'cloud';
+  // Meta must reach the API from the internet: build the address from the one
+  // this page itself uses (it carries the /api prefix nginx needs), not from
+  // what the server sees behind the proxy.
+  const callbackUrl = (hook: { webhookUrl: string; verifyToken: string }) =>
+    /^https?:\/\//.test(API_BASE_URL)
+      ? `${API_BASE_URL.replace(/\/$/, '')}/whatsapp/cloud-webhook/${hook.verifyToken}`
+      : hook.webhookUrl;
   const copy = (value: string) => {
     navigator.clipboard?.writeText(value).then(
       () => toast({ title: tr('Copied', 'تم النسخ') }),
@@ -522,7 +530,7 @@ export function WhatsappSettingsPanel() {
               )}
             </p>
             {([
-              [tr('Callback URL', 'رابط الاستدعاء (Callback URL)'), cloudHook.webhookUrl],
+              [tr('Callback URL', 'رابط الاستدعاء (Callback URL)'), callbackUrl(cloudHook)],
               [tr('Verify token', 'رمز التحقق (Verify token)'), cloudHook.verifyToken],
             ] as const).map(([label, value]) => (
               <div key={label} className="space-y-1">
