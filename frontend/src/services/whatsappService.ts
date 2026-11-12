@@ -422,3 +422,95 @@ export async function sendWhatsappDocument(
 ): Promise<WhatsAppMessage> {
   return apiFetch<WhatsAppMessage>(`/companies/${companyId}/whatsapp/send-document`, { method: 'POST', body: JSON.stringify(payload) });
 }
+
+// ---------------- automation, opt-outs, campaigns ----------------
+
+export interface WhatsAppAutomation {
+  welcomeEnabled: boolean;
+  welcomeText: string;
+  awayEnabled: boolean;
+  awayText: string;
+}
+
+export async function getWhatsappAutomation(companyId: string): Promise<WhatsAppAutomation> {
+  return apiFetch(`/companies/${companyId}/whatsapp/automation`);
+}
+
+export async function saveWhatsappAutomation(companyId: string, value: WhatsAppAutomation): Promise<WhatsAppAutomation> {
+  return apiFetch(`/companies/${companyId}/whatsapp/automation`, { method: 'PUT', body: JSON.stringify(value) });
+}
+
+export async function getWhatsappOptOuts(companyId: string): Promise<Array<{ phone: string; reason?: string; createdAt: string }>> {
+  return apiFetch(`/companies/${companyId}/whatsapp/optouts`);
+}
+
+export async function setWhatsappOptOut(companyId: string, phone: string, optedOut: boolean): Promise<{ success: boolean }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/optouts`, { method: 'POST', body: JSON.stringify({ phone, optedOut }) });
+}
+
+export type WhatsAppCampaignVariable = { source: 'name' } | { source: 'text'; value: string };
+export type WhatsAppCampaignStatus = 'draft' | 'running' | 'paused' | 'done' | 'cancelled';
+
+export interface WhatsAppCampaignStats {
+  total: number;
+  queued: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  replied: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface WhatsAppCampaignRecipient {
+  id: string;
+  contactId?: string;
+  name?: string;
+  phone: string;
+  status: 'queued' | 'sent' | 'failed' | 'skipped';
+  delivery?: WhatsAppMessageStatus;
+  replied: boolean;
+  error?: string;
+  sentAt?: string;
+}
+
+export interface WhatsAppCampaign {
+  id: string;
+  name: string;
+  templateName: string;
+  templateLanguage: string;
+  variables: WhatsAppCampaignVariable[];
+  status: WhatsAppCampaignStatus;
+  createdByName?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  stats: WhatsAppCampaignStats;
+  recipients?: WhatsAppCampaignRecipient[];
+}
+
+export async function getWhatsappCampaigns(companyId: string): Promise<WhatsAppCampaign[]> {
+  return apiFetch(`/companies/${companyId}/whatsapp/campaigns`);
+}
+
+export async function getWhatsappCampaign(companyId: string, id: string): Promise<WhatsAppCampaign> {
+  return apiFetch(`/companies/${companyId}/whatsapp/campaigns/${id}`);
+}
+
+export async function getWhatsappAudience(companyId: string, filter: { role?: string; tag?: string }): Promise<Array<{ contactId: string; name: string; phone: string; optedOut: boolean }>> {
+  const qs = new URLSearchParams();
+  if (filter.role) qs.set('role', filter.role);
+  if (filter.tag) qs.set('tag', filter.tag);
+  return apiFetch(`/companies/${companyId}/whatsapp/audience${qs.toString() ? `?${qs}` : ''}`);
+}
+
+export async function createWhatsappCampaign(
+  companyId: string,
+  input: { name: string; templateName: string; templateLanguage: string; variables: WhatsAppCampaignVariable[]; audience: { role?: string; tag?: string; contactIds?: string[] } },
+): Promise<WhatsAppCampaign & { dropped: { duplicate: number; optedOut: number; noPhone: number }; preview: string }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/campaigns`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function campaignAction(companyId: string, id: string, action: 'start' | 'pause' | 'cancel'): Promise<WhatsAppCampaign> {
+  return apiFetch(`/companies/${companyId}/whatsapp/campaigns/${id}/${action}`, { method: 'POST' });
+}

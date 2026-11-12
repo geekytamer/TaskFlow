@@ -350,8 +350,15 @@
     "PUT /companies/:companyId/whatsapp/quick-replies/:replyId"
   ],
   "whatsapp:delete": [
+    "GET /companies/:companyId/whatsapp/audience",
+    "POST /companies/:companyId/whatsapp/campaigns",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/cancel",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/pause",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/start",
     "POST /companies/:companyId/whatsapp/configure-webhook",
     "POST /companies/:companyId/whatsapp/logout",
+    "POST /companies/:companyId/whatsapp/optouts",
+    "PUT /companies/:companyId/whatsapp/automation",
     "PUT /companies/:companyId/whatsapp/instance"
   ],
   "whatsapp:send": [
@@ -361,22 +368,30 @@
     "POST /companies/:companyId/whatsapp/send-template"
   ],
   "whatsapp:whatsapp.chats.read": [
+    "GET /companies/:companyId/whatsapp/automation",
+    "GET /companies/:companyId/whatsapp/campaigns",
+    "GET /companies/:companyId/whatsapp/campaigns/:campaignId",
     "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
     "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:whatsapp.chats.settings.read": [
+    "GET /companies/:companyId/whatsapp/automation",
+    "GET /companies/:companyId/whatsapp/campaigns",
+    "GET /companies/:companyId/whatsapp/campaigns/:campaignId",
     "GET /companies/:companyId/whatsapp/chats",
     "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
     "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
@@ -393,20 +408,38 @@
   ],
   "whatsapp:whatsapp.configure-webhook.create": [
     "DELETE /companies/:companyId/whatsapp/instance",
+    "GET /companies/:companyId/whatsapp/audience",
+    "POST /companies/:companyId/whatsapp/campaigns",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/cancel",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/pause",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/start",
     "POST /companies/:companyId/whatsapp/logout",
+    "POST /companies/:companyId/whatsapp/optouts",
+    "PUT /companies/:companyId/whatsapp/automation",
     "PUT /companies/:companyId/whatsapp/instance"
   ],
   "whatsapp:whatsapp.logout.create": [
     "DELETE /companies/:companyId/whatsapp/instance",
+    "GET /companies/:companyId/whatsapp/audience",
+    "POST /companies/:companyId/whatsapp/campaigns",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/cancel",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/pause",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/start",
     "POST /companies/:companyId/whatsapp/configure-webhook",
+    "POST /companies/:companyId/whatsapp/optouts",
+    "PUT /companies/:companyId/whatsapp/automation",
     "PUT /companies/:companyId/whatsapp/instance"
   ],
   "whatsapp:whatsapp.messages.read": [
+    "GET /companies/:companyId/whatsapp/automation",
+    "GET /companies/:companyId/whatsapp/campaigns",
+    "GET /companies/:companyId/whatsapp/campaigns/:campaignId",
     "GET /companies/:companyId/whatsapp/chats",
     "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
+    "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
@@ -414,7 +447,14 @@
   ],
   "whatsapp:write": [
     "DELETE /companies/:companyId/whatsapp/instance",
+    "GET /companies/:companyId/whatsapp/audience",
+    "POST /companies/:companyId/whatsapp/campaigns",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/cancel",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/pause",
+    "POST /companies/:companyId/whatsapp/campaigns/:campaignId/start",
     "POST /companies/:companyId/whatsapp/configure-webhook",
-    "POST /companies/:companyId/whatsapp/logout"
+    "POST /companies/:companyId/whatsapp/logout",
+    "POST /companies/:companyId/whatsapp/optouts",
+    "PUT /companies/:companyId/whatsapp/automation"
   ]
 }

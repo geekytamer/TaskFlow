@@ -90,6 +90,16 @@ export function workingHoursBetween(startIso: string, endIso: string, s: Convers
   return total / HOUR_MS;
 }
 
+/** Whether this instant falls inside the company's working hours. */
+export function isWorkingTime(nowMs: number, s: ConversationSettings): boolean {
+  // Today's window (or the next one): working time when it has started and not yet ended.
+  for (const [open, close] of windows(nowMs - DAY_MS, s)) {
+    if (open > nowMs) return false;
+    if (nowMs < close) return true;
+  }
+  return false;
+}
+
 export type SlaLevel = 'ok' | 'amber' | 'red';
 
 export function slaOf(waitingSince: string | null, nowIso: string, s: ConversationSettings): { dueAt: string; level: SlaLevel } | null {

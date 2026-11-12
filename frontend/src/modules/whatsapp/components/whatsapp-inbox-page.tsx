@@ -69,6 +69,7 @@ import {
   Zap,
   ListTodo,
   CalendarClock,
+  Megaphone,
 } from 'lucide-react';
 import { MessageToWorkDialog } from './message-to-work-dialog';
 import { ContactDetailSheet } from './contact-detail-sheet';
@@ -662,6 +663,11 @@ export function WhatsappInboxPage() {
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={loadChats} title={t('whatsapp.refreshChats')}>
               <RefreshCw className={`h-4 w-4 ${loadingChats ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button variant="ghost" size="icon" asChild title={tr('Campaigns', 'الحملات')}>
+              <a href="/whatsapp/campaigns" aria-label={tr('Campaigns', 'الحملات')}>
+                <Megaphone className="h-4 w-4" />
+              </a>
             </Button>
             <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
               <DialogTrigger asChild>

@@ -5,6 +5,8 @@ import { metaWhatsapp, CloudApiError, renderTemplate, verifyCloudSignature } fro
 import { conversationWindow, sendWhatsappMedia, sendWhatsappText, toSendError, WhatsappSendError } from '../services/whatsappSender';
 import { kindFromGreenType, MAX_MEDIA_BYTES, safeFileName } from '../services/whatsappKinds';
 import { invoicePdf, PdfUnavailableError, quotationPdf } from '../pdf/document-pdf';
+import { afterInboundMessage, variablesFor } from '../services/whatsappCampaigns';
+import type { WhatsAppCampaignVariable, ContactRoleType } from '../types';
 import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
 import { companyInQuietHours, holdPush } from '../push/quiet-hours';
 import type { LiveHub } from '../live/hub';
@@ -773,6 +775,214 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
     }),
   );
 
+  // ---------------- automation, opt-outs, campaigns ----------------
+
+  const requireManage = (req: Parameters<typeof requireCompanyRoles>[0], companyId: string) =>
+    requireCompanyRoles(req, companyId, ['Admin']);
+
+  app.get(
+    '/companies/:companyId/whatsapp/automation',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.getWhatsappAutomation(req.params.companyId));
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/whatsapp/automation',
+    authMiddleware,
+    handler((req, res) => {
+      requireManage(req, req.params.companyId);
+      const body = asRecord(req.body, 'body');
+      const text = (key: string) => {
+        const value = typeof body[key] === 'string' ? (body[key] as string).trim() : '';
+        if (value.length > 1000) throw new HttpError(400, 'An automatic message is limited to 1000 characters.');
+        return value;
+      };
+      const next = {
+        welcomeEnabled: body.welcomeEnabled === true,
+        welcomeText: text('welcomeText'),
+        awayEnabled: body.awayEnabled === true,
+        awayText: text('awayText'),
+      };
+      if (next.welcomeEnabled && !next.welcomeText) throw new HttpError(400, 'Write the welcome message before turning it on.');
+      if (next.awayEnabled && !next.awayText) throw new HttpError(400, 'Write the away message before turning it on.');
+      res.json(store.setWhatsappAutomation(req.params.companyId, next));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/optouts',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listWhatsappOptOuts(req.params.companyId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/optouts',
+    authMiddleware,
+    handler((req, res) => {
+      requireManage(req, req.params.companyId);
+      const body = asRecord(req.body, 'body');
+      const phone = requiredString(body.phone, 'phone');
+      if (phone.replace(/\D/g, '').length < 7) throw new HttpError(400, 'Enter a full phone number.');
+      store.setWhatsappOptOut(req.params.companyId, phone, body.optedOut !== false, optionalString(body.reason) || 'Added by staff');
+      res.json({ success: true });
+    }),
+  );
+
+  /** Contacts a campaign can reach: those with a phone, by role and tag, that the person may see. */
+  const audienceOf = (req: Parameters<typeof viewerOf>[0], companyId: string, filter: { role?: string; tag?: string; contactIds?: string[] }) => {
+    const roles = ['Client', 'Lead', 'Supplier', 'Influencer', 'Partner', 'Vendor'];
+    const role = filter.role && roles.includes(filter.role) ? (filter.role as ContactRoleType) : undefined;
+    let contacts = store.listContacts(companyId, role, viewerOf(req)).filter((c) => (c.phone || '').replace(/\D/g, '').length >= 7);
+    if (filter.tag) contacts = contacts.filter((c) => (c.tags || []).some((t) => t.toLowerCase() === filter.tag!.toLowerCase()));
+    if (filter.contactIds) {
+      const wanted = new Set(filter.contactIds);
+      contacts = contacts.filter((c) => wanted.has(c.id));
+    }
+    return contacts.map((c) => ({
+      contactId: c.id,
+      name: c.name,
+      phone: (c.phone || '').replace(/\D/g, ''),
+      optedOut: store.isWhatsappOptedOut(companyId, c.phone || ''),
+    }));
+  };
+
+  app.get(
+    '/companies/:companyId/whatsapp/audience',
+    authMiddleware,
+    handler((req, res) => {
+      requireManage(req, req.params.companyId);
+      res.json(audienceOf(req, req.params.companyId, { role: optionalString(req.query.role), tag: optionalString(req.query.tag) }));
+    }),
+  );
+
+  const campaignView = (companyId: string, id: string) => {
+    const campaign = store.getWhatsappCampaign(companyId, id);
+    if (!campaign) throw new HttpError(404, 'Campaign not found.');
+    const recipients = store.listWhatsappCampaignRecipients(id);
+    const count = (fn: (r: (typeof recipients)[number]) => boolean) => recipients.filter(fn).length;
+    const reached = (r: (typeof recipients)[number]) => r.status === 'sent' && r.delivery !== 'failed';
+    return {
+      ...campaign,
+      stats: {
+        total: recipients.length,
+        queued: count((r) => r.status === 'queued'),
+        sent: count(reached),
+        delivered: count((r) => reached(r) && (r.delivery === 'delivered' || r.delivery === 'read')),
+        read: count((r) => reached(r) && r.delivery === 'read'),
+        replied: count((r) => r.replied),
+        failed: count((r) => r.status === 'failed' || (r.status === 'sent' && r.delivery === 'failed')),
+        skipped: count((r) => r.status === 'skipped'),
+      },
+      recipients,
+    };
+  };
+
+  app.get(
+    '/companies/:companyId/whatsapp/campaigns',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listWhatsappCampaigns(req.params.companyId).map((c) => {
+        const { recipients: _omit, ...view } = campaignView(req.params.companyId, c.id);
+        return view;
+      }));
+    }),
+  );
+
+  app.get(
+    '/companies/:companyId/whatsapp/campaigns/:campaignId',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(campaignView(req.params.companyId, req.params.campaignId));
+    }),
+  );
+
+  /**
+   * A draft: an approved template and a frozen list of contacts. Only on the
+   * official Cloud API — bulk messages from a QR-linked number get it banned.
+   */
+  app.post(
+    '/companies/:companyId/whatsapp/campaigns',
+    authMiddleware,
+    handler(async (req, res) => {
+      const companyId = req.params.companyId;
+      requireManage(req, companyId);
+      const instance = store.getWhatsappInstanceForCompany(companyId);
+      if (!instance || instance.provider !== 'cloud') {
+        throw new HttpError(400, 'Campaigns need the official WhatsApp Cloud API: bulk messages from a QR-linked number get it banned.', { code: 'cloudRequired' });
+      }
+      const { creds } = requireCloud(companyId);
+      const body = asRecord(req.body, 'body');
+      const name = requiredString(body.name, 'name').trim().slice(0, 120);
+      const templateName = requiredString(body.templateName, 'templateName');
+      const templateLanguage = requiredString(body.templateLanguage, 'templateLanguage');
+      const template = (await wrapCloud(() => metaWhatsapp.listTemplates(creds))).find((t) => t.name === templateName && t.language === templateLanguage);
+      if (!template) throw new HttpError(404, 'This template is not approved for this number.');
+      const rawVars = Array.isArray(body.variables) ? body.variables : [];
+      if (rawVars.length !== template.variableCount) throw new HttpError(400, `This template takes ${template.variableCount} value(s).`);
+      const variables: WhatsAppCampaignVariable[] = rawVars.map((v) => {
+        const item = asRecord(v, 'variable');
+        if (item.source === 'name') return { source: 'name' };
+        const value = String(item.value ?? '').trim();
+        if (!value) throw new HttpError(400, 'Every fixed value needs text.');
+        return { source: 'text', value };
+      });
+      const audience = asRecord(body.audience ?? {}, 'audience');
+      const contactIds = Array.isArray(audience.contactIds) ? audience.contactIds.map(String) : undefined;
+      const people = audienceOf(req, companyId, { role: optionalString(audience.role), tag: optionalString(audience.tag), contactIds });
+      if (people.length === 0) throw new HttpError(400, 'No contact with a phone matches this audience.');
+      if (people.length > 2000) throw new HttpError(400, 'A campaign is limited to 2000 people.');
+      const { campaign, dropped } = store.createWhatsappCampaign({
+        companyId, name, templateName, templateLanguage, variables,
+        recipients: people.map((p) => ({ contactId: p.contactId, name: p.name, phone: p.phone })),
+        userId: req.user?.id, userName: req.user?.name,
+      });
+      // The first message as the first person will read it, for a last look before starting.
+      const first = store.listWhatsappCampaignRecipients(campaign.id)[0];
+      const preview = first
+        ? [template.headerText, renderTemplate(template.bodyText, variablesFor(campaign, first, '')), template.footerText].filter(Boolean).join('\n\n')
+        : '';
+      res.status(201).json({ ...campaignView(companyId, campaign.id), dropped, preview });
+    }),
+  );
+
+  for (const action of ['start', 'pause', 'cancel'] as const) {
+    app.post(
+      `/companies/:companyId/whatsapp/campaigns/:campaignId/${action}`,
+      authMiddleware,
+      handler((req, res) => {
+        const companyId = req.params.companyId;
+        requireManage(req, companyId);
+        const campaign = store.getWhatsappCampaign(companyId, req.params.campaignId);
+        if (!campaign) throw new HttpError(404, 'Campaign not found.');
+        const allowed: Record<typeof action, string[]> = {
+          start: ['draft', 'paused'],
+          pause: ['running'],
+          cancel: ['draft', 'running', 'paused'],
+        };
+        if (!allowed[action].includes(campaign.status)) throw new HttpError(409, `A ${campaign.status} campaign cannot be ${action === 'start' ? 'started' : action === 'pause' ? 'paused' : 'cancelled'}.`);
+        if (action === 'start') {
+          const instance = store.getWhatsappInstanceForCompany(companyId);
+          if (!instance || instance.provider !== 'cloud') throw new HttpError(400, 'Campaigns need the official WhatsApp Cloud API.', { code: 'cloudRequired' });
+        }
+        const next = action === 'start' ? 'running' : action === 'pause' ? 'paused' : 'cancelled';
+        if (next === 'cancelled') {
+          for (const r of store.nextWhatsappRecipients(campaign.id, 100000)) store.markWhatsappRecipient(r.id, { status: 'skipped', error: 'Cancelled' });
+        }
+        store.setWhatsappCampaignStatus(companyId, campaign.id, next);
+        const { recipients: _omit, ...view } = campaignView(companyId, campaign.id);
+        res.json(view);
+      }),
+    );
+  }
+
   /** Who can be given a chat: the people who read WhatsApp in this company. Names only. */
   app.get(
     '/companies/:companyId/whatsapp/team',
@@ -1030,6 +1240,9 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
             // The customer wrote: the chat is ours to answer again, also when it was done.
             store.touchWhatsappChat(instance.companyId, savedMessage.chatId, { direction: 'inbound' });
             void notifyPhones(instance.companyId, savedMessage);
+            void afterInboundMessage(store, savedMessage)
+              .then((done) => done && tellInbox(instance.companyId))
+              .catch((error) => logger.warn('[whatsapp] auto reply failed', error));
           }
         } else if (
           typeWebhook === 'outgoingMessageStatus' ||
@@ -1111,6 +1324,9 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
         for (const message of result.inbound) {
           store.touchWhatsappChat(instance.companyId, message.chatId, { direction: 'inbound' });
           void notifyPhones(instance.companyId, message);
+          void afterInboundMessage(store, message)
+            .then((done) => done && tellInbox(instance.companyId))
+            .catch((error) => logger.warn('[whatsapp] auto reply failed', error));
         }
         if (result.messages > 0 || result.statuses > 0) tellInbox(instance.companyId);
         if (instance.state !== 'authorized' && (result.messages > 0 || result.statuses > 0)) {

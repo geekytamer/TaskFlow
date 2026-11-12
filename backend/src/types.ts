@@ -1387,6 +1387,46 @@ export interface WhatsAppNote {
   createdAt: Date;
 }
 
+/** What fills one {{n}} of a campaign's template. */
+export type WhatsAppCampaignVariable = { source: 'name' } | { source: 'text'; value: string };
+export type WhatsAppCampaignStatus = 'draft' | 'running' | 'paused' | 'done' | 'cancelled';
+export type WhatsAppRecipientStatus = 'queued' | 'sent' | 'failed' | 'skipped';
+
+export interface WhatsAppCampaign {
+  id: string;
+  companyId: string;
+  name: string;
+  templateName: string;
+  templateLanguage: string;
+  variables: WhatsAppCampaignVariable[];
+  status: WhatsAppCampaignStatus;
+  createdByUserId?: string;
+  createdByName?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  finishedAt?: Date;
+}
+
+export interface WhatsAppCampaignRecipient {
+  id: string;
+  campaignId: string;
+  contactId?: string;
+  name?: string;
+  phone: string;
+  status: WhatsAppRecipientStatus;
+  messageId?: string;
+  error?: string;
+  sentAt?: Date;
+}
+
+/** Welcome and away messages of a company. */
+export interface WhatsAppAutomation {
+  welcomeEnabled: boolean;
+  welcomeText: string;
+  awayEnabled: boolean;
+  awayText: string;
+}
+
 /** A saved text, inserted in the message box by its short code. */
 export interface WhatsAppQuickReply {
   id: string;
