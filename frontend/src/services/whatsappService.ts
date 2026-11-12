@@ -30,7 +30,7 @@ export interface WhatsAppInstance {
 }
 
 export type WhatsAppMessageDirection = 'outbound' | 'inbound';
-export type WhatsAppMessageType = 'text' | 'file' | 'image' | 'document';
+export type WhatsAppMessageType = 'text' | 'file' | 'image' | 'document' | 'audio' | 'video';
 export type WhatsAppMessageStatus =
   | 'pending'
   | 'sent'
@@ -51,6 +51,9 @@ export interface WhatsAppMessage {
   body: string;
   mediaUrl?: string;
   fileName?: string;
+  mimeType?: string;
+  /** Provider id of the message this one answers. */
+  replyToExternalId?: string;
   status: WhatsAppMessageStatus;
   error?: string;
   contextEntityType?: string;
@@ -137,6 +140,7 @@ export async function sendWhatsappMessage(
     contactId?: string;
     contextEntityType?: string;
     contextEntityId?: string;
+    replyToExternalId?: string;
   },
 ): Promise<WhatsAppMessage> {
   return apiFetch<WhatsAppMessage>(`/companies/${companyId}/whatsapp/send`, {
@@ -167,6 +171,7 @@ export interface WhatsAppChatSummary {
   contactName?: string;
   lastMessageAt: string;
   lastMessageBody: string;
+  lastMessageKind?: 'image' | 'video' | 'audio' | 'document';
   lastMessageDirection: WhatsAppMessageDirection;
   unreadCount: number;
   messageCount: number;
@@ -268,17 +273,77 @@ export async function sendWhatsappTemplate(
   });
 }
 
-/** Media from the Cloud API is stored as "cloud-media:<id>" and read through the server. */
+/** Media from the Cloud API is stored as "cloud-media:<id>", a file we sent as "wa-file:<id>"; both are read through the server. */
 export const CLOUD_MEDIA_PREFIX = 'cloud-media:';
+export const WA_FILE_PREFIX = 'wa-file:';
+/** The largest file WhatsApp takes (and the server accepts). */
+export const WHATSAPP_MAX_FILE_BYTES = 16 * 1024 * 1024;
 
-export async function openWhatsappCloudMedia(companyId: string, mediaUrl: string): Promise<string> {
-  const id = mediaUrl.slice(CLOUD_MEDIA_PREFIX.length);
-  const token = getStoredToken();
-  const res = await fetch(`${API_BASE_URL}/companies/${companyId}/whatsapp/media/${encodeURIComponent(id)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+const mediaCache = new Map<string, Promise<string>>();
+
+/**
+ * A URL the page can show: provider links as they are; our own and Meta's
+ * through the server (signed in), kept for the session so a photo loads once.
+ */
+export function loadWhatsappMedia(companyId: string, mediaUrl: string): Promise<string> {
+  const path = mediaUrl.startsWith(CLOUD_MEDIA_PREFIX)
+    ? `media/${encodeURIComponent(mediaUrl.slice(CLOUD_MEDIA_PREFIX.length))}`
+    : mediaUrl.startsWith(WA_FILE_PREFIX)
+      ? `files/${encodeURIComponent(mediaUrl.slice(WA_FILE_PREFIX.length))}`
+      : null;
+  if (!path) return Promise.resolve(mediaUrl);
+  const key = `${companyId}|${mediaUrl}`;
+  let pending = mediaCache.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const token = getStoredToken();
+      const res = await fetch(`${API_BASE_URL}/companies/${companyId}/whatsapp/${path}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || `HTTP ${res.status}`);
+      return URL.createObjectURL(await res.blob());
+    })();
+    mediaCache.set(key, pending);
+    pending.catch(() => mediaCache.delete(key));
+  }
+  return pending;
+}
+
+const fileToBase64 = (file: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(reader.error || new Error('Could not read the file.'));
+    reader.readAsDataURL(file);
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || `HTTP ${res.status}`);
-  return URL.createObjectURL(await res.blob());
+
+/** Sends a photo, document, audio or video, with an optional caption. */
+export async function sendWhatsappMedia(
+  companyId: string,
+  payload: { phone: string; file: Blob; fileName: string; caption?: string; contactId?: string; replyToExternalId?: string },
+): Promise<WhatsAppMessage> {
+  const { file, ...rest } = payload;
+  return apiFetch<WhatsAppMessage>(`/companies/${companyId}/whatsapp/send-media`, {
+    method: 'POST',
+    body: JSON.stringify({ ...rest, mimeType: file.type || 'application/octet-stream', dataBase64: await fileToBase64(file) }),
+  });
+}
+
+/** How a message's attachment should be shown; older rows only say "file". */
+export function whatsappMediaKind(m: Pick<WhatsAppMessage, 'type' | 'mimeType' | 'fileName'>): 'image' | 'video' | 'audio' | 'document' {
+  if (m.type === 'image' || m.type === 'video' || m.type === 'audio') return m.type;
+  const mime = (m.mimeType || '').toLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  const ext = (m.fileName || '').toLowerCase().split('.').pop() || '';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
+  if (['mp4', '3gp', 'mov'].includes(ext)) return 'video';
+  if (['ogg', 'oga', 'opus', 'mp3', 'm4a', 'aac', 'amr', 'wav'].includes(ext)) return 'audio';
+  return 'document';
 }
 
 /** Fills {{1}}, {{2}}… the way the customer will read it. */

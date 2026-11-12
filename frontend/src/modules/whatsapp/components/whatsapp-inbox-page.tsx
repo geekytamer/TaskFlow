@@ -25,8 +25,8 @@ import {
   getWhatsappMessages,
   getWhatsappWindow,
   markWhatsappChatRead,
-  openWhatsappCloudMedia,
-  CLOUD_MEDIA_PREFIX,
+  sendWhatsappMedia,
+  WHATSAPP_MAX_FILE_BYTES,
   openWhatsappChat,
   sendWhatsappMessage,
   syncWhatsappChatHistory,
@@ -38,12 +38,20 @@ import {
 } from '@/services/whatsappService';
 import { isApiError } from '@/lib/api-client';
 import { WhatsappTemplateDialog } from './whatsapp-template-dialog';
+import { WhatsappMessageMedia } from './whatsapp-message-media';
+import { useLiveRefresh } from '@/lib/live';
+import { useSearchParams } from 'next/navigation';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
 import {
   Check,
   CheckCheck,
+  CornerUpLeft,
   FileText,
   History,
+  Mic,
+  Paperclip,
+  Square,
+  X,
   Lock,
   MessageSquarePlus,
   Phone,
@@ -201,11 +209,25 @@ export function WhatsappInboxPage() {
   const [templateOpen, setTemplateOpen] = React.useState(false);
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
 
+  /** A file picked, pasted or recorded, waiting to be sent with the typed text as its caption. */
+  const [attachment, setAttachment] = React.useState<{ file: Blob; name: string; preview?: string } | null>(null);
+  const [replyTo, setReplyTo] = React.useState<WhatsAppMessage | null>(null);
+  const [recording, setRecording] = React.useState(false);
+  const recorderRef = React.useRef<MediaRecorder | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const searchParams = useSearchParams();
+
   const threadRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const companyId = selectedCompany?.id;
 
   const activeChat = chats.find((c) => c.chatId === activeChatId) || null;
+  /** Messages of the open chat by provider id, to show what a reply answers. */
+  const byExternalId = React.useMemo(() => {
+    const map = new Map<string, WhatsAppMessage>();
+    for (const m of messages) if (m.externalId) map.set(m.externalId, m);
+    return map;
+  }, [messages]);
 
   // --- data loaders ---
 
@@ -266,14 +288,29 @@ export function WhatsappInboxPage() {
     loadChats();
   }, [loadInstance, loadChats]);
 
-  // Poll chat list every 12s
+  // New messages arrive through the live signal; this slow poll is only a safety net.
   React.useEffect(() => {
     if (!companyId) return;
     const id = window.setInterval(() => {
       loadChats();
-    }, 12000);
+    }, 60000);
     return () => window.clearInterval(id);
   }, [companyId, loadChats]);
+
+  // A notification opens its chat: /whatsapp?chat=<chatId>
+  const wantedChat = searchParams?.get('chat');
+  React.useEffect(() => {
+    if (wantedChat) setActiveChatId(wantedChat);
+  }, [wantedChat]);
+
+  // Switching chats drops what was being attached or answered there.
+  React.useEffect(() => {
+    setAttachment((prev) => {
+      if (prev?.preview) URL.revokeObjectURL(prev.preview);
+      return null;
+    });
+    setReplyTo(null);
+  }, [activeChatId]);
 
   // When opening a chat: mark read, sync history once, load thread
   React.useEffect(() => {
@@ -313,28 +350,68 @@ export function WhatsappInboxPage() {
   }, [isCloud, activeChatId, companyId, lastInboundKey]);
   const windowClosed = isCloud && chatWindow?.open === false;
 
-  const handleOpenMedia = async (mediaUrl: string) => {
-    if (!companyId) return;
-    if (!mediaUrl.startsWith(CLOUD_MEDIA_PREFIX)) {
-      window.open(mediaUrl, '_blank', 'noopener');
-      return;
+  // Live: a message or a status change re-reads the list and the open chat at once.
+  useLiveRefresh(['whatsapp'], () => {
+    loadChats();
+    if (activeChatId && companyId) {
+      loadMessages(activeChatId, { silent: true });
+      // The chat is on screen: what just arrived is read.
+      markWhatsappChatRead(companyId, activeChatId).catch(() => undefined);
     }
-    try {
-      const url = await openWhatsappCloudMedia(companyId, mediaUrl);
-      window.open(url, '_blank', 'noopener');
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: tr('Could not open the file', 'تعذّر فتح الملف'), description: error?.message });
-    }
-  };
+  });
 
-  // Poll active thread every 5s
+  // Safety net for the open chat if the live stream drops.
   React.useEffect(() => {
     if (!activeChatId || !companyId) return;
     const id = window.setInterval(() => {
       loadMessages(activeChatId, { silent: true });
-    }, 5000);
+    }, 60000);
     return () => window.clearInterval(id);
   }, [activeChatId, companyId, loadMessages]);
+
+  const attach = (file: Blob, name: string) => {
+    if (file.size > WHATSAPP_MAX_FILE_BYTES) {
+      toast({ variant: 'destructive', title: tr('The file is larger than 16 MB', 'الملف أكبر من ١٦ ميغابايت'), description: tr('WhatsApp does not accept larger files.', 'واتساب لا يقبل ملفات أكبر من ذلك.') });
+      return;
+    }
+    setAttachment((prev) => {
+      if (prev?.preview) URL.revokeObjectURL(prev.preview);
+      return { file, name, preview: file.type.startsWith('image/') || file.type.startsWith('audio/') ? URL.createObjectURL(file) : undefined };
+    });
+    composerRef.current?.focus();
+  };
+
+  const clearAttachment = () =>
+    setAttachment((prev) => {
+      if (prev?.preview) URL.revokeObjectURL(prev.preview);
+      return null;
+    });
+
+  // Voice: recorded in a format WhatsApp can play where the browser allows it.
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ['audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((m) => MediaRecorder.isTypeSupported(m));
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        const type = (recorder.mimeType || mime || 'audio/webm').split(';')[0];
+        const blob = new Blob(chunks, { type: recorder.mimeType || type });
+        if (blob.size === 0) return;
+        const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
+        attach(blob, `voice-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${ext}`);
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      toast({ variant: 'destructive', title: tr('Microphone not available', 'الميكروفون غير متاح'), description: tr('Allow microphone access for this site, then try again.', 'اسمح لهذا الموقع باستخدام الميكروفون ثم حاول مجدداً.') });
+    }
+  };
+  const stopRecording = () => recorderRef.current?.state === 'recording' && recorderRef.current.stop();
 
   // Autoscroll to bottom when messages change
   React.useEffect(() => {
@@ -348,16 +425,32 @@ export function WhatsappInboxPage() {
   // --- actions ---
 
   const handleSend = async () => {
-    if (!companyId || !activeChat || !composing.trim()) return;
+    if (!companyId || !activeChat || (!composing.trim() && !attachment)) return;
     const text = composing.trim();
+    const sendingFile = attachment;
+    const answering = replyTo;
     setSending(true);
     setComposing('');
     try {
-      await sendWhatsappMessage(companyId, {
-        phone: activeChat.phone,
-        message: text,
-        contactId: activeChat.contactId,
-      });
+      if (sendingFile) {
+        await sendWhatsappMedia(companyId, {
+          phone: activeChat.phone,
+          file: sendingFile.file,
+          fileName: sendingFile.name,
+          caption: text || undefined,
+          contactId: activeChat.contactId,
+          replyToExternalId: answering?.externalId,
+        });
+        clearAttachment();
+      } else {
+        await sendWhatsappMessage(companyId, {
+          phone: activeChat.phone,
+          message: text,
+          contactId: activeChat.contactId,
+          replyToExternalId: answering?.externalId,
+        });
+      }
+      setReplyTo(null);
       await loadMessages(activeChat.chatId, { silent: true });
       await loadChats();
     } catch (error: any) {
@@ -577,9 +670,15 @@ export function WhatsappInboxPage() {
                       {chat.lastMessageDirection === 'outbound' && (
                         <span className="text-muted-foreground/70">{t('whatsapp.youPrefix')} </span>
                       )}
-                      {chat.lastMessageBody || (
-                        <span className="italic opacity-70">{t('whatsapp.noMessages')}</span>
+                      {chat.lastMessageKind && (
+                        <span>
+                          {{ image: tr('📷 Photo', '📷 صورة'), video: tr('🎥 Video', '🎥 فيديو'), audio: tr('🎤 Voice message', '🎤 رسالة صوتية'), document: tr('📄 File', '📄 ملف') }[chat.lastMessageKind]}
+                          {chat.lastMessageBody ? ' · ' : ''}
+                        </span>
                       )}
+                      {chat.lastMessageBody || (!chat.lastMessageKind && (
+                        <span className="italic opacity-70">{t('whatsapp.noMessages')}</span>
+                      ))}
                     </p>
                     {chat.unreadCount > 0 && (
                       <Badge className="bg-emerald-500 hover:bg-emerald-500 px-2">
@@ -714,8 +813,9 @@ export function WhatsappInboxPage() {
                   </div>
                   {group.messages.map((m) => {
                     const out = m.direction === 'outbound';
+                    const quoted = m.replyToExternalId ? byExternalId.get(m.replyToExternalId) : undefined;
                     return (
-                      <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+                      <div key={m.id} className={`group/msg flex items-center gap-1 ${out ? 'flex-row-reverse' : ''}`}>
                         <div
                           className={`relative max-w-[72%] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-sm shadow-sm ${
                             out
@@ -723,18 +823,17 @@ export function WhatsappInboxPage() {
                               : 'rounded-ss-sm bg-white text-slate-900 dark:bg-[#202c33] dark:text-[#e9edef]'
                           }`}
                         >
-                          {m.mediaUrl && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenMedia(m.mediaUrl!)}
-                              className="flex items-center gap-1 text-primary underline underline-offset-2"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              {m.fileName || t('whatsapp.attachment')}
-                            </button>
+                          {m.replyToExternalId && (
+                            <div className="mb-1 rounded-md border-s-4 border-emerald-500 bg-black/5 px-2 py-1 text-xs dark:bg-white/10">
+                              <div className="font-medium text-emerald-700 dark:text-emerald-300">
+                                {quoted ? (quoted.direction === 'outbound' ? tr('You', 'أنت') : activeChat.contactName || formatPhone(activeChat.phone)) : tr('Earlier message', 'رسالة سابقة')}
+                              </div>
+                              {quoted && <div className="line-clamp-2 opacity-80">{quoted.body || quoted.fileName || t('whatsapp.attachment')}</div>}
+                            </div>
                           )}
+                          {m.mediaUrl && companyId && <WhatsappMessageMedia companyId={companyId} message={m} />}
                           {m.body ? (
-                            <span className={m.mediaUrl ? 'mt-1 block' : undefined}>{m.body}</span>
+                            <span>{m.body}</span>
                           ) : !m.mediaUrl ? (
                             <span className="italic opacity-60">({t('whatsapp.emptyMessage')})</span>
                           ) : null}
@@ -751,6 +850,20 @@ export function WhatsappInboxPage() {
                             <div className="mt-1 text-[10px] text-red-600">{m.error}</div>
                           )}
                         </div>
+                        {m.externalId && m.status !== 'failed' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReplyTo(m);
+                              composerRef.current?.focus();
+                            }}
+                            className="rounded-full p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/msg:opacity-100 [@media(hover:none)]:opacity-60"
+                            title={tr('Reply', 'رد')}
+                            aria-label={tr('Reply to this message', 'الرد على هذه الرسالة')}
+                          >
+                            <CornerUpLeft className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -774,9 +887,72 @@ export function WhatsappInboxPage() {
                   </Button>
                 </div>
               )}
+              {replyTo && (
+                <div className="mb-2 flex items-center gap-2 rounded-md border-s-4 border-emerald-500 bg-muted px-3 py-1.5 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{tr('Replying to', 'رد على')} {replyTo.direction === 'outbound' ? tr('your message', 'رسالتك') : activeChat.contactName || formatPhone(activeChat.phone)}</div>
+                    <div className="truncate text-muted-foreground">{replyTo.body || replyTo.fileName || t('whatsapp.attachment')}</div>
+                  </div>
+                  <button type="button" onClick={() => setReplyTo(null)} className="rounded p-1 hover:bg-background" aria-label={tr('Cancel reply', 'إلغاء الرد')}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              {attachment && (
+                <div className="mb-2 flex items-center gap-3 rounded-md bg-muted px-3 py-2 text-xs">
+                  {attachment.preview && attachment.file.type.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={attachment.preview} alt="" className="h-12 w-12 rounded object-cover" />
+                  ) : attachment.preview ? (
+                    <audio controls src={attachment.preview} className="h-9 w-52 max-w-full" />
+                  ) : (
+                    <FileText className="h-6 w-6 shrink-0 text-muted-foreground" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{attachment.name}</div>
+                    <div className="text-muted-foreground">
+                      {(attachment.file.size / 1024 / 1024).toFixed(attachment.file.size > 1024 * 1024 ? 1 : 2)} MB
+                      {!attachment.file.type.startsWith('audio/') && ` · ${tr('what you type goes as its caption', 'ما تكتبه يُرسل تعليقاً عليه')}`}
+                    </div>
+                  </div>
+                  <button type="button" onClick={clearAttachment} className="rounded p-1 hover:bg-background" aria-label={tr('Remove file', 'إزالة الملف')}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,video/mp4,video/3gpp,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) attach(file, file.name);
+                    e.target.value = '';
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={instance.state !== 'authorized' || sending || windowClosed || recording}
+                  title={tr('Attach a photo or file', 'إرفاق صورة أو ملف')}
+                  aria-label={tr('Attach a photo or file', 'إرفاق صورة أو ملف')}
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
                 <Textarea
                   ref={composerRef}
+                  onPaste={(e) => {
+                    // A copied screenshot or photo becomes an attachment.
+                    const pasted = Array.from(e.clipboardData?.files || [])[0];
+                    if (pasted) {
+                      e.preventDefault();
+                      attach(pasted, pasted.name || `pasted-${Date.now()}.png`);
+                    }
+                  }}
                   rows={1}
                   value={composing}
                   onChange={(e) => setComposing(e.target.value)}
@@ -802,9 +978,22 @@ export function WhatsappInboxPage() {
                     <FileText className="h-4 w-4" />
                   </Button>
                 )}
+                {!composing.trim() && !attachment ? (
+                  <Button
+                    variant={recording ? 'destructive' : 'ghost'}
+                    size="icon"
+                    className="shrink-0"
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={instance.state !== 'authorized' || sending || windowClosed}
+                    title={recording ? tr('Stop recording', 'إيقاف التسجيل') : tr('Record a voice message', 'تسجيل رسالة صوتية')}
+                    aria-label={recording ? tr('Stop recording', 'إيقاف التسجيل') : tr('Record a voice message', 'تسجيل رسالة صوتية')}
+                  >
+                    {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
+                ) : null}
                 <Button
                   onClick={handleSend}
-                  disabled={!composing.trim() || sending || instance.state !== 'authorized' || windowClosed}
+                  disabled={(!composing.trim() && !attachment) || sending || recording || instance.state !== 'authorized' || windowClosed}
                   size="icon"
                   className="shrink-0"
                   title={t('whatsapp.send')}

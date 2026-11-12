@@ -954,7 +954,7 @@ export function createServer(options: CreateServerOptions = {}) {
   // scans, small PDFs) go through while other endpoints keep the stricter limit.
   const attachmentJson = express.json({ limit: '28mb' });
   app.use((req, res, next) => (
-    ((/^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) || req.path === '/assistant/files') && req.method === 'POST')
+    ((/^\/companies\/[^/]+\/records\/[^/]+\/[^/]+\/attachments$/.test(req.path) || /^\/companies\/[^/]+\/whatsapp\/send-media$/.test(req.path) || req.path === '/assistant/files') && req.method === 'POST')
       ? attachmentJson(req, res, next)
       : next()
   ));
@@ -7436,7 +7436,7 @@ export function createServer(options: CreateServerOptions = {}) {
 
   registerDeliveryRoutes(app, routeContext);
 
-  registerWhatsappRoutes(app, routeContext);
+  registerWhatsappRoutes(app, routeContext, { live: liveHub, push });
 
   // ─── Credit notes ──────────────────────────────────────────────────────────
 

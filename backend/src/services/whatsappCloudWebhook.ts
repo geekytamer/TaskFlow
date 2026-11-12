@@ -5,7 +5,7 @@
  */
 
 import type { DataStore } from '../data/store';
-import type { WhatsAppInstance, WhatsAppMessageStatus, WhatsAppMessageType } from '../types';
+import type { WhatsAppInstance, WhatsAppMessage, WhatsAppMessageStatus, WhatsAppMessageType } from '../types';
 
 /** Inbound media links point at our own proxy; the inbox fetches them signed in. */
 export const CLOUD_MEDIA_PREFIX = 'cloud-media:';
@@ -15,31 +15,34 @@ interface IngestResult {
   statuses: number;
   /** Ids of saved inbound messages linked to a contact (for follow-ups). */
   linkedInbound: Array<{ id: string; contactId: string }>;
+  /** Messages stored for the first time by this delivery (a redelivery adds none). */
+  inbound: WhatsAppMessage[];
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
-function readMessage(m: any): { type: WhatsAppMessageType; body: string; mediaId?: string; fileName?: string } {
+function readMessage(m: any): { type: WhatsAppMessageType; body: string; mediaId?: string; fileName?: string; mimeType?: string } {
   const kind = str(m?.type);
   switch (kind) {
     case 'text':
       return { type: 'text', body: str(m?.text?.body) };
     case 'image':
-      return { type: 'image', body: str(m?.image?.caption), mediaId: str(m?.image?.id) || undefined, fileName: 'image' };
+      return { type: 'image', body: str(m?.image?.caption), mediaId: str(m?.image?.id) || undefined, fileName: 'image', mimeType: str(m?.image?.mime_type) || undefined };
     case 'document':
       return {
         type: 'document',
         body: str(m?.document?.caption),
         mediaId: str(m?.document?.id) || undefined,
         fileName: str(m?.document?.filename) || 'document',
+        mimeType: str(m?.document?.mime_type) || undefined,
       };
     case 'audio':
     case 'voice':
-      return { type: 'file', body: '', mediaId: str(m?.audio?.id || m?.voice?.id) || undefined, fileName: 'audio' };
+      return { type: 'audio', body: '', mediaId: str(m?.audio?.id || m?.voice?.id) || undefined, fileName: 'audio', mimeType: str(m?.audio?.mime_type || m?.voice?.mime_type) || undefined };
     case 'video':
-      return { type: 'file', body: str(m?.video?.caption), mediaId: str(m?.video?.id) || undefined, fileName: 'video' };
+      return { type: 'video', body: str(m?.video?.caption), mediaId: str(m?.video?.id) || undefined, fileName: 'video', mimeType: str(m?.video?.mime_type) || undefined };
     case 'sticker':
-      return { type: 'image', body: '', mediaId: str(m?.sticker?.id) || undefined, fileName: 'sticker' };
+      return { type: 'image', body: '', mediaId: str(m?.sticker?.id) || undefined, fileName: 'sticker', mimeType: str(m?.sticker?.mime_type) || undefined };
     case 'location': {
       const loc = m?.location || {};
       const where = [str(loc.name), str(loc.address)].filter(Boolean).join(' — ');
@@ -78,7 +81,7 @@ function mapStatus(raw: string): WhatsAppMessageStatus | undefined {
 }
 
 export function ingestCloudWebhook(store: DataStore, instance: WhatsAppInstance, payload: any): IngestResult {
-  const result: IngestResult = { messages: 0, statuses: 0, linkedInbound: [] };
+  const result: IngestResult = { messages: 0, statuses: 0, linkedInbound: [], inbound: [] };
   const entries = Array.isArray(payload?.entry) ? payload.entry : [];
   for (const entry of entries) {
     const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -94,6 +97,7 @@ export function ingestCloudWebhook(store: DataStore, instance: WhatsAppInstance,
         const externalId = str(m?.id);
         if (!from || !externalId) continue;
         const read = readMessage(m);
+        const isNew = !store.findWhatsappMessageByExternalId(instance.companyId, `${from}@c.us`, externalId);
         const saved = store.createWhatsappMessage({
           companyId: instance.companyId,
           instanceId: instance.id,
@@ -105,11 +109,14 @@ export function ingestCloudWebhook(store: DataStore, instance: WhatsAppInstance,
           body: read.body,
           mediaUrl: read.mediaId ? `${CLOUD_MEDIA_PREFIX}${read.mediaId}` : undefined,
           fileName: read.mediaId ? read.fileName : undefined,
+          mimeType: read.mediaId ? read.mimeType : undefined,
+          replyToExternalId: str(m?.context?.id) || undefined,
           status: 'delivered',
           receivedAt: new Date((Number(m?.timestamp) || Date.now() / 1000) * 1000),
         });
         result.messages += 1;
-        if (saved.contactId) result.linkedInbound.push({ id: saved.id, contactId: saved.contactId });
+        if (isNew) result.inbound.push(saved);
+        if (isNew && saved.contactId) result.linkedInbound.push({ id: saved.id, contactId: saved.contactId });
       }
 
       for (const s of Array.isArray(value.statuses) ? value.statuses : []) {
