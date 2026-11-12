@@ -378,6 +378,7 @@
     "GET /companies/:companyId/whatsapp/messages",
     "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/report",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
@@ -393,6 +394,7 @@
     "GET /companies/:companyId/whatsapp/messages",
     "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/report",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
@@ -441,6 +443,7 @@
     "GET /companies/:companyId/whatsapp/media/:mediaId",
     "GET /companies/:companyId/whatsapp/optouts",
     "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/report",
     "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"

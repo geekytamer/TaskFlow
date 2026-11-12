@@ -6,6 +6,7 @@ import { conversationWindow, sendWhatsappMedia, sendWhatsappText, toSendError, W
 import { kindFromGreenType, MAX_MEDIA_BYTES, safeFileName } from '../services/whatsappKinds';
 import { invoicePdf, PdfUnavailableError, quotationPdf } from '../pdf/document-pdf';
 import { afterInboundMessage, variablesFor } from '../services/whatsappCampaigns';
+import { whatsappReport } from '../services/whatsappReport';
 import type { WhatsAppCampaignVariable, ContactRoleType } from '../types';
 import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
 import { companyInQuietHours, holdPush } from '../push/quiet-hours';
@@ -982,6 +983,22 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
       }),
     );
   }
+
+  /** How the team answers: per person and per day. Managers only (it compares people). */
+  app.get(
+    '/companies/:companyId/whatsapp/report',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      // Only for someone who reads every chat of the company (Admins and Managers today).
+      const scope = scopeOf(viewerOf(req), 'whatsapp.view', req.params.companyId);
+      if (scope !== 'company' && scope !== 'group') throw new HttpError(403, 'The response report is for those who see every chat.');
+      const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+      // Current open / late counts come from the same list the inbox shows.
+      const chats = store.listWhatsappChats(req.params.companyId).map((c) => ({ assigneeUserId: c.assigneeUserId, status: c.status, sla: c.sla }));
+      res.json(whatsappReport(store, req.params.companyId, days, new Date(), chats));
+    }),
+  );
 
   /** Who can be given a chat: the people who read WhatsApp in this company. Names only. */
   app.get(

@@ -16872,6 +16872,22 @@ export class DataStore {
     };
   }
 
+  /** Light rows for the WhatsApp report, oldest first per chat. */
+  listWhatsappReportRows(companyId: string, sinceIso: string): Array<{ chatId: string; direction: string; actorUserId: string | null; contextEntityType: string | null; status: string; at: string }> {
+    return this.db
+      .prepare(
+        `SELECT chatId, direction, actorUserId, contextEntityType, status, COALESCE(receivedAt, sentAt, createdAt) AS at
+           FROM whatsapp_messages WHERE companyId = ? AND createdAt >= ? ORDER BY chatId, at`,
+      )
+      .all(companyId, sinceIso) as any[];
+  }
+
+  /** When each chat of the company began. */
+  whatsappChatStarts(companyId: string): Map<string, string> {
+    const rows = this.db.prepare('SELECT chatId, MIN(createdAt) AS first FROM whatsapp_messages WHERE companyId = ? GROUP BY chatId').all(companyId) as Array<{ chatId: string; first: string }>;
+    return new Map(rows.map((r) => [r.chatId, r.first]));
+  }
+
   /** A message of this chat by its provider id (replies quote only their own chat). */
   findWhatsappMessageByExternalId(companyId: string, chatId: string, externalId: string): WhatsAppMessage | undefined {
     const row = this.db

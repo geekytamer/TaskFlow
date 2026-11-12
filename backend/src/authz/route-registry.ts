@@ -718,6 +718,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/whatsapp/send-document', permission: 'whatsapp.send', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/files/:fileId', permission: 'whatsapp.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/team', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/report', permission: 'whatsapp.view', legacyRoles: MGMT }, // + company-wide scope, checked in the handler
   { method: 'GET', path: '/companies/:companyId/whatsapp/automation', permission: 'whatsapp.view', legacyRoles: MGMT },
   { method: 'PUT', path: '/companies/:companyId/whatsapp/automation', permission: 'whatsapp.manage', legacyRoles: A },
   { method: 'GET', path: '/companies/:companyId/whatsapp/optouts', permission: 'whatsapp.view', legacyRoles: MGMT },

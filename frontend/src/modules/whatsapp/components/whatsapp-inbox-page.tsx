@@ -70,7 +70,10 @@ import {
   ListTodo,
   CalendarClock,
   Megaphone,
+  BarChart3,
 } from 'lucide-react';
+import { InboxModeSwitch } from '@/modules/teamchat/components/inbox-mode-switch';
+import { INBOX_PERMISSION } from '@/modules/conversations/lib/inbox';
 import { MessageToWorkDialog } from './message-to-work-dialog';
 import { ContactDetailSheet } from './contact-detail-sheet';
 
@@ -239,7 +242,11 @@ export function WhatsappInboxPage() {
   const [slashIndex, setSlashIndex] = React.useState(0);
   /** A message being turned into a task or a follow-up. */
   const [toWork, setToWork] = React.useState<{ kind: 'task' | 'followup'; message: WhatsAppMessage } | null>(null);
-  const canTasks = usePermissions().moduleOn('tasks');
+  const perms = usePermissions();
+  const canTasks = perms.moduleOn('tasks');
+  const canClientInbox = perms.can(INBOX_PERMISSION) && perms.moduleOn('contacts');
+  // The report compares people: for those who see every chat.
+  const canReport = perms.can('whatsapp.view', { scope: 'company' });
 
   const threadRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
@@ -653,6 +660,10 @@ export function WhatsappInboxPage() {
     <div className="flex h-[calc(100vh-6rem)] overflow-hidden rounded-lg border bg-card shadow-sm">
       {/* Left rail: chat list */}
       <aside className="flex w-80 shrink-0 flex-col border-e bg-card">
+        {/* One inbox: clients, WhatsApp and the team, side by side. */}
+        <div className="border-b p-2">
+          <InboxModeSwitch mode="whatsapp" showClients={canClientInbox} />
+        </div>
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <div>
             <h2 className="text-base font-semibold">{t('whatsapp.inboxTitle')}</h2>
@@ -664,6 +675,13 @@ export function WhatsappInboxPage() {
             <Button variant="ghost" size="icon" onClick={loadChats} title={t('whatsapp.refreshChats')}>
               <RefreshCw className={`h-4 w-4 ${loadingChats ? 'animate-spin' : ''}`} />
             </Button>
+            {canReport && (
+              <Button variant="ghost" size="icon" asChild title={tr('Response report', 'تقرير الردود')}>
+                <a href="/whatsapp/report" aria-label={tr('Response report', 'تقرير الردود')}>
+                  <BarChart3 className="h-4 w-4" />
+                </a>
+              </Button>
+            )}
             <Button variant="ghost" size="icon" asChild title={tr('Campaigns', 'الحملات')}>
               <a href="/whatsapp/campaigns" aria-label={tr('Campaigns', 'الحملات')}>
                 <Megaphone className="h-4 w-4" />
