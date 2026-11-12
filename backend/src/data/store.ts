@@ -165,6 +165,12 @@ import {
   WhatsAppChatStatus,
   WhatsAppNote,
   WhatsAppQuickReply,
+  WhatsAppAutomation,
+  WhatsAppCampaign,
+  WhatsAppCampaignRecipient,
+  WhatsAppCampaignStatus,
+  WhatsAppCampaignVariable,
+  WhatsAppRecipientStatus,
   WhatsAppMessage,
   WhatsAppMessageDirection,
   WhatsAppMessageStatus,
@@ -6114,6 +6120,59 @@ export class DataStore {
              ON CONFLICT(companyId, chatId) DO UPDATE SET status = 'waiting', statusChangedAt = excluded.statusChangedAt`,
           );
           for (const row of lastOurs) mark.run(row.companyId, row.chatId, now, now);
+        },
+      },
+      {
+        // Campaigns (one approved template to many), opt-outs, and the
+        // welcome / away messages of a company.
+        id: '176_whatsapp_campaigns_auto',
+        run: () => {
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS whatsapp_campaigns (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              name TEXT NOT NULL,
+              templateName TEXT NOT NULL,
+              templateLanguage TEXT NOT NULL,
+              variables TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'draft',
+              createdByUserId TEXT,
+              createdByName TEXT,
+              createdAt TEXT NOT NULL,
+              startedAt TEXT,
+              finishedAt TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_campaigns_company ON whatsapp_campaigns (companyId, createdAt);
+            CREATE TABLE IF NOT EXISTS whatsapp_campaign_recipients (
+              id TEXT PRIMARY KEY,
+              campaignId TEXT NOT NULL,
+              companyId TEXT NOT NULL,
+              contactId TEXT,
+              name TEXT,
+              phone TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'queued',
+              messageId TEXT,
+              error TEXT,
+              sentAt TEXT,
+              position INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_recipients_campaign ON whatsapp_campaign_recipients (campaignId, status, position);
+            CREATE TABLE IF NOT EXISTS whatsapp_optouts (
+              companyId TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              reason TEXT,
+              createdAt TEXT NOT NULL,
+              PRIMARY KEY (companyId, phone)
+            );
+            CREATE TABLE IF NOT EXISTS whatsapp_automation (
+              companyId TEXT PRIMARY KEY,
+              welcomeEnabled INTEGER NOT NULL DEFAULT 0,
+              welcomeText TEXT NOT NULL DEFAULT '',
+              awayEnabled INTEGER NOT NULL DEFAULT 0,
+              awayText TEXT NOT NULL DEFAULT '',
+              updatedAt TEXT NOT NULL
+            );
+          `);
         },
       },
     ];
@@ -17180,6 +17239,173 @@ export class DataStore {
 
   deleteWhatsappNote(companyId: string, id: string): boolean {
     return (this.db.prepare('DELETE FROM whatsapp_notes WHERE companyId = ? AND id = ?').run(companyId, id).changes ?? 0) > 0;
+  }
+
+  // -------- automation (welcome / away) --------
+
+  getWhatsappAutomation(companyId: string): WhatsAppAutomation {
+    const row = this.db.prepare('SELECT * FROM whatsapp_automation WHERE companyId = ?').get(companyId) as any;
+    return row
+      ? { welcomeEnabled: !!row.welcomeEnabled, welcomeText: row.welcomeText ?? '', awayEnabled: !!row.awayEnabled, awayText: row.awayText ?? '' }
+      : { welcomeEnabled: false, welcomeText: '', awayEnabled: false, awayText: '' };
+  }
+
+  setWhatsappAutomation(companyId: string, a: WhatsAppAutomation): WhatsAppAutomation {
+    this.db
+      .prepare(
+        `INSERT INTO whatsapp_automation (companyId, welcomeEnabled, welcomeText, awayEnabled, awayText, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(companyId) DO UPDATE SET welcomeEnabled = excluded.welcomeEnabled, welcomeText = excluded.welcomeText,
+           awayEnabled = excluded.awayEnabled, awayText = excluded.awayText, updatedAt = excluded.updatedAt`,
+      )
+      .run(companyId, a.welcomeEnabled ? 1 : 0, a.welcomeText, a.awayEnabled ? 1 : 0, a.awayText, new Date().toISOString());
+    return this.getWhatsappAutomation(companyId);
+  }
+
+  /** How many messages this chat has (to know a number's very first one). */
+  countWhatsappMessages(companyId: string, chatId: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS c FROM whatsapp_messages WHERE companyId = ? AND chatId = ?').get(companyId, chatId) as { c: number }).c;
+  }
+
+  /** When this chat last got an automatic reply of this kind. */
+  lastWhatsappAutoReplyAt(companyId: string, chatId: string, kind: 'welcome' | 'away'): Date | undefined {
+    const row = this.db
+      .prepare(`SELECT MAX(createdAt) AS at FROM whatsapp_messages WHERE companyId = ? AND chatId = ? AND contextEntityType = 'auto_reply' AND contextEntityId = ?`)
+      .get(companyId, chatId, kind) as { at: string | null };
+    return row.at ? new Date(row.at) : undefined;
+  }
+
+  // -------- opt-outs --------
+
+  isWhatsappOptedOut(companyId: string, phone: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM whatsapp_optouts WHERE companyId = ? AND phone = ?').get(companyId, this.digitsOnly(phone));
+  }
+
+  setWhatsappOptOut(companyId: string, phone: string, optedOut: boolean, reason?: string): void {
+    const digits = this.digitsOnly(phone);
+    if (!digits) return;
+    if (optedOut) {
+      this.db
+        .prepare('INSERT INTO whatsapp_optouts (companyId, phone, reason, createdAt) VALUES (?, ?, ?, ?) ON CONFLICT(companyId, phone) DO NOTHING')
+        .run(companyId, digits, reason ?? null, new Date().toISOString());
+    } else {
+      this.db.prepare('DELETE FROM whatsapp_optouts WHERE companyId = ? AND phone = ?').run(companyId, digits);
+    }
+  }
+
+  listWhatsappOptOuts(companyId: string): Array<{ phone: string; reason?: string; createdAt: Date }> {
+    return (this.db.prepare('SELECT * FROM whatsapp_optouts WHERE companyId = ? ORDER BY createdAt DESC').all(companyId) as any[])
+      .map((r) => ({ phone: r.phone, reason: r.reason ?? undefined, createdAt: new Date(r.createdAt) }));
+  }
+
+  // -------- campaigns --------
+
+  private decodeWhatsappCampaign(row: any): WhatsAppCampaign {
+    return {
+      id: row.id, companyId: row.companyId, name: row.name, templateName: row.templateName, templateLanguage: row.templateLanguage,
+      variables: JSON.parse(row.variables || '[]'), status: row.status,
+      createdByUserId: row.createdByUserId ?? undefined, createdByName: row.createdByName ?? undefined,
+      createdAt: new Date(row.createdAt), startedAt: row.startedAt ? new Date(row.startedAt) : undefined, finishedAt: row.finishedAt ? new Date(row.finishedAt) : undefined,
+    };
+  }
+
+  /** Creates a draft with its frozen recipient list (cleaned, deduplicated, opt-outs dropped). Returns how many were dropped. */
+  createWhatsappCampaign(input: {
+    companyId: string; name: string; templateName: string; templateLanguage: string; variables: WhatsAppCampaignVariable[];
+    recipients: Array<{ contactId?: string; name?: string; phone: string }>; userId?: string; userName?: string;
+  }): { campaign: WhatsAppCampaign; dropped: { duplicate: number; optedOut: number; noPhone: number } } {
+    const id = uuid();
+    const now = new Date().toISOString();
+    const dropped = { duplicate: 0, optedOut: 0, noPhone: 0 };
+    const seen = new Set<string>();
+    const kept: Array<{ contactId?: string; name?: string; phone: string }> = [];
+    for (const r of input.recipients) {
+      const digits = this.digitsOnly(r.phone);
+      if (digits.length < 7) { dropped.noPhone += 1; continue; }
+      if (seen.has(digits)) { dropped.duplicate += 1; continue; }
+      seen.add(digits);
+      if (this.isWhatsappOptedOut(input.companyId, digits)) { dropped.optedOut += 1; continue; }
+      kept.push({ ...r, phone: digits });
+    }
+    const trx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO whatsapp_campaigns (id, companyId, name, templateName, templateLanguage, variables, status, createdByUserId, createdByName, createdAt)
+           VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
+        )
+        .run(id, input.companyId, input.name, input.templateName, input.templateLanguage, JSON.stringify(input.variables), input.userId ?? null, input.userName ?? null, now);
+      const add = this.db.prepare(
+        `INSERT INTO whatsapp_campaign_recipients (id, campaignId, companyId, contactId, name, phone, status, position) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?)`,
+      );
+      kept.forEach((r, i) => add.run(uuid(), id, input.companyId, r.contactId ?? null, r.name ?? null, r.phone, i));
+    });
+    trx();
+    return { campaign: this.getWhatsappCampaign(input.companyId, id)!, dropped };
+  }
+
+  getWhatsappCampaign(companyId: string, id: string): WhatsAppCampaign | undefined {
+    const row = this.db.prepare('SELECT * FROM whatsapp_campaigns WHERE companyId = ? AND id = ?').get(companyId, id) as any;
+    return row ? this.decodeWhatsappCampaign(row) : undefined;
+  }
+
+  listWhatsappCampaigns(companyId: string): WhatsAppCampaign[] {
+    return (this.db.prepare('SELECT * FROM whatsapp_campaigns WHERE companyId = ? ORDER BY createdAt DESC LIMIT 200').all(companyId) as any[])
+      .map((row) => this.decodeWhatsappCampaign(row));
+  }
+
+  /** Campaigns that should be sending now, across companies. */
+  listRunningWhatsappCampaigns(): WhatsAppCampaign[] {
+    return (this.db.prepare("SELECT * FROM whatsapp_campaigns WHERE status = 'running' ORDER BY startedAt ASC").all() as any[])
+      .map((row) => this.decodeWhatsappCampaign(row));
+  }
+
+  setWhatsappCampaignStatus(companyId: string, id: string, status: WhatsAppCampaignStatus): WhatsAppCampaign | undefined {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE whatsapp_campaigns SET status = ?,
+           startedAt = CASE WHEN ? = 'running' THEN COALESCE(startedAt, ?) ELSE startedAt END,
+           finishedAt = CASE WHEN ? IN ('done', 'cancelled') THEN ? ELSE finishedAt END
+         WHERE companyId = ? AND id = ?`,
+      )
+      .run(status, status, now, status, now, companyId, id);
+    return this.getWhatsappCampaign(companyId, id);
+  }
+
+  nextWhatsappRecipients(campaignId: string, limit: number): WhatsAppCampaignRecipient[] {
+    return (this.db.prepare("SELECT * FROM whatsapp_campaign_recipients WHERE campaignId = ? AND status = 'queued' ORDER BY position LIMIT ?").all(campaignId, limit) as any[])
+      .map((r) => this.decodeWhatsappRecipient(r));
+  }
+
+  private decodeWhatsappRecipient(r: any): WhatsAppCampaignRecipient {
+    return {
+      id: r.id, campaignId: r.campaignId, contactId: r.contactId ?? undefined, name: r.name ?? undefined, phone: r.phone,
+      status: r.status, messageId: r.messageId ?? undefined, error: r.error ?? undefined, sentAt: r.sentAt ? new Date(r.sentAt) : undefined,
+    };
+  }
+
+  markWhatsappRecipient(id: string, update: { status: WhatsAppRecipientStatus; messageId?: string; error?: string }): void {
+    this.db
+      .prepare('UPDATE whatsapp_campaign_recipients SET status = ?, messageId = COALESCE(?, messageId), error = ?, sentAt = CASE WHEN ? = \'sent\' THEN ? ELSE sentAt END WHERE id = ?')
+      .run(update.status, update.messageId ?? null, update.error ?? null, update.status, new Date().toISOString(), id);
+  }
+
+  /**
+   * Each recipient with how far their message got (from the message's own
+   * status) and whether they wrote back after it.
+   */
+  listWhatsappCampaignRecipients(campaignId: string): Array<WhatsAppCampaignRecipient & { delivery?: WhatsAppMessageStatus; replied: boolean }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.*, m.status AS delivery,
+           EXISTS (SELECT 1 FROM whatsapp_messages i WHERE i.companyId = r.companyId AND i.chatId = r.phone || '@c.us'
+                     AND i.direction = 'inbound' AND r.sentAt IS NOT NULL AND i.createdAt > r.sentAt) AS replied
+         FROM whatsapp_campaign_recipients r
+         LEFT JOIN whatsapp_messages m ON m.id = r.messageId
+         WHERE r.campaignId = ? ORDER BY r.position`,
+      )
+      .all(campaignId) as any[];
+    return rows.map((r) => ({ ...this.decodeWhatsappRecipient(r), delivery: r.delivery ?? undefined, replied: !!r.replied }));
   }
 
   // -------- quick replies (saved texts) --------

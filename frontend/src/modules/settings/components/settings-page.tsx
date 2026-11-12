@@ -21,6 +21,7 @@ import { CustomFieldsPanel } from './custom-fields-panel';
 import { ApprovalRulesPanel } from './approval-rules-panel';
 import { ClientRemindersPanel } from './client-reminders-panel';
 import { WhatsappSettingsPanel } from './whatsapp-settings-panel';
+import { WhatsappAutomationCard } from './whatsapp-automation-card';
 import { ConversationSettingsPanel } from './conversation-settings-panel';
 import { AssistantSettingsPanel } from './assistant-settings-panel';
 import { DeveloperToolsPanel } from './developer-tools-panel';
@@ -119,7 +120,7 @@ export function SettingsPage() {
       },
       {
         id: 'whatsapp', group: 'channels', icon: MessageCircle, label: ['WhatsApp', 'واتساب'],
-        keywords: 'green api instance phone messages رسائل هاتف', render: () => <WhatsappSettingsPanel />,
+        keywords: 'green api instance phone messages رسائل هاتف welcome away auto reply ترحيب رد تلقائي', render: () => <div className="space-y-6"><WhatsappSettingsPanel /><WhatsappAutomationCard /></div>,
       },
       company && moduleOn('inbox') && {
         id: 'inbox', group: 'channels', icon: Inbox, label: ['Inbox response times', 'أوقات الرد'],

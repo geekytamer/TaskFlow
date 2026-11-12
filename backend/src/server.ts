@@ -343,6 +343,7 @@ const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced'
 
 import { sendWhatsappText } from './services/whatsappSender';
 import { invoicePdf, PdfUnavailableError } from './pdf/document-pdf';
+import { runCampaignPass } from './services/whatsappCampaigns';
 import { normalizeNiches } from './niches';
 import { subtreeIds } from './companies/tree';
 import { askedCompanyIds, groupDashboard } from './authz/group-dashboard';
@@ -7421,6 +7422,19 @@ export function createServer(options: CreateServerOptions = {}) {
   registerDeliveryRoutes(app, routeContext);
 
   registerWhatsappRoutes(app, routeContext, { live: liveHub, push });
+  // WhatsApp campaigns send in small paced batches; a restart picks up where they stopped.
+  if (process.env.NODE_ENV !== 'test') {
+    let campaignPass = false;
+    setInterval(() => {
+      if (campaignPass) return;
+      campaignPass = true;
+      runCampaignPass(store, logger)
+        // Open inboxes and campaign reports re-read (the signal carries no data).
+        .then(({ companies }) => companies.forEach((companyId) => liveHub.publish({ companyId, topics: ['whatsapp'] })))
+        .catch((error) => logger.error('[whatsapp] campaign pass failed', error))
+        .finally(() => { campaignPass = false; });
+    }, 5000).unref?.();
+  }
 
   // ─── Credit notes ──────────────────────────────────────────────────────────
 
