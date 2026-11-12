@@ -24,6 +24,9 @@ import {
   getWhatsappInstance,
   getWhatsappMessages,
   getWhatsappWindow,
+  getWhatsappTeam,
+  getWhatsappQuickReplies,
+  type WhatsAppQuickReply,
   markWhatsappChatRead,
   sendWhatsappMedia,
   WHATSAPP_MAX_FILE_BYTES,
@@ -39,6 +42,8 @@ import {
 import { isApiError } from '@/lib/api-client';
 import { WhatsappTemplateDialog } from './whatsapp-template-dialog';
 import { WhatsappMessageMedia } from './whatsapp-message-media';
+import { WhatsappChatPanel } from './whatsapp-chat-panel';
+import { WhatsappQuickRepliesDialog } from './whatsapp-quick-replies-dialog';
 import { useLiveRefresh } from '@/lib/live';
 import { useSearchParams } from 'next/navigation';
 import { useAuthGuard } from '@/hooks/use-auth-guard';
@@ -60,6 +65,8 @@ import {
   Send,
   UserPlus,
   Users,
+  PanelRight,
+  Zap,
 } from 'lucide-react';
 import { ContactDetailSheet } from './contact-detail-sheet';
 
@@ -217,6 +224,16 @@ export function WhatsappInboxPage() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const searchParams = useSearchParams();
 
+  /** Which chats the list shows: everything open, mine, nobody's, late, done, or all. */
+  type ListTab = 'open' | 'mine' | 'unassigned' | 'late' | 'done' | 'all';
+  const [listTab, setListTab] = React.useState<ListTab>('open');
+  // The details panel starts open where there is room for it beside the chat.
+  const [panelOpen, setPanelOpen] = React.useState(() => typeof window === 'undefined' || window.innerWidth >= 1280);
+  const [team, setTeam] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [quickReplies, setQuickReplies] = React.useState<WhatsAppQuickReply[]>([]);
+  const [quickRepliesOpen, setQuickRepliesOpen] = React.useState(false);
+  const [slashIndex, setSlashIndex] = React.useState(0);
+
   const threadRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const companyId = selectedCompany?.id;
@@ -283,10 +300,17 @@ export function WhatsappInboxPage() {
 
   // --- effects ---
 
+  const loadQuickReplies = React.useCallback(() => {
+    if (!companyId) return;
+    getWhatsappQuickReplies(companyId).then(setQuickReplies).catch(() => undefined);
+  }, [companyId]);
+
   React.useEffect(() => {
     loadInstance();
     loadChats();
-  }, [loadInstance, loadChats]);
+    loadQuickReplies();
+    if (companyId) getWhatsappTeam(companyId).then(setTeam).catch(() => setTeam([]));
+  }, [loadInstance, loadChats, loadQuickReplies, companyId]);
 
   // New messages arrive through the live signal; this slow poll is only a safety net.
   React.useEffect(() => {
@@ -302,6 +326,8 @@ export function WhatsappInboxPage() {
   React.useEffect(() => {
     if (wantedChat) setActiveChatId(wantedChat);
   }, [wantedChat]);
+
+  React.useEffect(() => setSlashIndex(0), [composing]);
 
   // Switching chats drops what was being attached or answered there.
   React.useEffect(() => {
@@ -543,15 +569,54 @@ export function WhatsappInboxPage() {
 
   // --- filtered chat list ---
 
+  const inTab = React.useCallback(
+    (c: WhatsAppChatSummary, tab: ListTab) => {
+      switch (tab) {
+        case 'open':
+          return c.status === 'open';
+        case 'mine':
+          return c.assigneeUserId === user?.id && c.status !== 'done';
+        case 'unassigned':
+          return !c.assigneeUserId && c.status !== 'done';
+        case 'late':
+          return c.status === 'open' && c.sla === 'red';
+        case 'done':
+          return c.status === 'done';
+        default:
+          return true;
+      }
+    },
+    [user?.id],
+  );
+  const tabCounts = React.useMemo(() => {
+    const counts: Record<ListTab, number> = { open: 0, mine: 0, unassigned: 0, late: 0, done: 0, all: chats.length };
+    for (const c of chats) for (const tab of ['open', 'mine', 'unassigned', 'late', 'done'] as ListTab[]) if (inTab(c, tab)) counts[tab] += 1;
+    return counts;
+  }, [chats, inTab]);
+  /** Labels already used in the company: suggestions, so the team spells them the same way. */
+  const knownLabels = React.useMemo(() => Array.from(new Set(chats.flatMap((c) => c.labels || []))).sort(), [chats]);
+
   const filteredChats = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return chats;
+    // A search looks through every chat; otherwise the tab decides. The open chat stays in view.
+    if (!q) return chats.filter((c) => inTab(c, listTab) || c.chatId === activeChatId);
     return chats.filter((c) =>
-      [c.contactName, c.phone, c.lastMessageBody]
+      [c.contactName, c.phone, c.lastMessageBody, ...(c.labels || [])]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
     );
-  }, [chats, search]);
+  }, [chats, search, listTab, inTab, activeChatId]);
+
+  // Typing "/" at the start of the message lists the saved replies.
+  const slashQuery = /^\/(\S*)$/.exec(composing)?.[1]?.toLowerCase();
+  const slashMatches = slashQuery === undefined
+    ? []
+    : quickReplies.filter((r) => r.shortcut.toLowerCase().startsWith(slashQuery) || r.body.toLowerCase().includes(slashQuery)).slice(0, 6);
+  const applyQuickReply = (reply: WhatsAppQuickReply) => {
+    setComposing(reply.body);
+    setSlashIndex(0);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
 
   const messageGroups = React.useMemo(() => groupMessagesByDate(messages), [messages]);
 
@@ -634,6 +699,30 @@ export function WhatsappInboxPage() {
               className="ps-8 h-9"
             />
           </div>
+          <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5" role="tablist" aria-label={tr('Filter chats', 'تصفية المحادثات')}>
+            {([
+              ['open', tr('Open', 'مفتوحة')],
+              ['mine', tr('Mine', 'محادثاتي')],
+              ['unassigned', tr('Unassigned', 'بلا مسؤول')],
+              ['late', tr('Late', 'متأخرة')],
+              ['done', tr('Done', 'منتهية')],
+              ['all', tr('All', 'الكل')],
+            ] as Array<[ListTab, string]>).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={listTab === tab}
+                onClick={() => setListTab(tab)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+                  listTab === tab ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                } ${tab === 'late' && tabCounts.late > 0 && listTab !== 'late' ? 'text-red-600 dark:text-red-400' : ''}`}
+              >
+                {label}
+                {tab !== 'all' && tabCounts[tab] > 0 && <span className="ms-1 opacity-80">{tabCounts[tab]}</span>}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredChats.length === 0 && !loadingChats && (
@@ -686,6 +775,17 @@ export function WhatsappInboxPage() {
                       </Badge>
                     )}
                   </div>
+                  {(chat.assigneeName || chat.labels?.length > 0 || chat.sla === 'red' || chat.sla === 'amber' || chat.status === 'done') && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+                      {chat.sla === 'red' && <span className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700 dark:bg-red-500/15 dark:text-red-300">{tr('Late', 'متأخرة')}</span>}
+                      {chat.sla === 'amber' && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{tr('Reply soon', 'قارب الموعد')}</span>}
+                      {chat.status === 'done' && <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{tr('Done', 'منتهية')}</span>}
+                      {chat.assigneeName && <span className="truncate text-muted-foreground">· {chat.assigneeUserId === user?.id ? tr('Me', 'أنا') : chat.assigneeName}</span>}
+                      {chat.labels?.slice(0, 3).map((label) => (
+                        <span key={label} className="rounded-full border px-1.5 py-0.5 text-muted-foreground">{label}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </button>
             );
@@ -694,7 +794,7 @@ export function WhatsappInboxPage() {
       </aside>
 
       {/* Right pane: thread */}
-      <section className="flex flex-1 flex-col">
+      <section className="flex min-w-0 flex-1 flex-col">
         {!activeChat && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-[#f0f2f5] p-12 text-center dark:bg-muted/30">
             <Phone className="h-12 w-12 text-muted-foreground" />
@@ -745,8 +845,9 @@ export function WhatsappInboxPage() {
                   onClick={() => setContactSheetOpen(true)}
                   title={t('whatsapp.createContactFromChat')}
                 >
-                  <UserPlus className="me-2 h-4 w-4" />
-                  {t('whatsapp.createContact')}
+                  <UserPlus className="h-4 w-4 2xl:me-2" />
+                  {/* Icon only until there is room, so the customer's name keeps its space. */}
+                  <span className="hidden 2xl:inline">{t('whatsapp.createContact')}</span>
                 </Button>
               )}
               {(isManager || activeChat.ownerUserId === user?.id) && (
@@ -775,10 +876,19 @@ export function WhatsappInboxPage() {
                   disabled={syncingHistory}
                   title={t('whatsapp.loadEarlier')}
                 >
-                  <History className={`me-2 h-4 w-4 ${syncingHistory ? 'animate-spin' : ''}`} />
-                  {t('whatsapp.loadEarlier')}
+                  <History className={`h-4 w-4 2xl:me-2 ${syncingHistory ? 'animate-spin' : ''}`} />
+                  <span className="hidden 2xl:inline">{t('whatsapp.loadEarlier')}</span>
                 </Button>
               )}
+              <Button
+                variant={panelOpen ? 'secondary' : 'ghost'}
+                size="icon"
+                onClick={() => setPanelOpen((v) => !v)}
+                title={tr('Chat details: who answers, status, labels, notes', 'تفاصيل المحادثة: المسؤول والحالة والتصنيفات والملاحظات')}
+                aria-pressed={panelOpen}
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -887,6 +997,35 @@ export function WhatsappInboxPage() {
                   </Button>
                 </div>
               )}
+              {slashQuery !== undefined && (
+                <div className="mb-2 overflow-hidden rounded-md border bg-popover text-sm shadow-sm" role="listbox" aria-label={tr('Quick replies', 'الردود الجاهزة')}>
+                  {slashMatches.map((reply, i) => (
+                    <button
+                      key={reply.id}
+                      type="button"
+                      role="option"
+                      aria-selected={i === slashIndex}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyQuickReply(reply)}
+                      className={`flex w-full items-start gap-2 px-3 py-1.5 text-start ${i === slashIndex ? 'bg-muted' : 'hover:bg-muted/60'}`}
+                    >
+                      <code className="shrink-0 text-xs text-primary" dir="auto">/{reply.shortcut}</code>
+                      <span className="line-clamp-1 text-xs text-muted-foreground">{reply.body}</span>
+                    </button>
+                  ))}
+                  {slashMatches.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground">{tr('No quick reply matches.', 'لا يوجد رد جاهز مطابق.')}</div>
+                  )}
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setQuickRepliesOpen(true)}
+                    className="w-full border-t px-3 py-1.5 text-start text-xs text-primary hover:bg-muted/60"
+                  >
+                    {tr('Manage quick replies…', 'إدارة الردود الجاهزة…')}
+                  </button>
+                </div>
+              )}
               {replyTo && (
                 <div className="mb-2 flex items-center gap-2 rounded-md border-s-4 border-emerald-500 bg-muted px-3 py-1.5 text-xs">
                   <div className="min-w-0 flex-1">
@@ -943,6 +1082,23 @@ export function WhatsappInboxPage() {
                 >
                   <Paperclip className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => {
+                    if (quickReplies.length === 0) setQuickRepliesOpen(true);
+                    else {
+                      setComposing('/');
+                      composerRef.current?.focus();
+                    }
+                  }}
+                  disabled={instance.state !== 'authorized' || sending}
+                  title={tr('Quick replies (type /)', 'الردود الجاهزة (اكتب /)')}
+                  aria-label={tr('Quick replies', 'الردود الجاهزة')}
+                >
+                  <Zap className="h-4 w-4" />
+                </Button>
                 <Textarea
                   ref={composerRef}
                   onPaste={(e) => {
@@ -957,6 +1113,22 @@ export function WhatsappInboxPage() {
                   value={composing}
                   onChange={(e) => setComposing(e.target.value)}
                   onKeyDown={(e) => {
+                    if (slashMatches.length > 0) {
+                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setSlashIndex((i) => (i + (e.key === 'ArrowDown' ? 1 : -1) + slashMatches.length) % slashMatches.length);
+                        return;
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault();
+                        applyQuickReply(slashMatches[Math.min(slashIndex, slashMatches.length - 1)]);
+                        return;
+                      }
+                    }
+                    if (e.key === 'Escape' && slashQuery !== undefined) {
+                      setComposing('');
+                      return;
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();
@@ -1013,6 +1185,29 @@ export function WhatsappInboxPage() {
           </>
         )}
       </section>
+
+      {activeChat && panelOpen && companyId && (
+        <WhatsappChatPanel
+          companyId={companyId}
+          chat={activeChat}
+          team={team}
+          knownLabels={knownLabels}
+          currentUserId={user?.id}
+          canManageAll={isManager}
+          onChanged={loadChats}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
+
+      {companyId && (
+        <WhatsappQuickRepliesDialog
+          open={quickRepliesOpen}
+          onOpenChange={setQuickRepliesOpen}
+          companyId={companyId}
+          replies={quickReplies}
+          onChanged={loadQuickReplies}
+        />
+      )}
 
       {isCloud && companyId && activeChat && (
         <WhatsappTemplateDialog
