@@ -4,7 +4,7 @@ import { asRecord, enumValue, optionalDateInput, optionalNumber, optionalString,
 import type { RouteContext } from './context';
 import { type AuthedRequest, companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
-import { renderInvoicePdf } from '../pdf/invoice-pdf';
+import { PdfUnavailableError, quotationPdf } from '../pdf/document-pdf';
 
 /** Quotations. */
 
@@ -124,29 +124,17 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
     authMiddleware,
     handler(async (req, res) => {
       const quote = loadQuotation(req);
-      const templates = store.listInvoiceTemplates(quote.companyId, 'quote');
-      const tpl =
-        (quote.templateId ? store.getInvoiceTemplateById(quote.templateId) : undefined)
-        || templates.find((t) => t.isDefault)
-        || templates[0];
-      const docPage = (tpl as any)?.doc?.page as { size?: string; orientation?: string } | undefined;
-      const format: 'A4' | 'Letter' = docPage?.size === 'Letter' ? 'Letter' : 'A4';
-      const landscape = docPage?.orientation === 'landscape';
-      const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
-      const asked = typeof req.query.lang === 'string' && /^[a-z-]{2,8}$/i.test(req.query.lang) ? req.query.lang : '';
-      const lang = quote.language || asked;
-      const url = `${appUrl}/quotation/${quote.id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`;
-      let pdf: Buffer;
+      let file: { pdf: Buffer; fileName: string };
       try {
-        pdf = await renderInvoicePdf({ url, format, landscape });
-      } catch {
-        throw new HttpError(503, 'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.');
+        file = await quotationPdf(store, quote, req.query.lang);
+      } catch (error) {
+        if (error instanceof PdfUnavailableError) throw new HttpError(503, error.message);
+        throw error;
       }
-      const safe = quote.quoteNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="Quotation-${safe}.pdf"`);
-      res.setHeader('Content-Length', pdf.length);
-      res.end(pdf);
+      res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+      res.setHeader('Content-Length', file.pdf.length);
+      res.end(file.pdf);
     }),
   );
 

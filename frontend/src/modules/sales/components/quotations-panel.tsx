@@ -4,7 +4,8 @@ import { allNames, displayName } from '@/lib/display-name';
 import * as React from 'react';
 import { STANDARD_VAT_RATE } from '@/lib/vat';
 import { format } from 'date-fns';
-import { Download, FileText, Languages, Loader2, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
+import { Download, FileText, Languages, Loader2, MessageCircle, MoreHorizontal, PlusCircle, Printer } from 'lucide-react';
+import { SendDocumentDialog } from '@/modules/whatsapp/components/send-document-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Combobox } from '@/components/ui/combobox';
@@ -87,7 +88,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const { toast } = useToast();
   const confirm = useConfirm();
   const { money } = useCompanyCurrency();
-  const { can } = usePermissions();
+  const { can, moduleOn } = usePermissions();
   const canCreate = can('sales.create');
   const canManage = can('sales.edit');
   const canAddClient = can('contacts.create');
@@ -146,6 +147,13 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     clients.forEach((c) => { map.set(c.id, c.name); if (c.clientId) map.set(c.clientId, c.name); });
     return (quote: Quotation) => map.get(quote.contactId || '') || map.get(quote.clientId) || '';
   }, [clients]);
+  const clientPhone = React.useCallback(
+    (quote: Quotation) => clients.find((c) => c.id === quote.contactId || c.id === quote.clientId || c.clientId === quote.clientId)?.phone || undefined,
+    [clients],
+  );
+  // WhatsApp: needs the company's number connected and the right to send.
+  const canWhatsapp = can('whatsapp.send') && moduleOn('whatsapp');
+  const [whatsappQuote, setWhatsappQuote] = React.useState<Quotation | null>(null);
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
 
   const shown = React.useMemo(() => {
@@ -360,6 +368,17 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                       >
                         {downloading === quote.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </Button>
+                      {canWhatsapp && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setWhatsappQuote(quote)}
+                          aria-label={tr('Send by WhatsApp', 'إرسال عبر واتساب')}
+                          title={tr('Send by WhatsApp', 'إرسال عبر واتساب')}
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                        </Button>
+                      )}
                       {canManage && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -607,6 +626,17 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {whatsappQuote && (
+        <SendDocumentDialog
+          open={Boolean(whatsappQuote)}
+          onOpenChange={(open) => !open && setWhatsappQuote(null)}
+          kind="quotation"
+          id={whatsappQuote.id}
+          number={whatsappQuote.quoteNumber}
+          defaultPhone={clientPhone(whatsappQuote)}
+          documentLanguage={whatsappQuote.language || undefined}
+        />
+      )}
     </div>
   );
 }

@@ -344,6 +344,7 @@
     "POST /companies/:companyId/whatsapp/chats/:chatId/notes",
     "POST /companies/:companyId/whatsapp/quick-replies",
     "POST /companies/:companyId/whatsapp/send",
+    "POST /companies/:companyId/whatsapp/send-document",
     "POST /companies/:companyId/whatsapp/send-media",
     "POST /companies/:companyId/whatsapp/send-template",
     "PUT /companies/:companyId/whatsapp/quick-replies/:replyId"
@@ -355,6 +356,7 @@
   ],
   "whatsapp:send": [
     "POST /companies/:companyId/whatsapp/open-chat",
+    "POST /companies/:companyId/whatsapp/send-document",
     "POST /companies/:companyId/whatsapp/send-media",
     "POST /companies/:companyId/whatsapp/send-template"
   ],
