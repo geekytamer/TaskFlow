@@ -17,5 +17,10 @@ export default function WhatsappRoute() {
     );
   }
 
-  return <WhatsappInboxPage />;
+  // The inbox reads ?chat= (a notification opens its chat), which needs a Suspense boundary.
+  return (
+    <React.Suspense fallback={null}>
+      <WhatsappInboxPage />
+    </React.Suspense>
+  );
 }

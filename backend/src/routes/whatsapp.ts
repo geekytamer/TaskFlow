@@ -2,13 +2,21 @@ import { HttpError } from '../http';
 import { asRecord, optionalString, requiredString } from '../validation';
 import { greenApi, toChatId, GreenApiError } from '../services/greenApi';
 import { metaWhatsapp, CloudApiError, renderTemplate, verifyCloudSignature } from '../services/metaWhatsapp';
-import { conversationWindow, sendWhatsappText, toSendError, WhatsappSendError } from '../services/whatsappSender';
+import { conversationWindow, sendWhatsappMedia, sendWhatsappText, toSendError, WhatsappSendError } from '../services/whatsappSender';
+import { kindFromGreenType, MAX_MEDIA_BYTES, safeFileName } from '../services/whatsappKinds';
+import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
+import { companyInQuietHours, holdPush } from '../push/quiet-hours';
+import type { LiveHub } from '../live/hub';
+import type { WhatsAppMessage } from '../types';
 import { ingestCloudWebhook } from '../services/whatsappCloudWebhook';
 import type { DataStore } from '../data/store';
 import type { RouteContext } from './context';
 import { scopeOf } from '../authz/can';
 import { companyManagementRoles, handler } from './shared';
 import type { Express } from 'express';
+
+/** A file we sent is stored as `wa-file:<id>` and read through the files route. */
+export const WA_FILE_PREFIX = 'wa-file:';
 
 /** Messages Meta's Cloud API does not offer (Green API only). */
 const CLOUD_UNSUPPORTED = 'Not available on the official WhatsApp Cloud API.';
@@ -31,9 +39,66 @@ function scheduleInboundFollowup(store: DataStore, logger: RouteContext['logger'
   }
 }
 
+/** One phone notification per (person, chat) inside this window. */
+export const WHATSAPP_PUSH_WINDOW_MS = 2 * 60 * 1000;
+const PUSH_PREVIEW_CHARS = 120;
+
+/**
+ * Who hears about a customer's message: a private chat's owner; else the
+ * linked contact's owner when they can read WhatsApp; else everyone who can.
+ */
+export function whatsappRecipients(store: DataStore, companyId: string, message: Pick<WhatsAppMessage, 'chatId' | 'contactId'>): string[] {
+  const readers = store.listUserIdsWithPermission(companyId, 'whatsapp:read', companyManagementRoles);
+  const settings = store.getWhatsappChatSettings(companyId, message.chatId);
+  if (settings.visibility === 'private') return settings.ownerUserId ? [settings.ownerUserId] : [];
+  const owner = message.contactId ? store.getContactById(message.contactId)?.ownerUserId : undefined;
+  if (owner && readers.includes(owner)) return [owner];
+  return readers;
+}
+
+const previewOf = (message: WhatsAppMessage): string => {
+  if (message.body) return message.body.slice(0, PUSH_PREVIEW_CHARS);
+  return ({ image: '📷', video: '🎥', audio: '🎤', document: '📄', file: '📎', text: '' } as Record<string, string>)[message.type] ?? '';
+};
+
 /** WhatsApp integration: Green API (QR-linked number) or Meta's Cloud API. */
-export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
+export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { live?: LiveHub; push?: PushConfig } = {}): void {
   const { store, authMiddleware, requireCompanyRoles, viewerOf, canSee, logger } = ctx;
+
+  /** Open inboxes re-read at once. Carries no data: each screen reads through its own gated route. */
+  const tellInbox = (companyId: string) => deps.live?.publish({ companyId, topics: ['whatsapp'] });
+
+  const lastPush = new Map<string, number>();
+  /** A customer's message reaches the phone of whoever answers that chat. */
+  const notifyPhones = async (companyId: string, message: WhatsAppMessage) => {
+    if (!deps.push) return;
+    const now = Date.now();
+    const contactName = message.contactId ? store.getContactById(message.contactId)?.name : undefined;
+    for (const userId of whatsappRecipients(store, companyId, message)) {
+      const key = `${userId}|${companyId}|${message.chatId}`;
+      if (now - (lastPush.get(key) ?? 0) < WHATSAPP_PUSH_WINDOW_MS) continue;
+      try {
+        const prefs = store.getNotificationPrefs(userId);
+        if (!prefs.messages.push) continue;
+        lastPush.set(key, now);
+        const payload: PushPayload = {
+          title: contactName || `+${message.phone}`,
+          body: prefs.pushPreview ? previewOf(message) : '',
+          url: `/whatsapp?chat=${encodeURIComponent(message.chatId)}`,
+          tag: `whatsapp:${message.chatId}`,
+          renotify: true,
+        };
+        if (companyInQuietHours(store, companyId, now)) {
+          holdPush(store, 'staff', userId, companyId, payload);
+          continue;
+        }
+        await sendToPrincipal(store, deps.push.send, 'staff', userId, payload);
+      } catch (error) {
+        logger.warn('[whatsapp] could not push a message', error);
+      }
+    }
+    if (lastPush.size > 5000) for (const [k, at] of lastPush) if (now - at > WHATSAPP_PUSH_WINDOW_MS) lastPush.delete(k);
+  };
 
   const requireCloud = (companyId: string) => {
     const instance = store.getWhatsappInstanceForCompany(companyId);
@@ -220,11 +285,16 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       const contactId = optionalString(body.contactId) || undefined;
       const contextEntityType = optionalString(body.contextEntityType) || undefined;
       const contextEntityId = optionalString(body.contextEntityId) || undefined;
+      const replyToExternalId = optionalString(body.replyToExternalId) || undefined;
       const chatId = toChatId(phone);
       const actorUserId = req.user?.id;
       const actorName = req.user?.name;
+      // A reply quotes a message of this same chat, nothing else.
+      if (replyToExternalId && !store.findWhatsappMessageByExternalId(req.params.companyId, chatId, replyToExternalId)) {
+        throw new HttpError(400, 'The message being replied to is not in this chat.');
+      }
       try {
-        const sent = await sendWhatsappText(store, req.params.companyId, phone, message);
+        const sent = await sendWhatsappText(store, req.params.companyId, phone, message, replyToExternalId);
         const stored = store.createWhatsappMessage({
           companyId: req.params.companyId,
           instanceId: instance.id,
@@ -235,6 +305,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
           contactId,
           type: 'text',
           body: message,
+          replyToExternalId,
           status: 'sent',
           contextEntityType,
           contextEntityId,
@@ -267,6 +338,88 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
         if (error instanceof WhatsappSendError) throw new HttpError(error.status, error.message);
         throw error;
       }
+    }),
+  );
+
+  /**
+   * Sends a photo, document, audio or video (base64 in JSON, up to 16 MB).
+   * The bytes are kept so the chat can show what was sent.
+   */
+  app.post(
+    '/companies/:companyId/whatsapp/send-media',
+    authMiddleware,
+    handler(async (req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const instance = store.getWhatsappInstanceForCompany(req.params.companyId);
+      if (!instance) throw new HttpError(404, 'WhatsApp instance is not configured for this company.');
+      const body = asRecord(req.body, 'body');
+      const phone = requiredString(body.phone, 'phone');
+      const fileName = safeFileName(body.fileName);
+      const mimeType = (optionalString(body.mimeType) || 'application/octet-stream').toLowerCase();
+      if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+(;.*)?$/.test(mimeType)) throw new HttpError(400, 'Invalid file type.');
+      const raw = requiredString(body.dataBase64, 'dataBase64');
+      const data = Buffer.from(raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw, 'base64');
+      if (data.length === 0) throw new HttpError(400, 'The file is empty.');
+      if (data.length > MAX_MEDIA_BYTES) throw new HttpError(413, 'The file is larger than 16 MB.');
+      const caption = optionalString(body.caption) || undefined;
+      const contactId = optionalString(body.contactId) || undefined;
+      const replyToExternalId = optionalString(body.replyToExternalId) || undefined;
+      const chatId = toChatId(phone);
+      if (replyToExternalId && !store.findWhatsappMessageByExternalId(req.params.companyId, chatId, replyToExternalId)) {
+        throw new HttpError(400, 'The message being replied to is not in this chat.');
+      }
+      const mediaId = store.saveWhatsappMedia({
+        companyId: req.params.companyId, chatId, fileName, mimeType, content: data, uploadedByUserId: req.user?.id,
+      });
+      const base = {
+        companyId: req.params.companyId,
+        instanceId: instance.id,
+        direction: 'outbound' as const,
+        chatId,
+        phone,
+        contactId,
+        body: caption ?? '',
+        mediaUrl: `${WA_FILE_PREFIX}${mediaId}`,
+        fileName,
+        mimeType,
+        replyToExternalId,
+        actorUserId: req.user?.id,
+        actorName: req.user?.name,
+      };
+      try {
+        const sent = await sendWhatsappMedia(store, req.params.companyId, phone, { data, fileName, mimeType, caption, replyToExternalId });
+        res.status(201).json(store.createWhatsappMessage({ ...base, type: sent.kind, externalId: sent.idMessage, status: 'sent', sentAt: new Date() }));
+      } catch (error) {
+        // Refused before anything left (closed window, a format WhatsApp cannot play): keep nothing.
+        if (error instanceof WhatsappSendError && (error.reason === 'windowClosed' || error.status === 415)) {
+          store.deleteWhatsappMedia(req.params.companyId, mediaId);
+          throw new HttpError(error.status, error.message, error.reason === 'windowClosed' ? { code: 'windowClosed' } : undefined);
+        }
+        store.createWhatsappMessage({ ...base, type: kindFromGreenType('', mimeType), status: 'failed', error: error instanceof Error ? error.message : String(error) });
+        if (error instanceof WhatsappSendError) throw new HttpError(error.status, error.message);
+        throw error;
+      }
+    }),
+  );
+
+  /** A file we sent, for showing it in the chat. Same privacy rule as the chat itself. */
+  app.get(
+    '/companies/:companyId/whatsapp/files/:fileId',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const file = store.getWhatsappMedia(req.params.companyId, req.params.fileId);
+      if (!file) throw new HttpError(404, 'File not found.');
+      if (!canSee(req, 'whatsapp_chats', req.params.companyId, file.chatId)) {
+        throw new HttpError(403, 'You do not have access to this private chat.');
+      }
+      res.setHeader('Content-Type', file.mimeType);
+      // Never run as a page of ours, whatever the bytes are.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.send(file.content);
     }),
   );
 
@@ -362,6 +515,8 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       }
       const file = await wrapCloud(() => metaWhatsapp.downloadMedia(creds, mediaId));
       res.setHeader('Content-Type', file.mimeType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       res.setHeader('Cache-Control', 'private, max-age=3600');
       res.send(file.data);
     }),
@@ -558,10 +713,17 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
             messageData?.textMessageData?.textMessage ||
             messageData?.extendedTextMessageData?.text ||
             '';
-          const fileUrl = messageData?.fileMessageData?.downloadUrl;
-          const fileName = messageData?.fileMessageData?.fileName;
+          const fileData = messageData?.fileMessageData || {};
+          const fileUrl = fileData.downloadUrl;
+          const fileName = fileData.fileName;
+          const fileMime = fileData.mimeType ? String(fileData.mimeType) : undefined;
           const messageType: import('../types').WhatsAppMessageType =
-            fileUrl ? 'file' : 'text';
+            fileUrl ? kindFromGreenType(messageData?.typeMessage, fileMime) : 'text';
+          const quotedId = messageData?.quotedMessage?.stanzaId;
+          // A redelivered event is the same message: no second follow-up, no second notification.
+          const inboundChatId = String(senderData?.chatId || '');
+          const inboundId = String(payload?.idMessage || '');
+          const isNew = !inboundId || !store.findWhatsappMessageByExternalId(instance.companyId, inboundChatId, inboundId);
           const savedMessage = store.createWhatsappMessage({
             companyId: instance.companyId,
             instanceId: instance.id,
@@ -570,17 +732,20 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
             chatId: String(senderData?.chatId || ''),
             phone: String(senderData?.chatId || '').replace(/@c\.us$/, ''),
             type: messageType,
-            body: textBody || '',
+            body: textBody || (fileUrl ? String(fileData.caption || '') : ''),
             mediaUrl: fileUrl || undefined,
             fileName: fileName || undefined,
+            mimeType: fileUrl ? fileMime : undefined,
+            replyToExternalId: quotedId ? String(quotedId) : undefined,
             status: 'delivered',
             receivedAt: new Date((Number(payload?.timestamp) || Date.now() / 1000) * 1000),
           });
           // Auto-follow-up: if the inbound message is linked to a known
           // contact, schedule a same-day reply reminder.
-          if (savedMessage.contactId) {
+          if (isNew && savedMessage.contactId) {
             scheduleInboundFollowup(store, logger, instance.companyId, savedMessage.id, savedMessage.contactId);
           }
+          if (isNew) void notifyPhones(instance.companyId, savedMessage);
         } else if (
           typeWebhook === 'outgoingMessageStatus' ||
           typeWebhook === 'outgoingAPIMessageReceived' ||
@@ -603,6 +768,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
       } catch (err) {
         logger.error('WhatsApp webhook handler error', err);
       }
+      tellInbox(instance.companyId);
       res.status(200).json({ ok: true });
     }),
   );
@@ -657,6 +823,8 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext): void {
         for (const linked of result.linkedInbound) {
           scheduleInboundFollowup(store, logger, instance.companyId, linked.id, linked.contactId);
         }
+        for (const message of result.inbound) void notifyPhones(instance.companyId, message);
+        if (result.messages > 0 || result.statuses > 0) tellInbox(instance.companyId);
         if (instance.state !== 'authorized' && (result.messages > 0 || result.statuses > 0)) {
           store.updateWhatsappInstanceState(instance.companyId, 'authorized');
         }

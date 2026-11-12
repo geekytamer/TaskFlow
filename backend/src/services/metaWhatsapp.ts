@@ -139,11 +139,12 @@ export const metaWhatsapp = {
     }>(creds, 'GET', `${encodeURIComponent(creds.phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,name_status`);
   },
 
-  async sendText(creds: CloudCredentials, to: string, body: string): Promise<{ idMessage: string }> {
+  async sendText(creds: CloudCredentials, to: string, body: string, replyToId?: string): Promise<{ idMessage: string }> {
     const res = await call<{ messages?: Array<{ id: string }> }>(creds, 'POST', `${encodeURIComponent(creds.phoneNumberId)}/messages`, {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: toCloudRecipient(to),
+      ...(replyToId ? { context: { message_id: replyToId } } : {}),
       type: 'text',
       text: { preview_url: true, body },
     });
@@ -166,6 +167,54 @@ export const metaWhatsapp = {
       to: toCloudRecipient(to),
       type: 'template',
       template: { name: template.name, language: { code: template.language }, ...(components ? { components } : {}) },
+    });
+    const id = res?.messages?.[0]?.id;
+    if (!id) throw new CloudApiError('WhatsApp Cloud API did not return a message id.', 502, undefined, res);
+    return { idMessage: id };
+  },
+
+  /** Hands a file's bytes to Meta; the id it returns is then sent as a message. */
+  async uploadMedia(creds: CloudCredentials, file: { data: Buffer; fileName: string; mimeType: string }): Promise<string> {
+    const url = `${GRAPH_HOST}/${CLOUD_GRAPH_VERSION}/${encodeURIComponent(creds.phoneNumberId)}/media`;
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', file.mimeType);
+    form.append('file', new Blob([new Uint8Array(file.data)], { type: file.mimeType }), file.fileName);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 4);
+    try {
+      const res = await fetchImpl(url, { method: 'POST', headers: { Authorization: `Bearer ${creds.accessToken}` }, body: form, signal: controller.signal });
+      const payload: any = await res.json().catch(() => null);
+      if (!res.ok || !payload?.id) {
+        const err = payload?.error;
+        throw new CloudApiError(err?.message ? String(err.message) : `WhatsApp Cloud API media upload failed with status ${res.status}`, res.ok ? 502 : res.status, typeof err?.code === 'number' ? err.code : undefined, payload);
+      }
+      return String(payload.id);
+    } catch (err) {
+      if (err instanceof CloudApiError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') throw new CloudApiError('WhatsApp Cloud API media upload timed out', 408);
+      throw new CloudApiError(err instanceof Error ? err.message : 'WhatsApp Cloud API media upload failed', 0);
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
+  /** Sends an uploaded file as a photo, video, audio or document. Audio takes no caption. */
+  async sendMedia(
+    creds: CloudCredentials,
+    to: string,
+    media: { kind: 'image' | 'video' | 'audio' | 'document'; mediaId: string; caption?: string; fileName?: string; replyToId?: string },
+  ): Promise<{ idMessage: string }> {
+    const part: Record<string, unknown> = { id: media.mediaId };
+    if (media.caption && media.kind !== 'audio') part.caption = media.caption;
+    if (media.kind === 'document' && media.fileName) part.filename = media.fileName;
+    const res = await call<{ messages?: Array<{ id: string }> }>(creds, 'POST', `${encodeURIComponent(creds.phoneNumberId)}/messages`, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: toCloudRecipient(to),
+      ...(media.replyToId ? { context: { message_id: media.replyToId } } : {}),
+      type: media.kind,
+      [media.kind]: part,
     });
     const id = res?.messages?.[0]?.id;
     if (!id) throw new CloudApiError('WhatsApp Cloud API did not return a message id.', 502, undefined, res);

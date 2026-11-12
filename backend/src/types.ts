@@ -1320,7 +1320,8 @@ export interface WhatsAppInstance {
 }
 
 export type WhatsAppMessageDirection = 'outbound' | 'inbound';
-export type WhatsAppMessageType = 'text' | 'file' | 'image' | 'document';
+/** `file` is what older rows carry for any attachment. */
+export type WhatsAppMessageType = 'text' | 'file' | 'image' | 'document' | 'audio' | 'video';
 export type WhatsAppMessageStatus =
   | 'pending'
   | 'sent'
@@ -1339,8 +1340,12 @@ export interface WhatsAppMessage {
   contactId?: string;
   type: WhatsAppMessageType;
   body: string;
+  /** A provider link, `cloud-media:<id>` (Meta, through our proxy) or `wa-file:<id>` (a file we sent). */
   mediaUrl?: string;
   fileName?: string;
+  mimeType?: string;
+  /** Provider id of the message this one answers (a quoted reply). */
+  replyToExternalId?: string;
   status: WhatsAppMessageStatus;
   error?: string;
   contextEntityType?: string;

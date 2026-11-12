@@ -714,6 +714,8 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'GET', path: '/companies/:companyId/whatsapp/window', permission: 'whatsapp.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/templates', permission: 'whatsapp.view', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/whatsapp/send-template', permission: 'whatsapp.send', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/whatsapp/send-media', permission: 'whatsapp.send', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/files/:fileId', permission: 'whatsapp.view', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/media/:mediaId', permission: 'whatsapp.view', legacyRoles: MGMT },
 
   // ─── settings ──────────────────────────────────────────────────────────────

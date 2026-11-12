@@ -1,5 +1,6 @@
 import { canAccessCompany, HttpError } from '../http';
 import { type Names, resolveNames, scriptSide } from '../names';
+import { kindFromGreenType } from '../services/whatsappKinds';
 import { DocumentTextStore } from '../documents/text-store';
 import { childIds, subtreeIds, topOf, wouldCycle } from '../companies/tree';
 import { taskWeek, weekStartOf } from '../tasks/task-week';
@@ -6037,6 +6038,30 @@ export class DataStore {
           if (!columns.includes('provider')) this.db.exec(`ALTER TABLE whatsapp_instances ADD COLUMN provider TEXT NOT NULL DEFAULT 'green';`);
           if (!columns.includes('wabaId')) this.db.exec('ALTER TABLE whatsapp_instances ADD COLUMN wabaId TEXT;');
           if (!columns.includes('appSecretEncrypted')) this.db.exec('ALTER TABLE whatsapp_instances ADD COLUMN appSecretEncrypted TEXT;');
+        },
+      },
+      {
+        // A full chat: files we send (kept by us), the real kind of an
+        // attachment, and replies to one message.
+        id: '174_whatsapp_full_chat',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(whatsapp_messages)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('mimeType')) this.db.exec('ALTER TABLE whatsapp_messages ADD COLUMN mimeType TEXT;');
+          if (!columns.includes('replyToExternalId')) this.db.exec('ALTER TABLE whatsapp_messages ADD COLUMN replyToExternalId TEXT;');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS whatsapp_media (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              chatId TEXT NOT NULL,
+              fileName TEXT NOT NULL,
+              mimeType TEXT NOT NULL,
+              sizeBytes INTEGER NOT NULL,
+              content BLOB NOT NULL,
+              uploadedByUserId TEXT,
+              createdAt TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_media_company ON whatsapp_media (companyId, chatId);
+          `);
         },
       },
     ];
@@ -16736,6 +16761,37 @@ export class DataStore {
     };
   }
 
+  /** A message of this chat by its provider id (replies quote only their own chat). */
+  findWhatsappMessageByExternalId(companyId: string, chatId: string, externalId: string): WhatsAppMessage | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM whatsapp_messages WHERE companyId = ? AND chatId = ? AND externalId = ? LIMIT 1')
+      .get(companyId, chatId, externalId) as any;
+    return row ? this.decodeWhatsappMessage(row) : undefined;
+  }
+
+  /** Keeps a file we are about to send, so the chat can show it afterwards. */
+  saveWhatsappMedia(input: { companyId: string; chatId: string; fileName: string; mimeType: string; content: Buffer; uploadedByUserId?: string }): string {
+    const id = uuid();
+    this.db
+      .prepare(
+        `INSERT INTO whatsapp_media (id, companyId, chatId, fileName, mimeType, sizeBytes, content, uploadedByUserId, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, input.companyId, input.chatId, input.fileName, input.mimeType, input.content.length, input.content, input.uploadedByUserId ?? null, new Date().toISOString());
+    return id;
+  }
+
+  getWhatsappMedia(companyId: string, id: string): { id: string; chatId: string; fileName: string; mimeType: string; content: Buffer } | undefined {
+    const row = this.db
+      .prepare('SELECT id, chatId, fileName, mimeType, content FROM whatsapp_media WHERE companyId = ? AND id = ?')
+      .get(companyId, id) as any;
+    return row ? { id: row.id, chatId: row.chatId, fileName: row.fileName, mimeType: row.mimeType, content: row.content as Buffer } : undefined;
+  }
+
+  deleteWhatsappMedia(companyId: string, id: string): void {
+    this.db.prepare('DELETE FROM whatsapp_media WHERE companyId = ? AND id = ?').run(companyId, id);
+  }
+
   /** The message a media link belongs to (to check who may open it). */
   findWhatsappMessageByMedia(companyId: string, mediaUrl: string): WhatsAppMessage | undefined {
     const row = this.db
@@ -16888,6 +16944,8 @@ export class DataStore {
       body: row.body ?? '',
       mediaUrl: row.mediaUrl ?? undefined,
       fileName: row.fileName ?? undefined,
+      mimeType: row.mimeType ?? undefined,
+      replyToExternalId: row.replyToExternalId ?? undefined,
       status: row.status as WhatsAppMessageStatus,
       error: row.error ?? undefined,
       contextEntityType: row.contextEntityType ?? undefined,
@@ -17037,8 +17095,10 @@ export class DataStore {
         this.db
           .prepare(
             `UPDATE whatsapp_messages
-               SET status = ?, body = COALESCE(?, body), mediaUrl = COALESCE(?, mediaUrl),
-                   fileName = COALESCE(?, fileName),
+               SET status = ?, body = COALESCE(NULLIF(?, ''), body),
+                   mediaUrl = CASE WHEN mediaUrl LIKE 'wa-file:%' OR mediaUrl LIKE 'cloud-media:%' THEN mediaUrl ELSE COALESCE(?, mediaUrl) END,
+                   fileName = COALESCE(fileName, ?), mimeType = COALESCE(mimeType, ?),
+                   replyToExternalId = COALESCE(replyToExternalId, ?),
                    sentAt = COALESCE(sentAt, ?), deliveredAt = COALESCE(deliveredAt, ?),
                    readAt = COALESCE(readAt, ?), receivedAt = COALESCE(receivedAt, ?),
                    error = COALESCE(?, error)
@@ -17049,6 +17109,8 @@ export class DataStore {
             input.body ?? null,
             input.mediaUrl ?? null,
             input.fileName ?? null,
+            input.mimeType ?? null,
+            input.replyToExternalId ?? null,
             input.sentAt ? input.sentAt.toISOString() : null,
             input.deliveredAt ? input.deliveredAt.toISOString() : null,
             input.readAt ? input.readAt.toISOString() : null,
@@ -17080,12 +17142,12 @@ export class DataStore {
       .prepare(
         `INSERT INTO whatsapp_messages (
            id, companyId, instanceId, direction, externalId, chatId, phone, contactId,
-           type, body, mediaUrl, fileName, status, error, contextEntityType, contextEntityId,
+           type, body, mediaUrl, fileName, mimeType, replyToExternalId, status, error, contextEntityType, contextEntityId,
            actorUserId, actorName,
            sentAt, deliveredAt, readAt, receivedAt, createdAt
          ) VALUES (
            @id, @companyId, @instanceId, @direction, @externalId, @chatId, @phone, @contactId,
-           @type, @body, @mediaUrl, @fileName, @status, @error, @contextEntityType, @contextEntityId,
+           @type, @body, @mediaUrl, @fileName, @mimeType, @replyToExternalId, @status, @error, @contextEntityType, @contextEntityId,
            @actorUserId, @actorName,
            @sentAt, @deliveredAt, @readAt, @receivedAt, @createdAt
          )`,
@@ -17097,6 +17159,8 @@ export class DataStore {
         body: message.body ?? null,
         mediaUrl: message.mediaUrl ?? null,
         fileName: message.fileName ?? null,
+        mimeType: message.mimeType ?? null,
+        replyToExternalId: message.replyToExternalId ?? null,
         error: message.error ?? null,
         contextEntityType: message.contextEntityType ?? null,
         contextEntityId: message.contextEntityId ?? null,
@@ -17121,6 +17185,7 @@ export class DataStore {
     contactName?: string;
     lastMessageAt: Date;
     lastMessageBody: string;
+    lastMessageKind?: 'image' | 'video' | 'audio' | 'document';
     lastMessageDirection: WhatsAppMessageDirection;
     unreadCount: number;
     messageCount: number;
@@ -17148,7 +17213,7 @@ export class DataStore {
       .all(companyId, ...chatFilter.params) as any[];
 
     const lastMessageStmt = this.db.prepare(
-      `SELECT body, direction, contactId
+      `SELECT body, direction, contactId, type, mediaUrl, mimeType, fileName
          FROM whatsapp_messages
          WHERE companyId = ? AND chatId = ?
          ORDER BY createdAt DESC LIMIT 1`,
@@ -17163,6 +17228,8 @@ export class DataStore {
       contactName?: string;
       lastMessageAt: Date;
       lastMessageBody: string;
+      /** What the last message carries when it has no words: the list says "Photo", "Voice message"… */
+      lastMessageKind?: 'image' | 'video' | 'audio' | 'document';
       lastMessageDirection: WhatsAppMessageDirection;
       unreadCount: number;
       messageCount: number;
@@ -17190,6 +17257,9 @@ export class DataStore {
         contactName,
         lastMessageAt: new Date(row.lastAt),
         lastMessageBody: last?.body ?? '',
+        lastMessageKind: last?.mediaUrl
+          ? (['image', 'video', 'audio'].includes(last.type) ? last.type : kindFromGreenType('', last.mimeType ?? undefined))
+          : undefined,
         lastMessageDirection: (last?.direction as WhatsAppMessageDirection) || 'inbound',
         unreadCount: Number(row.unreadCount) || 0,
         messageCount: Number(row.messageCount) || 0,
@@ -17238,7 +17308,9 @@ export class DataStore {
           '';
         const mediaUrl = raw?.downloadUrl || raw?.fileMessageData?.downloadUrl;
         const fileName = raw?.fileName || raw?.fileMessageData?.fileName;
-        const messageType: WhatsAppMessageType = mediaUrl ? 'file' : 'text';
+        const mimeType = raw?.mimeType || raw?.fileMessageData?.mimeType;
+        const messageType: WhatsAppMessageType = mediaUrl ? kindFromGreenType(raw?.typeMessage, mimeType) : 'text';
+        const replyToExternalId = raw?.quotedMessage?.stanzaId ? String(raw.quotedMessage.stanzaId) : undefined;
         const status: WhatsAppMessageStatus =
           direction === 'inbound'
             ? 'delivered'
@@ -17261,6 +17333,8 @@ export class DataStore {
           body,
           mediaUrl,
           fileName,
+          mimeType: mediaUrl && mimeType ? String(mimeType) : undefined,
+          replyToExternalId,
           status,
           sentAt: direction === 'outbound' ? when : undefined,
           receivedAt: direction === 'inbound' ? when : undefined,

@@ -58,7 +58,7 @@ async function call<T = any>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    const res = await fetchImpl(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -91,6 +91,25 @@ async function call<T = any>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Files go to Green API's media host: media.green-api.com for the default
+ * api host, NNNN.media.greenapi.com for a rented one (NNNN.api.greenapi.com).
+ */
+export function greenMediaHost(apiHost?: string): string {
+  if (process.env.GREEN_API_MEDIA_HOST) return process.env.GREEN_API_MEDIA_HOST.replace(/\/$/, '');
+  const host = (apiHost?.trim() || DEFAULT_HOST).replace(/\/$/, '');
+  if (/\/\/api\.green-api\.com$/i.test(host)) return 'https://media.green-api.com';
+  if (/\.api\.greenapi\.com$/i.test(host)) return host.replace(/\.api\.greenapi\.com$/i, '.media.greenapi.com');
+  return host;
+}
+
+type Fetch = typeof fetch;
+let fetchImpl: Fetch = (...args) => fetch(...args);
+/** Tests swap the network for a fake. */
+export function setGreenFetch(fn: Fetch | null): void {
+  fetchImpl = fn ?? ((...args) => fetch(...args));
 }
 
 /**
@@ -157,8 +176,49 @@ export const greenApi = {
     creds: GreenApiCredentials,
     chatId: string,
     message: string,
+    quotedMessageId?: string,
   ): Promise<{ idMessage: string }> {
-    return call(creds, 'POST', 'sendMessage', { chatId, message });
+    return call(creds, 'POST', 'sendMessage', { chatId, message, ...(quotedMessageId ? { quotedMessageId } : {}) });
+  },
+
+  /** Sends a file's bytes (photo, document, audio, video) with an optional caption. */
+  async sendFileByUpload(
+    creds: GreenApiCredentials,
+    chatId: string,
+    file: { data: Buffer; fileName: string; mimeType: string; caption?: string; quotedMessageId?: string },
+  ): Promise<{ idMessage: string }> {
+    const url = `${greenMediaHost(creds.apiHost)}/waInstance${creds.idInstance}/sendFileByUpload/${creds.apiToken}`;
+    const form = new FormData();
+    form.append('chatId', chatId);
+    form.append('fileName', file.fileName);
+    if (file.caption) form.append('caption', file.caption);
+    if (file.quotedMessageId) form.append('quotedMessageId', file.quotedMessageId);
+    form.append('file', new Blob([new Uint8Array(file.data)], { type: file.mimeType }), file.fileName);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 4);
+    try {
+      const res = await fetchImpl(url, { method: 'POST', body: form, signal: controller.signal });
+      const text = await res.text();
+      let payload: any = text;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch {
+        /* keep as text */
+      }
+      if (!res.ok || !payload?.idMessage) {
+        const msg = payload && typeof payload === 'object' && (payload.message || payload.error)
+          ? String(payload.message || payload.error)
+          : `Green API sendFileByUpload failed with status ${res.status}`;
+        throw new GreenApiError(msg, res.ok ? 502 : res.status, payload);
+      }
+      return { idMessage: String(payload.idMessage) };
+    } catch (err) {
+      if (err instanceof GreenApiError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') throw new GreenApiError('Green API sendFileByUpload timed out', 408);
+      throw new GreenApiError(err instanceof Error ? err.message : 'Green API sendFileByUpload failed', 0);
+    } finally {
+      clearTimeout(timer);
+    }
   },
 
   async sendFileByUrl(

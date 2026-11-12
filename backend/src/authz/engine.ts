@@ -94,6 +94,8 @@ export const NOTIFY_KEYS: Readonly<Record<string, { key: string; min: Scope }>> 
   'purchasing:approve': { key: 'purchasing.approve', min: 'own' },
   // The Monday task summary: people who see every task in the company.
   'tasks:all.read': { key: 'tasks.view', min: 'company' },
+  // A customer's WhatsApp message: people who read the company's chats.
+  'whatsapp:read': { key: 'whatsapp.view', min: 'own' },
 };
 
 /**
