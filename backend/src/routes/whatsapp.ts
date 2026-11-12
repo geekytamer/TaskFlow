@@ -7,7 +7,7 @@ import { kindFromGreenType, MAX_MEDIA_BYTES, safeFileName } from '../services/wh
 import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
 import { companyInQuietHours, holdPush } from '../push/quiet-hours';
 import type { LiveHub } from '../live/hub';
-import type { WhatsAppMessage } from '../types';
+import type { WhatsAppChatStatus, WhatsAppMessage } from '../types';
 import { ingestCloudWebhook } from '../services/whatsappCloudWebhook';
 import type { DataStore } from '../data/store';
 import type { RouteContext } from './context';
@@ -45,15 +45,44 @@ const PUSH_PREVIEW_CHARS = 120;
 
 /**
  * Who hears about a customer's message: a private chat's owner; else the
- * linked contact's owner when they can read WhatsApp; else everyone who can.
+ * chat's assignee; else the linked contact's owner (each only while they can
+ * read WhatsApp); else everyone who can.
  */
 export function whatsappRecipients(store: DataStore, companyId: string, message: Pick<WhatsAppMessage, 'chatId' | 'contactId'>): string[] {
   const readers = store.listUserIdsWithPermission(companyId, 'whatsapp:read', companyManagementRoles);
   const settings = store.getWhatsappChatSettings(companyId, message.chatId);
   if (settings.visibility === 'private') return settings.ownerUserId ? [settings.ownerUserId] : [];
+  if (settings.assigneeUserId && readers.includes(settings.assigneeUserId)) return [settings.assigneeUserId];
   const owner = message.contactId ? store.getContactById(message.contactId)?.ownerUserId : undefined;
   if (owner && readers.includes(owner)) return [owner];
   return readers;
+}
+
+/** The people a chat can be given to: those who read WhatsApp in the company. Names only. */
+export function whatsappTeam(store: DataStore, companyId: string): Array<{ id: string; name: string }> {
+  return store.listUserIdsWithPermission(companyId, 'whatsapp:read', companyManagementRoles)
+    .map((id) => store.getUserById(id))
+    .filter((u): u is NonNullable<typeof u> => Boolean(u))
+    .map((u) => ({ id: u.id, name: u.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Up to 10 labels of up to 30 characters, trimmed, no repeats (case kept, compared without it). */
+export function parseLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new HttpError(400, 'Labels must be a list.');
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    const label = String(raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!label) continue;
+    if (label.length > 30) throw new HttpError(400, 'A label is limited to 30 characters.');
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  if (out.length > 10) throw new HttpError(400, 'A chat takes up to 10 labels.');
+  return out;
 }
 
 const previewOf = (message: WhatsAppMessage): string => {
@@ -64,6 +93,11 @@ const previewOf = (message: WhatsAppMessage): string => {
 /** WhatsApp integration: Green API (QR-linked number) or Meta's Cloud API. */
 export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { live?: LiveHub; push?: PushConfig } = {}): void {
   const { store, authMiddleware, requireCompanyRoles, viewerOf, canSee, logger } = ctx;
+
+  /** A private chat is its owner's: its notes too. */
+  const requireChat = (req: Parameters<typeof canSee>[0], companyId: string, chatId: string) => {
+    if (!canSee(req, 'whatsapp_chats', companyId, chatId)) throw new HttpError(403, 'You do not have access to this private chat.');
+  };
 
   /** Open inboxes re-read at once. Carries no data: each screen reads through its own gated route. */
   const tellInbox = (companyId: string) => deps.live?.publish({ companyId, topics: ['whatsapp'] });
@@ -313,6 +347,7 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
           actorName,
           sentAt: new Date(),
         });
+        store.touchWhatsappChat(req.params.companyId, chatId, { direction: 'outbound', actorUserId });
         res.status(201).json(stored);
       } catch (error) {
         // A closed 24-hour window is refused before Meta: nothing was sent, nothing to record.
@@ -388,7 +423,9 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
       };
       try {
         const sent = await sendWhatsappMedia(store, req.params.companyId, phone, { data, fileName, mimeType, caption, replyToExternalId });
-        res.status(201).json(store.createWhatsappMessage({ ...base, type: sent.kind, externalId: sent.idMessage, status: 'sent', sentAt: new Date() }));
+        const stored = store.createWhatsappMessage({ ...base, type: sent.kind, externalId: sent.idMessage, status: 'sent', sentAt: new Date() });
+        store.touchWhatsappChat(req.params.companyId, chatId, { direction: 'outbound', actorUserId: req.user?.id });
+        res.status(201).json(stored);
       } catch (error) {
         // Refused before anything left (closed window, a format WhatsApp cannot play): keep nothing.
         if (error instanceof WhatsappSendError && (error.reason === 'windowClosed' || error.status === 415)) {
@@ -488,7 +525,9 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
       };
       try {
         const sent = await metaWhatsapp.sendTemplate(creds, chatId, { name, language, variables });
-        res.status(201).json(store.createWhatsappMessage({ ...base, externalId: sent.idMessage, status: 'sent', sentAt: new Date() }));
+        const stored = store.createWhatsappMessage({ ...base, externalId: sent.idMessage, status: 'sent', sentAt: new Date() });
+        store.touchWhatsappChat(req.params.companyId, chatId, { direction: 'outbound', actorUserId: req.user?.id });
+        res.status(201).json(stored);
       } catch (error) {
         store.createWhatsappMessage({ ...base, status: 'failed', error: error instanceof Error ? error.message : String(error) });
         const mapped = toSendError(error);
@@ -591,11 +630,154 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
           ? req.user?.id ?? null
           : ownerValue;
 
+      // Team work: who answers, where the chat stands, its labels.
+      const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+      let assigneeUserId: string | null | undefined;
+      if (has('assigneeUserId')) {
+        assigneeUserId = body.assigneeUserId === null ? null : optionalString(body.assigneeUserId) || null;
+        if (assigneeUserId && !whatsappTeam(store, req.params.companyId).some((u) => u.id === assigneeUserId)) {
+          throw new HttpError(400, 'This person cannot read WhatsApp chats in this company.');
+        }
+      }
+      let status: WhatsAppChatStatus | undefined;
+      if (has('status')) {
+        const raw = optionalString(body.status);
+        if (raw !== 'open' && raw !== 'waiting' && raw !== 'done') throw new HttpError(400, 'Status must be open, waiting or done.');
+        status = raw;
+      }
+      const labels = has('labels') ? parseLabels(body.labels) : undefined;
+
       const updated = store.setWhatsappChatSettings(req.params.companyId, req.params.chatId, {
         visibility,
         ownerUserId: effectiveOwner as any,
+        assigneeUserId,
+        status,
+        labels,
       });
+      // Handed to someone else: tell them (in the app, and on the phone by their preferences).
+      if (assigneeUserId && assigneeUserId !== current.assigneeUserId && assigneeUserId !== req.user!.id) {
+        const phone = req.params.chatId.replace(/@c\.us$/, '');
+        const contactId = store.findContactIdByPhone(req.params.companyId, phone);
+        const who = (contactId ? store.getContactById(contactId)?.name : undefined) || `+${phone}`;
+        store.notify({
+          companyId: req.params.companyId,
+          userIds: [assigneeUserId],
+          type: 'whatsapp_assigned',
+          title: `You were assigned the WhatsApp chat with ${who}`,
+          data: { tKey: 'notif.whatsappAssigned.t', contact: who, by: req.user?.name ?? '' },
+          link: `/whatsapp?chat=${encodeURIComponent(req.params.chatId)}`,
+          entityType: 'whatsapp_chat',
+          entityId: req.params.chatId,
+        });
+      }
       res.json(updated);
+    }),
+  );
+
+  /** Who can be given a chat: the people who read WhatsApp in this company. Names only. */
+  app.get(
+    '/companies/:companyId/whatsapp/team',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(whatsappTeam(store, req.params.companyId));
+    }),
+  );
+
+  /** Staff notes inside a chat. Never sent to the customer; they follow the chat's privacy. */
+  app.get(
+    '/companies/:companyId/whatsapp/chats/:chatId/notes',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      requireChat(req, req.params.companyId, req.params.chatId);
+      res.json(store.listWhatsappNotes(req.params.companyId, req.params.chatId));
+    }),
+  );
+
+  app.post(
+    '/companies/:companyId/whatsapp/chats/:chatId/notes',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      requireChat(req, req.params.companyId, req.params.chatId);
+      const text = requiredString(asRecord(req.body, 'body').body, 'body').trim();
+      if (text.length > 2000) throw new HttpError(400, 'A note is limited to 2000 characters.');
+      res.status(201).json(store.createWhatsappNote({
+        companyId: req.params.companyId, chatId: req.params.chatId, body: text, authorUserId: req.user?.id, authorName: req.user?.name,
+      }));
+    }),
+  );
+
+  app.delete(
+    '/companies/:companyId/whatsapp/notes/:noteId',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      const note = store.getWhatsappNote(req.params.companyId, req.params.noteId);
+      if (!note) throw new HttpError(404, 'Note not found.');
+      requireChat(req, req.params.companyId, note.chatId);
+      // Its author, or someone who manages every chat of the company.
+      const scope = scopeOf(viewerOf(req), 'whatsapp.view', req.params.companyId);
+      if (note.authorUserId !== req.user!.id && scope !== 'company' && scope !== 'group') {
+        throw new HttpError(403, 'Only the note\'s author or a manager can delete it.');
+      }
+      store.deleteWhatsappNote(req.params.companyId, note.id);
+      res.json({ success: true });
+    }),
+  );
+
+  /** Saved texts of the company, inserted in the message box by their short code. */
+  app.get(
+    '/companies/:companyId/whatsapp/quick-replies',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(store.listWhatsappQuickReplies(req.params.companyId));
+    }),
+  );
+
+  const saveQuickReply = (req: Parameters<typeof requireCompanyRoles>[0], id?: string) => {
+    const body = asRecord(req.body, 'body');
+    const shortcut = requiredString(body.shortcut, 'shortcut').trim().replace(/^\/+/, '').toLowerCase();
+    if (!/^[\p{L}\p{N}_-]{1,30}$/u.test(shortcut)) throw new HttpError(400, 'The short code is one word of letters or digits, up to 30 characters.');
+    const text = requiredString(body.body, 'body').trim();
+    if (text.length > 4000) throw new HttpError(400, 'A quick reply is limited to 4000 characters.');
+    try {
+      const saved = store.saveWhatsappQuickReply(req.params.companyId, { id, shortcut, body: text, userId: req.user?.id });
+      if (!saved) throw new HttpError(404, 'Quick reply not found.');
+      return saved;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'shortcut_taken') throw new HttpError(409, 'Another quick reply already uses this short code.');
+      throw error;
+    }
+  };
+
+  app.post(
+    '/companies/:companyId/whatsapp/quick-replies',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.status(201).json(saveQuickReply(req));
+    }),
+  );
+
+  app.put(
+    '/companies/:companyId/whatsapp/quick-replies/:replyId',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      res.json(saveQuickReply(req, req.params.replyId));
+    }),
+  );
+
+  app.delete(
+    '/companies/:companyId/whatsapp/quick-replies/:replyId',
+    authMiddleware,
+    handler((req, res) => {
+      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+      if (!store.deleteWhatsappQuickReply(req.params.companyId, req.params.replyId)) throw new HttpError(404, 'Quick reply not found.');
+      res.json({ success: true });
     }),
   );
 
@@ -745,7 +927,11 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
           if (isNew && savedMessage.contactId) {
             scheduleInboundFollowup(store, logger, instance.companyId, savedMessage.id, savedMessage.contactId);
           }
-          if (isNew) void notifyPhones(instance.companyId, savedMessage);
+          if (isNew) {
+            // The customer wrote: the chat is ours to answer again, also when it was done.
+            store.touchWhatsappChat(instance.companyId, savedMessage.chatId, { direction: 'inbound' });
+            void notifyPhones(instance.companyId, savedMessage);
+          }
         } else if (
           typeWebhook === 'outgoingMessageStatus' ||
           typeWebhook === 'outgoingAPIMessageReceived' ||
@@ -823,7 +1009,10 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
         for (const linked of result.linkedInbound) {
           scheduleInboundFollowup(store, logger, instance.companyId, linked.id, linked.contactId);
         }
-        for (const message of result.inbound) void notifyPhones(instance.companyId, message);
+        for (const message of result.inbound) {
+          store.touchWhatsappChat(instance.companyId, message.chatId, { direction: 'inbound' });
+          void notifyPhones(instance.companyId, message);
+        }
         if (result.messages > 0 || result.statuses > 0) tellInbox(instance.companyId);
         if (instance.state !== 'authorized' && (result.messages > 0 || result.statuses > 0)) {
           store.updateWhatsappInstanceState(instance.companyId, 'authorized');

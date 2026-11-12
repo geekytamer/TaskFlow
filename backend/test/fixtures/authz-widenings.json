@@ -338,10 +338,15 @@
     "POST /companies/:companyId/finance/vendor-bills/bulk-status"
   ],
   "whatsapp:create": [
+    "DELETE /companies/:companyId/whatsapp/notes/:noteId",
+    "DELETE /companies/:companyId/whatsapp/quick-replies/:replyId",
     "PATCH /companies/:companyId/whatsapp/chats/:chatId/settings",
+    "POST /companies/:companyId/whatsapp/chats/:chatId/notes",
+    "POST /companies/:companyId/whatsapp/quick-replies",
     "POST /companies/:companyId/whatsapp/send",
     "POST /companies/:companyId/whatsapp/send-media",
-    "POST /companies/:companyId/whatsapp/send-template"
+    "POST /companies/:companyId/whatsapp/send-template",
+    "PUT /companies/:companyId/whatsapp/quick-replies/:replyId"
   ],
   "whatsapp:delete": [
     "POST /companies/:companyId/whatsapp/configure-webhook",
@@ -354,24 +359,35 @@
     "POST /companies/:companyId/whatsapp/send-template"
   ],
   "whatsapp:whatsapp.chats.read": [
+    "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
     "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:whatsapp.chats.settings.read": [
     "GET /companies/:companyId/whatsapp/chats",
+    "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
     "GET /companies/:companyId/whatsapp/messages",
+    "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
   ],
   "whatsapp:whatsapp.chats.settings.write": [
+    "DELETE /companies/:companyId/whatsapp/notes/:noteId",
+    "DELETE /companies/:companyId/whatsapp/quick-replies/:replyId",
+    "POST /companies/:companyId/whatsapp/chats/:chatId/notes",
     "POST /companies/:companyId/whatsapp/chats/:chatId/read",
-    "POST /companies/:companyId/whatsapp/chats/:chatId/sync-history"
+    "POST /companies/:companyId/whatsapp/chats/:chatId/sync-history",
+    "POST /companies/:companyId/whatsapp/quick-replies",
+    "PUT /companies/:companyId/whatsapp/quick-replies/:replyId"
   ],
   "whatsapp:whatsapp.configure-webhook.create": [
     "DELETE /companies/:companyId/whatsapp/instance",
@@ -385,9 +401,12 @@
   ],
   "whatsapp:whatsapp.messages.read": [
     "GET /companies/:companyId/whatsapp/chats",
+    "GET /companies/:companyId/whatsapp/chats/:chatId/notes",
     "GET /companies/:companyId/whatsapp/chats/:chatId/settings",
     "GET /companies/:companyId/whatsapp/files/:fileId",
     "GET /companies/:companyId/whatsapp/media/:mediaId",
+    "GET /companies/:companyId/whatsapp/quick-replies",
+    "GET /companies/:companyId/whatsapp/team",
     "GET /companies/:companyId/whatsapp/templates",
     "GET /companies/:companyId/whatsapp/window"
   ],

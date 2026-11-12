@@ -716,6 +716,14 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'POST', path: '/companies/:companyId/whatsapp/send-template', permission: 'whatsapp.send', legacyRoles: MGMT },
   { method: 'POST', path: '/companies/:companyId/whatsapp/send-media', permission: 'whatsapp.send', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/files/:fileId', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/team', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/chats/:chatId/notes', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/whatsapp/chats/:chatId/notes', permission: 'whatsapp.edit', legacyRoles: MGMT },
+  { method: 'DELETE', path: '/companies/:companyId/whatsapp/notes/:noteId', permission: 'whatsapp.edit', legacyRoles: MGMT },
+  { method: 'GET', path: '/companies/:companyId/whatsapp/quick-replies', permission: 'whatsapp.view', legacyRoles: MGMT },
+  { method: 'POST', path: '/companies/:companyId/whatsapp/quick-replies', permission: 'whatsapp.edit', legacyRoles: MGMT },
+  { method: 'PUT', path: '/companies/:companyId/whatsapp/quick-replies/:replyId', permission: 'whatsapp.edit', legacyRoles: MGMT },
+  { method: 'DELETE', path: '/companies/:companyId/whatsapp/quick-replies/:replyId', permission: 'whatsapp.edit', legacyRoles: MGMT },
   { method: 'GET', path: '/companies/:companyId/whatsapp/media/:mediaId', permission: 'whatsapp.view', legacyRoles: MGMT },
 
   // ─── settings ──────────────────────────────────────────────────────────────

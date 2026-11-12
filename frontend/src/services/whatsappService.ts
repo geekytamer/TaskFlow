@@ -69,11 +69,17 @@ export interface WhatsAppMessage {
 
 export type WhatsAppChatVisibility = 'shared' | 'private';
 
+/** open = ours to answer; waiting = the customer's turn; done = closed until they write again. */
+export type WhatsAppChatStatus = 'open' | 'waiting' | 'done';
+
 export interface WhatsAppChatSettings {
   companyId: string;
   chatId: string;
   visibility: WhatsAppChatVisibility;
   ownerUserId?: string;
+  assigneeUserId?: string;
+  status: WhatsAppChatStatus;
+  labels: string[];
   updatedAt: string;
 }
 
@@ -177,6 +183,13 @@ export interface WhatsAppChatSummary {
   messageCount: number;
   visibility: WhatsAppChatVisibility;
   ownerUserId?: string;
+  assigneeUserId?: string;
+  assigneeName?: string;
+  status: WhatsAppChatStatus;
+  labels: string[];
+  waitingSince?: string;
+  /** Against the company's response target: amber from half of it, red past it. */
+  sla?: 'ok' | 'amber' | 'red';
 }
 
 export async function getWhatsappChatSettings(
@@ -191,7 +204,13 @@ export async function getWhatsappChatSettings(
 export async function updateWhatsappChatSettings(
   companyId: string,
   chatId: string,
-  updates: { visibility?: WhatsAppChatVisibility; ownerUserId?: string | null },
+  updates: {
+    visibility?: WhatsAppChatVisibility;
+    ownerUserId?: string | null;
+    assigneeUserId?: string | null;
+    status?: WhatsAppChatStatus;
+    labels?: string[];
+  },
 ): Promise<WhatsAppChatSettings> {
   return apiFetch<WhatsAppChatSettings>(
     `/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/settings`,
@@ -349,4 +368,49 @@ export function whatsappMediaKind(m: Pick<WhatsAppMessage, 'type' | 'mimeType' |
 /** Fills {{1}}, {{2}}… the way the customer will read it. */
 export function renderWhatsappTemplate(text: string, variables: string[]): string {
   return text.replace(/\{\{\s*(\d+)\s*\}\}/g, (whole, n) => variables[Number(n) - 1] || whole);
+}
+
+/** People a chat can be given to (they read WhatsApp in this company). */
+export async function getWhatsappTeam(companyId: string): Promise<Array<{ id: string; name: string }>> {
+  return apiFetch(`/companies/${companyId}/whatsapp/team`);
+}
+
+export interface WhatsAppNote {
+  id: string;
+  chatId: string;
+  body: string;
+  authorUserId?: string;
+  authorName?: string;
+  createdAt: string;
+}
+
+export async function getWhatsappNotes(companyId: string, chatId: string): Promise<WhatsAppNote[]> {
+  return apiFetch(`/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/notes`);
+}
+
+export async function addWhatsappNote(companyId: string, chatId: string, body: string): Promise<WhatsAppNote> {
+  return apiFetch(`/companies/${companyId}/whatsapp/chats/${encodeURIComponent(chatId)}/notes`, { method: 'POST', body: JSON.stringify({ body }) });
+}
+
+export async function deleteWhatsappNote(companyId: string, noteId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/notes/${noteId}`, { method: 'DELETE' });
+}
+
+export interface WhatsAppQuickReply {
+  id: string;
+  shortcut: string;
+  body: string;
+}
+
+export async function getWhatsappQuickReplies(companyId: string): Promise<WhatsAppQuickReply[]> {
+  return apiFetch(`/companies/${companyId}/whatsapp/quick-replies`);
+}
+
+export async function saveWhatsappQuickReply(companyId: string, reply: { id?: string; shortcut: string; body: string }): Promise<WhatsAppQuickReply> {
+  const { id, ...body } = reply;
+  return apiFetch(`/companies/${companyId}/whatsapp/quick-replies${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+}
+
+export async function deleteWhatsappQuickReply(companyId: string, id: string): Promise<{ success: boolean }> {
+  return apiFetch(`/companies/${companyId}/whatsapp/quick-replies/${id}`, { method: 'DELETE' });
 }

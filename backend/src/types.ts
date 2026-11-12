@@ -1361,11 +1361,39 @@ export interface WhatsAppMessage {
 
 export type WhatsAppChatVisibility = 'shared' | 'private';
 
+/** open = ours to answer; waiting = we answered, the customer's turn; done = closed until they write again. */
+export type WhatsAppChatStatus = 'open' | 'waiting' | 'done';
+
 export interface WhatsAppChatSettings {
   companyId: string;
   chatId: string;
   visibility: WhatsAppChatVisibility;
   ownerUserId?: string;
+  /** Who answers this chat. */
+  assigneeUserId?: string;
+  status: WhatsAppChatStatus;
+  labels: string[];
+  updatedAt: Date;
+}
+
+/** A staff note inside a chat; never sent to the customer. */
+export interface WhatsAppNote {
+  id: string;
+  companyId: string;
+  chatId: string;
+  body: string;
+  authorUserId?: string;
+  authorName?: string;
+  createdAt: Date;
+}
+
+/** A saved text, inserted in the message box by its short code. */
+export interface WhatsAppQuickReply {
+  id: string;
+  companyId: string;
+  shortcut: string;
+  body: string;
+  createdAt: Date;
   updatedAt: Date;
 }
 
@@ -1892,7 +1920,8 @@ export type NotificationType =
   | 'shipment_due'
   | 'message_received'
   | 'thread_assigned'
-  | 'response_overdue';
+  | 'response_overdue'
+  | 'whatsapp_assigned';
 
 export interface Notification {
   id: string;

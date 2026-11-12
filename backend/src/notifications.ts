@@ -46,6 +46,7 @@ export const NOTIFICATION_META: Record<
   message_received: { category: 'messages', priority: 'normal' },
   thread_assigned: { category: 'messages', priority: 'normal' },
   response_overdue: { category: 'messages', priority: 'normal' },
+  whatsapp_assigned: { category: 'messages', priority: 'normal' },
 };
 
 /**
@@ -87,6 +88,7 @@ export const NOTIFICATION_MODULES: Record<NotificationType, string> = {
   message_received: 'contacts',
   thread_assigned: 'contacts',
   response_overdue: 'contacts',
+  whatsapp_assigned: 'whatsapp',
 };
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['tasks', 'finance', 'crm', 'inventory', 'messages'];
