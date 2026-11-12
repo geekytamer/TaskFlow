@@ -15,7 +15,11 @@ import {
   type WhatsAppChatSummary,
   type WhatsAppNote,
 } from '@/services/whatsappService';
-import { Loader2, StickyNote, Tag, Trash2, UserRound, X } from 'lucide-react';
+import { ExternalLink, FileText, Loader2, Send, StickyNote, Tag, Trash2, UserRound, X } from 'lucide-react';
+import { getContactSummary, type ContactSummary } from '@/services/contactService';
+import { useCompany } from '@/context/company-context';
+import { usePermissions } from '@/context/permissions-context';
+import { SendDocumentDialog } from './send-document-dialog';
 
 /**
  * The side panel of an open chat: who answers it, where it stands, its
@@ -40,7 +44,7 @@ export function WhatsappChatPanel({
   onChanged: () => void;
   onClose: () => void;
 }) {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { toast } = useToast();
   const [notes, setNotes] = React.useState<WhatsAppNote[] | null>(null);
@@ -48,6 +52,21 @@ export function WhatsappChatPanel({
   const [savingNote, setSavingNote] = React.useState(false);
   const [labelText, setLabelText] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const { selectedCompany } = useCompany();
+  const { can } = usePermissions();
+  const [summary, setSummary] = React.useState<ContactSummary | null>(null);
+  const [sendDoc, setSendDoc] = React.useState<{ kind: 'quotation' | 'invoice'; id: string; number: string; language?: string } | null>(null);
+
+  // The customer beside the chat: their balance and latest documents (the summary route checks access and masks).
+  React.useEffect(() => {
+    setSummary(null);
+    if (!chat.contactId) return;
+    let alive = true;
+    getContactSummary(chat.contactId).then((s) => alive && setSummary(s)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [chat.contactId]);
 
   const loadNotes = React.useCallback(async () => {
     try {
@@ -128,6 +147,68 @@ export function WhatsappChatPanel({
         </Button>
       </div>
       <div className="flex-1 space-y-5 overflow-y-auto p-3">
+        {chat.contactId && (
+          <section className="space-y-2 rounded-lg border p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-semibold">{summary?.contact?.name || chat.contactName}</span>
+              <a href={`/contacts/${chat.contactId}`} className="inline-flex shrink-0 items-center gap-1 text-xs text-primary hover:underline">
+                {tr('Open', 'فتح')}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+            {!summary ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                {(summary.totals?.invoiceOutstanding ?? 0) > 0 && (
+                  <div className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                    {tr('Owes', 'عليه')}{' '}
+                    <span className="font-semibold tabular-nums">
+                      {new Intl.NumberFormat(language === 'ar' ? 'ar' : 'en-US', { maximumFractionDigits: 3 }).format(summary.totals.invoiceOutstanding)}
+                    </span>{' '}
+                    {(selectedCompany as { currency?: string } | null)?.currency || ''}
+                  </div>
+                )}
+                {([
+                  ['quotation', tr('Quotations', 'عروض الأسعار'), (summary.quotations || []).slice(0, 3).map((q: any) => ({ id: q.id, number: q.quoteNumber, status: q.status, language: q.language }))],
+                  ['invoice', tr('Invoices', 'الفواتير'), (summary.invoices || []).slice(0, 3).map((i: any) => ({ id: i.id, number: i.invoiceNumber, status: i.status }))],
+                ] as Array<['quotation' | 'invoice', string, Array<{ id: string; number: string; status: string; language?: string }>]>).map(([kind, heading, rows]) =>
+                  rows.length > 0 ? (
+                    <div key={kind} className="space-y-1">
+                      <div className="text-[11px] font-medium text-muted-foreground">{heading}</div>
+                      {rows.map((row) => (
+                        <div key={row.id} className="flex items-center gap-1.5 text-xs">
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate" dir="ltr">{row.number}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {/* The status in the reader's language, as on the documents' own pages. */}
+                            {(() => {
+                              const key = kind === 'quotation' ? `quotes.status.${row.status}` : `invoiceTable.status${row.status}`;
+                              const label = t(key as any);
+                              return label && label !== key ? label : row.status;
+                            })()}
+                          </span>
+                          {can('whatsapp.send') && (
+                            <button
+                              type="button"
+                              onClick={() => setSendDoc({ kind, id: row.id, number: row.number, language: row.language })}
+                              className="rounded p-1 text-primary hover:bg-muted"
+                              title={tr('Send in this chat', 'إرسال في هذه المحادثة')}
+                              aria-label={tr(`Send ${row.number} in this chat`, `إرسال ${row.number} في هذه المحادثة`)}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null,
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         <section className="space-y-1.5">
           <label htmlFor="wa-assignee" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <UserRound className="h-3.5 w-3.5" />
@@ -256,6 +337,22 @@ export function WhatsappChatPanel({
           </Button>
         </section>
       </div>
+      {sendDoc && (
+        <SendDocumentDialog
+          open={Boolean(sendDoc)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSendDoc(null);
+              onChanged();
+            }
+          }}
+          kind={sendDoc.kind}
+          id={sendDoc.id}
+          number={sendDoc.number}
+          defaultPhone={`+${chat.phone}`}
+          documentLanguage={sendDoc.language}
+        />
+      )}
     </aside>
   );
 }

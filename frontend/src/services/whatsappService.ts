@@ -414,3 +414,11 @@ export async function saveWhatsappQuickReply(companyId: string, reply: { id?: st
 export async function deleteWhatsappQuickReply(companyId: string, id: string): Promise<{ success: boolean }> {
   return apiFetch(`/companies/${companyId}/whatsapp/quick-replies/${id}`, { method: 'DELETE' });
 }
+
+/** Sends a quotation or an invoice as its PDF (to its contact unless a number is given). */
+export async function sendWhatsappDocument(
+  companyId: string,
+  payload: { kind: 'quotation' | 'invoice'; id: string; phone?: string; caption?: string; language?: string },
+): Promise<WhatsAppMessage> {
+  return apiFetch<WhatsAppMessage>(`/companies/${companyId}/whatsapp/send-document`, { method: 'POST', body: JSON.stringify(payload) });
+}

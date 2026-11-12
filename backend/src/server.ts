@@ -342,6 +342,7 @@ const purchaseOrderStatuses: PurchaseOrderStatus[] = [
 const salesOrderStatuses: SalesOrderStatus[] = ['Draft', 'Confirmed', 'Invoiced', 'Cancelled'];
 
 import { sendWhatsappText } from './services/whatsappSender';
+import { invoicePdf, PdfUnavailableError } from './pdf/document-pdf';
 import { normalizeNiches } from './niches';
 import { subtreeIds } from './companies/tree';
 import { askedCompanyIds, groupDashboard } from './authz/group-dashboard';
@@ -2460,35 +2461,18 @@ export function createServer(options: CreateServerOptions = {}) {
       const invoice = store.getInvoiceById(req.params.id);
       if (!invoice) throw new HttpError(404, 'Invoice not found.');
       requireCompanyAccess(req, invoice.companyId);
-
-      // Page geometry follows the frozen template's document settings when present.
-      const docPage = (invoice.templateSnapshot as any)?.doc?.page as
-        | { size?: string; orientation?: string }
-        | undefined;
-      const format: 'A4' | 'Letter' = docPage?.size === 'Letter' ? 'Letter' : 'A4';
-      const landscape = docPage?.orientation === 'landscape';
-
-      // Render the same public page a customer would see (snapshot-aware, no auth).
-      // Forward the caller's language so the PDF matches the on-screen language/RTL.
-      const appUrl = (process.env.APP_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
-      const lang = typeof req.query.lang === 'string' && /^[a-z-]{2,8}$/i.test(req.query.lang) ? req.query.lang : '';
-      const url = `${appUrl}/invoice/${invoice.id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`;
-
-      let pdf: Buffer;
+      // Same page a customer would see; the caller's language sets direction (pdf/document-pdf.ts).
+      let file: { pdf: Buffer; fileName: string };
       try {
-        pdf = await renderInvoicePdf({ url, format, landscape });
-      } catch (err) {
-        throw new HttpError(
-          503,
-          'PDF rendering is unavailable. Ensure APP_PUBLIC_URL points to the running app and Chromium is installed.',
-        );
+        file = await invoicePdf(invoice, req.query.lang);
+      } catch (error) {
+        if (error instanceof PdfUnavailableError) throw new HttpError(503, error.message);
+        throw error;
       }
-
-      const safeNumber = invoice.invoiceNumber.replace(/[^a-zA-Z0-9._-]+/g, '-');
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="Invoice-${safeNumber}.pdf"`);
-      res.setHeader('Content-Length', pdf.length);
-      res.end(pdf);
+      res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+      res.setHeader('Content-Length', file.pdf.length);
+      res.end(file.pdf);
     }),
   );
 

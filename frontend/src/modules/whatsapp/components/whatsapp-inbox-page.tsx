@@ -67,7 +67,10 @@ import {
   Users,
   PanelRight,
   Zap,
+  ListTodo,
+  CalendarClock,
 } from 'lucide-react';
+import { MessageToWorkDialog } from './message-to-work-dialog';
 import { ContactDetailSheet } from './contact-detail-sheet';
 
 // --- visual helpers ---
@@ -233,6 +236,9 @@ export function WhatsappInboxPage() {
   const [quickReplies, setQuickReplies] = React.useState<WhatsAppQuickReply[]>([]);
   const [quickRepliesOpen, setQuickRepliesOpen] = React.useState(false);
   const [slashIndex, setSlashIndex] = React.useState(0);
+  /** A message being turned into a task or a follow-up. */
+  const [toWork, setToWork] = React.useState<{ kind: 'task' | 'followup'; message: WhatsAppMessage } | null>(null);
+  const canTasks = usePermissions().moduleOn('tasks');
 
   const threadRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLTextAreaElement>(null);
@@ -960,20 +966,44 @@ export function WhatsappInboxPage() {
                             <div className="mt-1 text-[10px] text-red-600">{m.error}</div>
                           )}
                         </div>
-                        {m.externalId && m.status !== 'failed' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReplyTo(m);
-                              composerRef.current?.focus();
-                            }}
-                            className="rounded-full p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-muted focus-visible:opacity-100 group-hover/msg:opacity-100 [@media(hover:none)]:opacity-60"
-                            title={tr('Reply', 'رد')}
-                            aria-label={tr('Reply to this message', 'الرد على هذه الرسالة')}
-                          >
-                            <CornerUpLeft className="h-4 w-4" />
-                          </button>
-                        )}
+                        <div className="flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100 [@media(hover:none)]:opacity-60">
+                          {m.externalId && m.status !== 'failed' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyTo(m);
+                                composerRef.current?.focus();
+                              }}
+                              className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
+                              title={tr('Reply', 'رد')}
+                              aria-label={tr('Reply to this message', 'الرد على هذه الرسالة')}
+                            >
+                              <CornerUpLeft className="h-4 w-4" />
+                            </button>
+                          )}
+                          {!out && canTasks && (
+                            <button
+                              type="button"
+                              onClick={() => setToWork({ kind: 'task', message: m })}
+                              className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
+                              title={tr('Make a task', 'إنشاء مهمة')}
+                              aria-label={tr('Make a task from this message', 'إنشاء مهمة من هذه الرسالة')}
+                            >
+                              <ListTodo className="h-4 w-4" />
+                            </button>
+                          )}
+                          {!out && activeChat.contactId && (
+                            <button
+                              type="button"
+                              onClick={() => setToWork({ kind: 'followup', message: m })}
+                              className="rounded-full p-1.5 text-muted-foreground hover:bg-muted"
+                              title={tr('Make a follow-up', 'إنشاء متابعة')}
+                              aria-label={tr('Make a follow-up from this message', 'إنشاء متابعة من هذه الرسالة')}
+                            >
+                              <CalendarClock className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1196,6 +1226,20 @@ export function WhatsappInboxPage() {
           canManageAll={isManager}
           onChanged={loadChats}
           onClose={() => setPanelOpen(false)}
+        />
+      )}
+
+      {toWork && companyId && activeChat && (
+        <MessageToWorkDialog
+          open={Boolean(toWork)}
+          onOpenChange={(open) => !open && setToWork(null)}
+          kind={toWork.kind}
+          companyId={companyId}
+          userId={user?.id}
+          message={toWork.message.body || toWork.message.fileName || ''}
+          chatId={activeChat.chatId}
+          who={activeChat.contactName || formatPhone(activeChat.phone)}
+          contactId={activeChat.contactId}
         />
       )}
 

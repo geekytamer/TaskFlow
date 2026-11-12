@@ -4,6 +4,7 @@ import { greenApi, toChatId, GreenApiError } from '../services/greenApi';
 import { metaWhatsapp, CloudApiError, renderTemplate, verifyCloudSignature } from '../services/metaWhatsapp';
 import { conversationWindow, sendWhatsappMedia, sendWhatsappText, toSendError, WhatsappSendError } from '../services/whatsappSender';
 import { kindFromGreenType, MAX_MEDIA_BYTES, safeFileName } from '../services/whatsappKinds';
+import { invoicePdf, PdfUnavailableError, quotationPdf } from '../pdf/document-pdf';
 import { sendToPrincipal, type PushConfig, type PushPayload } from '../push/push';
 import { companyInQuietHours, holdPush } from '../push/quiet-hours';
 import type { LiveHub } from '../live/hub';
@@ -433,6 +434,104 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
           throw new HttpError(error.status, error.message, error.reason === 'windowClosed' ? { code: 'windowClosed' } : undefined);
         }
         store.createWhatsappMessage({ ...base, type: kindFromGreenType('', mimeType), status: 'failed', error: error instanceof Error ? error.message : String(error) });
+        if (error instanceof WhatsappSendError) throw new HttpError(error.status, error.message);
+        throw error;
+      }
+    }),
+  );
+
+  /**
+   * Sends a quotation or an invoice as its PDF, to the document's contact by
+   * default. Needs the right to print that document as well as to send.
+   */
+  app.post(
+    '/companies/:companyId/whatsapp/send-document',
+    authMiddleware,
+    handler(async (req, res) => {
+      const companyId = req.params.companyId;
+      requireCompanyRoles(req, companyId, companyManagementRoles);
+      const instance = store.getWhatsappInstanceForCompany(companyId);
+      if (!instance) throw new HttpError(404, 'WhatsApp instance is not configured for this company.');
+      const body = asRecord(req.body, 'body');
+      const kind = optionalString(body.kind);
+      const id = requiredString(body.id, 'id');
+      let doc: { number: string; contactId?: string; clientId?: string; language?: string; entityType: 'quotation' | 'invoice' };
+      let render: () => Promise<{ pdf: Buffer; fileName: string; language: string }>;
+      if (kind === 'quotation') {
+        const quote = store.getQuotationById(id);
+        if (!quote || quote.companyId !== companyId) throw new HttpError(404, 'Quotation not found.');
+        ctx.requirePermission(req, companyId, 'sales.view', companyManagementRoles);
+        doc = { number: quote.quoteNumber, contactId: quote.contactId, clientId: quote.clientId, language: quote.language, entityType: 'quotation' };
+        render = () => quotationPdf(store, quote, req.query.lang);
+      } else if (kind === 'invoice') {
+        const invoice = store.getInvoiceById(id);
+        if (!invoice || invoice.companyId !== companyId) throw new HttpError(404, 'Invoice not found.');
+        ctx.requirePermission(req, companyId, 'invoices.print', ['Admin', 'Manager', 'Accountant', 'Employee']);
+        doc = { number: invoice.invoiceNumber, contactId: invoice.contactId, clientId: invoice.clientId, entityType: 'invoice' };
+        render = () => invoicePdf(invoice, optionalString(body.language) || req.query.lang);
+      } else {
+        throw new HttpError(400, 'kind must be quotation or invoice.');
+      }
+      // To whom: the phone given, else the document's contact, else its client.
+      const contact = (doc.contactId && store.getContactById(doc.contactId)) || (doc.clientId && store.getContactById(doc.clientId)) || undefined;
+      const phone = optionalString(body.phone) || contact?.phone || '';
+      if (!phone.replace(/\D/g, '')) throw new HttpError(400, 'This document has no contact phone. Enter a number to send to.');
+      const chatId = toChatId(phone);
+      const lang = doc.language || optionalString(body.language) || 'en';
+      const caption = optionalString(body.caption)
+        ?? (lang.startsWith('ar')
+          ? `مرحباً، تجدون مرفقاً ${doc.entityType === 'quotation' ? 'عرض السعر' : 'الفاتورة'} رقم ${doc.number}.`
+          : `Hello, please find attached ${doc.entityType} ${doc.number}.`);
+
+      // Cloud: say "send a template first" before spending a PDF render.
+      if (instance.provider === 'cloud' && !conversationWindow(store, companyId, chatId).open) {
+        throw new HttpError(409, 'This customer has not written in the last 24 hours: send an approved template instead.', { code: 'windowClosed' });
+      }
+      let file: { pdf: Buffer; fileName: string };
+      try {
+        file = await render();
+      } catch (error) {
+        if (error instanceof PdfUnavailableError) throw new HttpError(503, error.message);
+        throw error;
+      }
+      const mediaId = store.saveWhatsappMedia({ companyId, chatId, fileName: file.fileName, mimeType: 'application/pdf', content: file.pdf, uploadedByUserId: req.user?.id });
+      const base = {
+        companyId,
+        instanceId: instance.id,
+        direction: 'outbound' as const,
+        chatId,
+        phone,
+        contactId: contact?.id,
+        body: caption,
+        mediaUrl: `${WA_FILE_PREFIX}${mediaId}`,
+        fileName: file.fileName,
+        mimeType: 'application/pdf',
+        contextEntityType: doc.entityType,
+        contextEntityId: id,
+        actorUserId: req.user?.id,
+        actorName: req.user?.name,
+      };
+      try {
+        const sent = await sendWhatsappMedia(store, companyId, phone, { data: file.pdf, fileName: file.fileName, mimeType: 'application/pdf', caption });
+        const stored = store.createWhatsappMessage({ ...base, type: 'document', externalId: sent.idMessage, status: 'sent', sentAt: new Date() });
+        store.touchWhatsappChat(companyId, chatId, { direction: 'outbound', actorUserId: req.user?.id });
+        store.createActivityEvent({
+          companyId,
+          actorUserId: req.user?.id,
+          actorName: req.user?.name,
+          entityType: doc.entityType,
+          entityId: id,
+          action: 'sent_whatsapp',
+          summary: `${doc.entityType === 'quotation' ? 'Quotation' : 'Invoice'} ${doc.number} sent by WhatsApp to +${chatId.replace(/@c\.us$/, '')}.`,
+          metadata: { chatId, messageId: stored.id },
+        });
+        res.status(201).json(stored);
+      } catch (error) {
+        if (error instanceof WhatsappSendError && error.reason === 'windowClosed') {
+          store.deleteWhatsappMedia(companyId, mediaId);
+          throw new HttpError(409, error.message, { code: 'windowClosed' });
+        }
+        store.createWhatsappMessage({ ...base, type: 'document', status: 'failed', error: error instanceof Error ? error.message : String(error) });
         if (error instanceof WhatsappSendError) throw new HttpError(error.status, error.message);
         throw error;
       }

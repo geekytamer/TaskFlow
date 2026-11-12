@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Pencil, Printer, Undo2, Trash2 } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Download, ListChecks, Eye, Pencil, Printer, Undo2, Trash2, MessageCircle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -58,6 +58,7 @@ import { InvoiceCommissionsPanel } from './invoice-commissions-panel';
 import { inCompanyCurrency, useCompanyCurrency } from '@/lib/currency';
 import { getCampaigns, type CrmCampaign } from '@/services/crmService';
 import { usePermissions } from '@/context/permissions-context';
+import { SendDocumentDialog } from '@/modules/whatsapp/components/send-document-dialog';
 import { useLiveRefresh } from '@/lib/live';
 import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
 import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
@@ -95,7 +96,11 @@ export function InvoiceTable() {
   const { t, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money, amountIn } = useCompanyCurrency();
-  const canManageFinance = usePermissions().can('invoices.edit');
+  const permissions = usePermissions();
+  const canManageFinance = permissions.can('invoices.edit');
+  // WhatsApp: needs the company's number connected and the right to send.
+  const canWhatsapp = permissions.can('whatsapp.send') && permissions.moduleOn('whatsapp');
+  const [whatsappInvoice, setWhatsappInvoice] = React.useState<Invoice | null>(null);
 
   const fetchData = React.useCallback(async (opts?: { quiet?: boolean }) => {
     const quiet = opts?.quiet === true;
@@ -856,6 +861,12 @@ export function InvoiceTable() {
                 <Download className="me-2 h-4 w-4" />
                 {pdfPending ? t('invoiceTable.pdfPending') : t('invoiceTable.downloadPdf')}
               </Button>
+              {canWhatsapp && previewInvoice && (
+                <Button variant="outline" onClick={() => setWhatsappInvoice(previewInvoice)}>
+                  <MessageCircle className="me-2 h-4 w-4" />
+                  {tr('Send by WhatsApp', 'إرسال عبر واتساب')}
+                </Button>
+              )}
             </div>
           </div>
           {previewInvoice && (
@@ -926,6 +937,16 @@ export function InvoiceTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {whatsappInvoice && (
+        <SendDocumentDialog
+          open={Boolean(whatsappInvoice)}
+          onOpenChange={(open) => !open && setWhatsappInvoice(null)}
+          kind="invoice"
+          id={whatsappInvoice.id}
+          number={whatsappInvoice.invoiceNumber}
+          defaultPhone={clients.find((c) => c.id === whatsappInvoice.contactId || c.id === whatsappInvoice.clientId)?.phone || undefined}
+        />
+      )}
     </>
   );
 }
