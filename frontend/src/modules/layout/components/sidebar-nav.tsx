@@ -23,7 +23,7 @@ import { INBOX_PERMISSION, waitingCount } from '@/modules/conversations/lib/inbo
 import { DATA_CHANGED_EVENT } from '@/lib/api-client';
 import { LIVE_EVENT } from '@/lib/live';
 import { useTeamUnread } from '@/modules/teamchat/use-team-unread';
-import { getWhatsappChats } from '@/services/whatsappService';
+import { useWhatsappUnread } from '@/modules/whatsapp/use-whatsapp-unread';
 import { usePermissions } from '@/context/permissions-context';
 import { navAllowed } from '@/modules/layout/lib/nav-permissions';
 import { PermissionsErrorNotice } from '@/components/permissions-error';
@@ -241,26 +241,8 @@ export function SidebarNav() {
   const pathname = usePathname();
   const { ready, canSee, isLocked } = useNavAccess();
   const { t } = useI18n();
-  const { selectedCompany } = useCompany();
-  const [whatsappUnread, setWhatsappUnread] = React.useState(0);
-  const canReadChats = usePermissions().can('whatsapp.view');
-
-  React.useEffect(() => {
-    if (!selectedCompany?.id || !canReadChats) {
-      setWhatsappUnread(0);
-      return;
-    }
-    const fetchUnread = () => {
-      getWhatsappChats(selectedCompany.id)
-        .then((chats) =>
-          setWhatsappUnread(chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0)),
-        )
-        .catch(() => undefined);
-    };
-    fetchUnread();
-    const id = window.setInterval(fetchUnread, 30000);
-    return () => window.clearInterval(id);
-  }, [selectedCompany?.id, canReadChats]);
+  // Live with the inbox (one source for the badge everywhere).
+  const whatsappUnread = useWhatsappUnread();
 
   const inboxWaiting = useInboxWaiting();
   const teamUnread = useTeamUnread();

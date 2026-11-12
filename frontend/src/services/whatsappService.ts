@@ -514,3 +514,15 @@ export async function createWhatsappCampaign(
 export async function campaignAction(companyId: string, id: string, action: 'start' | 'pause' | 'cancel'): Promise<WhatsAppCampaign> {
   return apiFetch(`/companies/${companyId}/whatsapp/campaigns/${id}/${action}`, { method: 'POST' });
 }
+
+export interface WhatsAppReport {
+  from: string;
+  to: string;
+  totals: { inbound: number; outbound: number; chats: number; newChats: number; answered: number; unanswered: number; medianReplyHours: number | null; openNow: number; lateNow: number };
+  people: Array<{ userId: string; name: string; answered: number; messagesSent: number; medianReplyHours: number | null; openAssigned: number; lateAssigned: number }>;
+  days: Array<{ day: string; inbound: number; outbound: number }>;
+}
+
+export async function getWhatsappReport(companyId: string, days: number): Promise<WhatsAppReport> {
+  return apiFetch(`/companies/${companyId}/whatsapp/report?days=${days}`);
+}
