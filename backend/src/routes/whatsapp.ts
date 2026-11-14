@@ -240,7 +240,9 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
             number.display_phone_number || undefined,
             number.verified_name || undefined,
           );
-          res.json(updated);
+          // Incoming messages need the account subscribed to the app; fix it here when missing.
+          const receiving = await metaWhatsapp.ensureSubscribed(creds).catch(() => false);
+          res.json({ ...updated, receiving });
         } catch (error) {
           // A rejected token or number id: not connected. Other failures say nothing about the link.
           if (error instanceof CloudApiError && (error.status === 401 || error.status === 400 || error.code === 190)) {
@@ -281,10 +283,12 @@ export function registerWhatsappRoutes(app: Express, ctx: RouteContext, deps: { 
         `${req.protocol}://${req.get('host')}`;
       if (isCloud(req.params.companyId)) {
         // Meta takes the webhook in its own dashboard: hand back what to paste there.
-        const { instance } = requireCloud(req.params.companyId);
+        const { instance, creds } = requireCloud(req.params.companyId);
+        const receiving = await metaWhatsapp.ensureSubscribed(creds).catch(() => false);
         res.json({
           success: true,
           manual: true,
+          receiving,
           webhookUrl: `${publicBaseUrl.replace(/\/$/, '')}/whatsapp/cloud-webhook/${instance.webhookToken}`,
           verifyToken: instance.webhookToken,
         });

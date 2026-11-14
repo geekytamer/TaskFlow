@@ -24,6 +24,8 @@ export interface WhatsAppInstance {
   displayName?: string;
   state: WhatsAppInstanceState;
   webhookToken: string;
+  /** Cloud only, from the state check: false = Meta will not send incoming messages. */
+  receiving?: boolean;
   lastSyncedAt?: string;
   createdAt: string;
   updatedAt: string;

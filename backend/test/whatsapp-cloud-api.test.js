@@ -276,3 +276,44 @@ test('Green API companies are untouched, and the two webhooks do not cross', asy
   assert.equal(greenHook.body.ignored, true, 'the Green API path takes nothing for a Cloud number');
   assert.equal(messagesOf(ctx.store).length, 0);
 });
+
+test('incoming messages need the business account subscribed to the app: subscribed when missing, never twice', async () => {
+  const ctx = build();
+  await connect(ctx);
+  const number = { [`/${PHONE_ID}?fields=`]: { body: { id: PHONE_ID, display_phone_number: '+968 9000 0000' } } };
+  const state = () => request(ctx.app).get(`/companies/${COMPANY}/whatsapp/state`).set('Authorization', ctx.auth);
+
+  // A fake Meta that remembers the subscription once it is made.
+  let subscribed = false;
+  const calls = fakeMeta({
+    ...number,
+    [`/${WABA_ID}/subscribed_apps`]: () => {
+      if (calls[calls.length - 1].method === 'POST') { subscribed = true; return { body: { success: true } }; }
+      return { body: { data: subscribed ? [{ whatsapp_business_api_data: { id: 'app' } }] : [] } };
+    },
+  });
+  const posts = () => calls.filter((c) => c.url.includes(`/${WABA_ID}/subscribed_apps`) && c.method === 'POST');
+
+  // Not subscribed yet: the state check subscribes it, with the company's token.
+  const first = await state();
+  assert.equal(first.status, 200);
+  assert.equal(first.body.receiving, true);
+  assert.equal(posts().length, 1, 'subscribed once');
+  assert.equal(posts()[0].auth, 'Bearer EAAG-probe-token');
+
+  // Already subscribed: only a read, no second subscribe.
+  const second = await state();
+  assert.equal(second.body.receiving, true);
+  assert.equal(posts().length, 1, 'not subscribed again');
+
+  // Saving the number again (the webhook step) also makes sure of it.
+  const hook = await request(ctx.app).post(`/companies/${COMPANY}/whatsapp/configure-webhook`).set('Authorization', ctx.auth).send({});
+  assert.equal(hook.body.receiving, true);
+
+  // Meta refusing: the state still answers, and says messages will not arrive.
+  fakeMeta({ ...number, [`/${WABA_ID}/subscribed_apps`]: { status: 403, body: { error: { message: 'no', code: 200 } } } });
+  const refused = await state();
+  assert.equal(refused.status, 200);
+  assert.equal(refused.body.state, 'authorized');
+  assert.equal(refused.body.receiving, false);
+});

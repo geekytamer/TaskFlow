@@ -139,6 +139,20 @@ export const metaWhatsapp = {
     }>(creds, 'GET', `${encodeURIComponent(creds.phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,name_status`);
   },
 
+  /**
+   * Meta sends a number's incoming messages only to apps subscribed to its
+   * WhatsApp Business Account. Without this, sending works and nothing ever
+   * arrives. Subscribes when missing; true when the account is subscribed.
+   */
+  async ensureSubscribed(creds: CloudCredentials): Promise<boolean> {
+    if (!creds.wabaId) return false;
+    const path = `${encodeURIComponent(creds.wabaId)}/subscribed_apps`;
+    const current = await call<{ data?: unknown[] }>(creds, 'GET', path);
+    if (Array.isArray(current?.data) && current.data.length > 0) return true;
+    const res = await call<{ success?: boolean }>(creds, 'POST', path);
+    return res?.success === true;
+  },
+
   async sendText(creds: CloudCredentials, to: string, body: string, replyToId?: string): Promise<{ idMessage: string }> {
     const res = await call<{ messages?: Array<{ id: string }> }>(creds, 'POST', `${encodeURIComponent(creds.phoneNumberId)}/messages`, {
       messaging_product: 'whatsapp',
