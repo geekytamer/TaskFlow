@@ -358,6 +358,14 @@ export function WhatsappSettingsPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {instance?.provider === 'cloud' && instance.state === 'authorized' && instance.receiving === false && (
+          <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+            {tr(
+              "Sending works, but customers' messages will not arrive: Meta refused to link your WhatsApp Business Account to the app. Check the Business Account ID and that the token has the whatsapp_business_management permission, then press Refresh.",
+              'الإرسال يعمل، لكن رسائل العملاء لن تصل: رفضت ميتا ربط حساب واتساب للأعمال بالتطبيق. تأكد من رقم حساب الأعمال (WABA ID) وأن المفتاح يملك صلاحية إدارة الحساب، ثم اضغط تحديث.',
+            )}
+          </div>
+        )}
         {/* Which way the number is connected */}
         <div className="space-y-2">
           <Label>{tr('Connection type', 'طريقة الربط')}</Label>
