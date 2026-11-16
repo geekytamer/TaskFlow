@@ -120,7 +120,8 @@ export function SalesLineItemsEditor({
   const pickerOptions = React.useMemo(() => inventory.map((inventoryItem) => ({
     value: inventoryItem.id,
     label: `${inventoryItem.sku} - ${displayName(inventoryItem, docLanguage)}`,
-    keywords: allNames(inventoryItem),
+    // A service is also found by its category ("Team ads" lists that section).
+    keywords: [allNames(inventoryItem), inventoryItem.category].filter(Boolean).join(' '),
   })), [inventory, docLanguage]);
   // A line picked from an item follows the document's language when it changes.
   React.useEffect(() => {

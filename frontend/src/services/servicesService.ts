@@ -13,8 +13,13 @@ export interface ServiceInput {
   name: string;
   salePrice: number;
   unit?: string;
+  /** Section of the price list, e.g. "Team ads". Empty → the default "Services". */
+  category?: string;
   vatApplicable?: boolean;
 }
+
+/** The category a service gets when none is chosen (set by the backend). */
+export const DEFAULT_SERVICE_CATEGORY = 'Services';
 
 export async function getServices(companyId: string): Promise<InventoryItem[]> {
   if (!companyId) return [];
