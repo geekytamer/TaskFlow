@@ -21,9 +21,25 @@ import { usePermissions } from '@/context/permissions-context';
 import { useToast } from '@/hooks/use-toast';
 import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InventoryItem } from '@/modules/operations/types';
-import { createService, deleteService, getServices, updateService } from '@/services/servicesService';
+import { createService, DEFAULT_SERVICE_CATEGORY, deleteService, getServices, updateService } from '@/services/servicesService';
 import { suggestName } from '@/services/nameSuggestionService';
 import { Checkbox } from '@/components/ui/checkbox';
+
+/** The category name of a service; no category or the default shows as one "General" group. */
+export function serviceCategoryOf(service: Pick<InventoryItem, 'category'>): string {
+  const c = (service.category ?? '').trim();
+  return c || DEFAULT_SERVICE_CATEGORY;
+}
+
+/** The categories in use, the default one last, the rest alphabetically. */
+export function serviceCategories(services: Pick<InventoryItem, 'category'>[]): string[] {
+  const set = new Set(services.map(serviceCategoryOf));
+  return [...set].sort((a, b) => {
+    if (a === DEFAULT_SERVICE_CATEGORY) return 1;
+    if (b === DEFAULT_SERVICE_CATEGORY) return -1;
+    return a.localeCompare(b);
+  });
+}
 
 /** Sales → Services & prices: the company's price list of non-stock items. */
 export function ServicesPanel() {
@@ -43,6 +59,8 @@ export function ServicesPanel() {
   const [services, setServices] = React.useState<InventoryItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [query, setQuery] = React.useState('');
+  /** null = every category. */
+  const [category, setCategory] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<InventoryItem | 'new' | null>(null);
   const [fillingNames, setFillingNames] = React.useState(false);
   const missingNames = services.filter((s) => !(s.nameAr && s.nameEn));
@@ -78,7 +96,19 @@ export function ServicesPanel() {
     }
   };
 
-  const shown = query.trim() ? services.filter((s) => matchesSearch(query, s.name, s.nameAr, s.nameEn)) : services;
+  const categories = serviceCategories(services);
+  const categoryLabel = (c: string) => (c === DEFAULT_SERVICE_CATEGORY ? tr('General', 'عام') : c);
+  // A chosen category that no longer exists (its last service moved or removed) falls back to all.
+  const activeCategory = category && categories.includes(category) ? category : null;
+  const shown = services
+    .filter((s) => !activeCategory || serviceCategoryOf(s) === activeCategory)
+    .filter((s) => !query.trim() || matchesSearch(query, s.name, s.nameAr, s.nameEn, s.category));
+  // Grouped under a heading row per category; one category alone needs no heading.
+  const groups = categories
+    .map((c) => ({ category: c, items: shown.filter((s) => serviceCategoryOf(s) === c) }))
+    .filter((g) => g.items.length > 0);
+  const showHeadings = categories.length > 1 && !activeCategory;
+  const columns = (canEdit || canDelete) ? 5 : 4;
 
   return (
     <div className="space-y-3">
@@ -106,6 +136,28 @@ export function ServicesPanel() {
         )}
       </div>
 
+      {categories.length > 1 && (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label={tr('Categories', 'الأقسام')}>
+          {[null, ...categories].map((c) => {
+            const active = activeCategory === c;
+            const count = c === null ? services.length : services.filter((s) => serviceCategoryOf(s) === c).length;
+            return (
+              <button
+                key={c ?? '__all'}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setCategory(c)}
+                className={`rounded-full border px-3 py-1 text-sm transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+              >
+                <bdi>{c === null ? tr('All', 'الكل') : categoryLabel(c)}</bdi>
+                <span className={`ms-1.5 tabular-nums ${active ? 'opacity-80' : 'text-muted-foreground'}`}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {loading && !services.length ? (
         <Skeleton className="h-40 w-full rounded-lg" />
       ) : !services.length ? (
@@ -132,7 +184,22 @@ export function ServicesPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shown.map((service) => (
+              {!shown.length && (
+                <TableRow>
+                  <TableCell colSpan={columns} className="py-6 text-center text-muted-foreground">{tr('No services match.', 'لا توجد خدمات مطابقة.')}</TableCell>
+                </TableRow>
+              )}
+              {groups.map((group) => (
+                <React.Fragment key={group.category}>
+                {showHeadings && (
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableCell colSpan={columns} className="py-2 text-sm font-semibold">
+                      <bdi>{categoryLabel(group.category)}</bdi>
+                      <span className="ms-2 font-normal text-muted-foreground tabular-nums">{group.items.length}</span>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {group.items.map((service) => (
                 <TableRow key={service.id}>
                   <TableCell className="font-medium"><bdi>{displayName(service, language)}</bdi>{service.nameAr && service.nameEn && <div className="text-xs font-normal text-muted-foreground"><bdi>{displayName(service, language === 'ar' ? 'en' : 'ar')}</bdi></div>}</TableCell>
                   <TableCell className="text-muted-foreground"><bdi>{service.unit}</bdi></TableCell>
@@ -155,6 +222,8 @@ export function ServicesPanel() {
                     </TableCell>
                   )}
                 </TableRow>
+                ))}
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
@@ -171,6 +240,8 @@ export function ServicesPanel() {
       <ServiceDialog
         companyId={companyId}
         service={editing}
+        categories={categories.filter((c) => c !== DEFAULT_SERVICE_CATEGORY)}
+        defaultCategory={activeCategory ?? undefined}
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); load(); }}
       />
@@ -183,6 +254,8 @@ export function ServiceDialog({
   companyId,
   service,
   initial,
+  categories = [],
+  defaultCategory,
   onClose,
   onSaved,
 }: {
@@ -190,6 +263,10 @@ export function ServiceDialog({
   service: InventoryItem | 'new' | null;
   /** Prefill for a new service (from a typed quotation line). */
   initial?: { name?: string; salePrice?: number };
+  /** Categories already in use, offered as suggestions. */
+  categories?: string[];
+  /** Prefill for a new service (the category being viewed). */
+  defaultCategory?: string;
   onClose: () => void;
   onSaved: (service: InventoryItem) => void;
 }) {
@@ -199,6 +276,7 @@ export function ServiceDialog({
   const [names, setNames] = React.useState<BilingualNames>({ nameAr: '', nameEn: '' });
   const [price, setPrice] = React.useState('');
   const [unit, setUnit] = React.useState('');
+  const [category, setCategory] = React.useState('');
   const [vat, setVat] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const open = service !== null;
@@ -209,6 +287,8 @@ export function ServiceDialog({
     setNames(existing ? namesOf(existing) : namesOf({ name: initial?.name ?? '' }));
     setPrice(String(existing?.salePrice ?? initial?.salePrice ?? ''));
     setUnit(existing?.unit ?? '');
+    const existingCategory = existing ? serviceCategoryOf(existing) : defaultCategory ?? '';
+    setCategory(existingCategory === DEFAULT_SERVICE_CATEGORY ? '' : existingCategory);
     setVat(existing ? existing.vatApplicable !== false : true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, service]);
@@ -220,7 +300,7 @@ export function ServiceDialog({
     if (!valid || !service) return;
     setSaving(true);
     try {
-      const input = { ...namesPayload(names, language), salePrice: priceValue, unit: unit.trim() || undefined, vatApplicable: vat };
+      const input = { ...namesPayload(names, language), salePrice: priceValue, unit: unit.trim() || undefined, category: category.trim() || DEFAULT_SERVICE_CATEGORY, vatApplicable: vat };
       const saved = service === 'new' ? await createService(companyId, input) : await updateService(service.id, input);
       toast({ title: service === 'new' ? tr('Service added', 'تمت إضافة الخدمة') : tr('Service saved', 'تم حفظ الخدمة') });
       onSaved(saved);
@@ -249,6 +329,36 @@ export function ServiceDialog({
           <div className="space-y-1">
             <Label htmlFor="service-unit">{tr('Unit (optional)', 'الوحدة (اختياري)')}</Label>
             <Input id="service-unit" value={unit} onChange={(e) => setUnit(e.target.value)} dir="auto" maxLength={40} placeholder={tr('service, month, video…', 'خدمة، شهر، فيديو…')} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="service-category">{tr('Category (optional)', 'القسم (اختياري)')}</Label>
+            <Input
+              id="service-category"
+              list="service-category-options"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              dir="auto"
+              maxLength={80}
+              placeholder={tr('e.g. Team ads, Influencer ads, Design…', 'مثلاً: إعلانات الفريق، إعلانات المشاهير، تصميم…')}
+            />
+            <datalist id="service-category-options">
+              {categories.map((c) => <option key={c} value={c} />)}
+            </datalist>
+            {categories.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {categories.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategory(c)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs ${category.trim() === c ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                  >
+                    <bdi>{c}</bdi>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">{tr('Leave empty for General.', 'اتركه فاضي ليكون في قسم «عام».')}</p>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
             <Label htmlFor="service-vat" className="cursor-pointer">{tr('VAT applies', 'عليها ضريبة القيمة المضافة')}</Label>
