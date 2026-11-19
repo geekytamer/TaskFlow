@@ -835,7 +835,7 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
         {showSubtotal && <div style={row}><span style={{ color: '#64748b' }}>{disc.discount > 0 ? s.afterDiscount : s.subtotal}</span><span>{money(ctx.subtotal)}</span></div>}
         {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.tax} {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
         {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>{s.total}</span><span>{money(ctx.total)}</span></div>}
-        {optionalTotal(ctx.invoice.lineItems) > 0 && (
+        {showTotal && optionalTotal(ctx.invoice.lineItems) > 0 && (
           <div style={{ ...row, marginTop: 8, color: '#64748b', fontSize: 13 }}><span>{s.optionalExtras}</span><span>{money(optionalTotal(ctx.invoice.lineItems))}</span></div>
         )}
       </div>

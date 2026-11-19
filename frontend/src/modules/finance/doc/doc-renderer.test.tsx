@@ -369,4 +369,7 @@ test('a quote with sections and optional lines totals only counted lines and pri
   assert.ok(html.includes('Optional'));
   assert.ok(!html.includes('ARABIC ONLY'));
   assert.ok(!html.includes('109'), 'the optional 99 is not in the total');
+  assert.ok(html.includes('Optional extras'), 'optional extras row shows with the total');
+  const hidden = renderToStaticMarkup(<DocRenderer doc={{ ...(doc as object), body: (doc as any).body.map((b: any) => (b.type === 'totals' ? { ...b, showTotal: false } : b)) } as never} invoice={invoice} publicUrl="" />);
+  assert.ok(!hidden.includes('Optional extras'), 'optional extras row follows showTotal=false');
 });
