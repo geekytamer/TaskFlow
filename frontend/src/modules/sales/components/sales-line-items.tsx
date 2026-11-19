@@ -4,8 +4,10 @@ import { Combobox } from '@/components/ui/combobox';
 import { allNames, displayName } from '@/lib/display-name';
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useI18n } from '@/context/i18n-context';
@@ -25,11 +27,20 @@ export type SalesItemForm = {
   /** The picked item's name in each language; cleared when the description is typed over. */
   descriptionAr?: string;
   descriptionEn?: string;
+  /** Quote lines only: a section heading row, an optional (priced, not totalled) line, longer text and a unit label. */
+  lineType?: 'section';
+  optional?: boolean;
+  details?: string;
+  unit?: string;
 };
 
 export const emptyItemRow = (): SalesItemForm => ({
   inventoryItemId: '', description: '', quantity: '1', unitPrice: '0', discount: '0', discountType: 'percent',
 });
+
+export const emptySectionRow = (): SalesItemForm => ({ ...emptyItemRow(), lineType: 'section', quantity: '0', unitPrice: '0' });
+
+const countsInTotal = (row: SalesItemForm) => row.lineType !== 'section' && !row.optional;
 
 /** Net line total after applying a percent or fixed-amount discount. */
 export const lineNet = (quantity: number, unitPrice: number, discount: number, discountType: 'percent' | 'amount') => {
@@ -40,12 +51,17 @@ export const lineNet = (quantity: number, unitPrice: number, discount: number, d
 };
 
 export const formItemsTotal = (rows: SalesItemForm[]) =>
-  rows.reduce((sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType), 0);
+  rows.filter(countsInTotal).reduce((sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType), 0);
+
+/** What the optional lines would add if the client ticks them all. */
+export const formOptionalTotal = (rows: SalesItemForm[]) =>
+  Number(rows.filter((r) => r.lineType !== 'section' && r.optional)
+    .reduce((sum, item) => sum + lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType), 0).toFixed(2));
 
 /** What the form's lines cost before discounts, how much came off, and what is left. */
 export const formDiscountTotals = (rows: SalesItemForm[]) => {
   const r2 = (n: number) => Number(n.toFixed(2));
-  const gross = rows.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+  const gross = rows.filter(countsInTotal).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
   const net = formItemsTotal(rows);
   return { gross: r2(gross), discount: r2(Math.max(0, gross - net)), net: r2(net) };
 };
@@ -63,6 +79,10 @@ export const itemsToForm = (items: SalesOrderLineItem[]): SalesItemForm[] =>
         unitPrice: String(item.unitPrice),
         discount: String(item.discount ?? 0),
         discountType: item.discountType === 'amount' ? 'amount' : 'percent',
+        ...(item.lineType === 'section' ? { lineType: 'section' as const } : {}),
+        ...(item.optional ? { optional: true } : {}),
+        ...(item.details ? { details: item.details } : {}),
+        ...(item.unit ? { unit: item.unit } : {}),
       }))
     : [emptyItemRow()];
 
@@ -70,6 +90,10 @@ export const itemsToForm = (items: SalesOrderLineItem[]): SalesItemForm[] =>
 export const prepareItems = (rows: SalesItemForm[], inventoryMap: Map<string, InventoryItem>): SalesOrderLineItem[] =>
   rows
     .map((item) => {
+      if (item.lineType === 'section') {
+        const description = item.description.trim();
+        return description ? { lineType: 'section' as const, description, quantity: 0, unitPrice: 0, lineTotal: 0 } : null;
+      }
       const inventoryItem = item.inventoryItemId ? inventoryMap.get(item.inventoryItemId) : undefined;
       const quantity = Number(item.quantity || 0);
       const unitPrice = Number(item.unitPrice || inventoryItem?.salePrice || 0);
@@ -88,6 +112,9 @@ export const prepareItems = (rows: SalesItemForm[], inventoryMap: Map<string, In
         discount: discount > 0 ? discount : undefined,
         discountType: discount > 0 ? item.discountType : undefined,
         lineTotal: lineNet(quantity, unitPrice, discount, item.discountType),
+        ...(item.optional ? { optional: true } : {}),
+        ...(item.details?.trim() ? { details: item.details.trim() } : {}),
+        ...(item.unit?.trim() ? { unit: item.unit.trim() } : {}),
       };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -100,6 +127,7 @@ export function SalesLineItemsEditor({
   currencyCode,
   onSaveAsService,
   documentLanguage,
+  quoteLines,
 }: {
   rows: SalesItemForm[];
   onChange: (rows: SalesItemForm[]) => void;
@@ -110,8 +138,11 @@ export function SalesLineItemsEditor({
   currencyCode?: string;
   /** The document's language: a picked item's name is shown in it. Default the interface language. */
   documentLanguage?: 'ar' | 'en';
+  /** Quotations: adds section headings, optional lines, a unit and details. */
+  quoteLines?: boolean;
 }) {
   const { t, language } = useI18n();
+  const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const { money: companyMoney } = useCompanyCurrency();
   const money = (value: number) => (currencyCode ? formatCurrency(value, currencyCode) : companyMoney(value));
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
@@ -140,7 +171,12 @@ export function SalesLineItemsEditor({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <Label data-tutorial="sales-form-items">{t('sales.items')}</Label>
-        <Button type="button" variant="outline" size="sm" onClick={() => onChange([...rows, emptyItemRow()])}>{t('sales.addItem')}</Button>
+        <div className="flex gap-2">
+          {quoteLines && (
+            <Button type="button" variant="outline" size="sm" onClick={() => onChange([...rows, emptySectionRow()])}>{tr('Add section', 'إضافة قسم')}</Button>
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange([...rows, emptyItemRow()])}>{t('sales.addItem')}</Button>
+        </div>
       </div>
       <div className="overflow-x-auto rounded-lg border">
         <Table>
@@ -156,7 +192,16 @@ export function SalesLineItemsEditor({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((item, index) => (
+            {rows.map((item, index) => item.lineType === 'section' ? (
+              <TableRow key={index} className="bg-muted/40">
+                <TableCell colSpan={7}>
+                  <div className="flex items-center gap-2">
+                    <Input dir="auto" className="font-semibold" value={item.description} onChange={(event) => update(index, { description: event.target.value })} placeholder={tr('Section heading', 'عنوان القسم')} />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, i) => i !== index))}>{t('sales.remove')}</Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
               <TableRow key={index}>
                 <TableCell>
                   <Combobox
@@ -186,6 +231,9 @@ export function SalesLineItemsEditor({
                 </TableCell>
                 <TableCell>
                   <Input dir="auto" className="min-w-[10rem]" value={item.description} onChange={(event) => update(index, { description: event.target.value, descriptionAr: undefined, descriptionEn: undefined })} placeholder={t('sales.description')} />
+                  {quoteLines && (
+                    <Textarea dir="auto" rows={2} className="mt-1 min-w-[10rem] text-xs" value={item.details ?? ''} onChange={(event) => update(index, { details: event.target.value })} placeholder={tr('Details (optional)', 'تفاصيل (اختياري)')} />
+                  )}
                   {onSaveAsService && !item.inventoryItemId && item.description.trim() && (
                     <button
                       type="button"
@@ -198,6 +246,9 @@ export function SalesLineItemsEditor({
                 </TableCell>
                 <TableCell>
                   <Input className="min-w-[4.5rem] text-end" type="number" min="0" value={item.quantity} onChange={(event) => update(index, { quantity: event.target.value })} />
+                  {quoteLines && (
+                    <Input dir="auto" className="mt-1 h-7 w-20 text-xs" value={item.unit ?? ''} onChange={(event) => update(index, { unit: event.target.value })} placeholder={tr('unit', 'الوحدة')} />
+                  )}
                 </TableCell>
                 <TableCell>
                   <Input className="min-w-[6.5rem] text-end" type="number" min="0" value={item.unitPrice} onChange={(event) => update(index, { unitPrice: event.target.value })} />
@@ -214,11 +265,17 @@ export function SalesLineItemsEditor({
                     </Select>
                   </div>
                 </TableCell>
-                <TableCell className="text-end font-medium">
+                <TableCell className={`text-end font-medium${item.optional ? ' text-muted-foreground' : ''}`}>
                   {money(lineNet(Number(item.quantity || 0), Number(item.unitPrice || 0), Number(item.discount || 0), item.discountType))}
+                  {quoteLines && (
+                    <label className="mt-1 flex items-center justify-end gap-1 text-xs font-normal text-foreground">
+                      <Checkbox checked={Boolean(item.optional)} onCheckedChange={(checked) => update(index, { optional: checked === true })} />
+                      {tr('Optional', 'اختياري')}
+                    </label>
+                  )}
                 </TableCell>
                 <TableCell className="text-end">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, i) => i !== index))} disabled={rows.length === 1}>{t('sales.remove')}</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, i) => i !== index))} disabled={rows.filter((r) => r.lineType !== 'section').length === 1}>{t('sales.remove')}</Button>
                 </TableCell>
               </TableRow>
             ))}
