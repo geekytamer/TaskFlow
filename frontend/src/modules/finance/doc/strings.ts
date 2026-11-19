@@ -42,6 +42,8 @@ export interface DocStrings {
   qty: string;
   unit: string;
   amount: string;
+  optional: string;
+  optionalExtras: string;
 }
 
 const EN: DocStrings = {
@@ -81,6 +83,8 @@ const EN: DocStrings = {
   qty: 'Qty',
   unit: 'Unit',
   amount: 'Amount',
+  optional: 'Optional',
+  optionalExtras: 'Optional extras',
 };
 
 const AR: DocStrings = {
@@ -120,6 +124,8 @@ const AR: DocStrings = {
   qty: 'الكمية',
   unit: 'سعر الوحدة',
   amount: 'المبلغ',
+  optional: 'اختياري',
+  optionalExtras: 'إضافات اختيارية',
 };
 
 export function isRtlLocale(locale: string = getCurrentLocale()): boolean {
@@ -161,6 +167,14 @@ const DEFAULT_SENTENCES: Array<[string, string]> = [
   ['We appreciate your business.', 'نقدّر تعاملكم معنا.'],
   ['Payment due on receipt unless otherwise agreed.', 'يُستحق الدفع عند الاستلام ما لم يُتفق على غير ذلك.'],
   ['All amounts are shown in the invoice currency.', 'جميع المبالغ معروضة بعملة الفاتورة.'],
+  ['Attention', 'عناية'],
+  ['Prepared by', 'أعدّه'],
+  ['Scope of work', 'نطاق العمل'],
+  ['Quotation no.', 'رقم عرض السعر'],
+  ['Unit of measure', 'الوحدة'],
+  ['Thank you for the opportunity. Please find our offer below.', 'شكرًا لإتاحة الفرصة. تجدون عرضنا أدناه.'],
+  ['Prices are valid until the date above.', 'الأسعار سارية حتى التاريخ المذكور أعلاه.'],
+  ['Accepted by: ____________________   Date: ____________', 'تمت الموافقة من: ____________________   التاريخ: ____________'],
 ];
 const SENTENCES = new Map<string, [string, string]>();
 for (const pair of DEFAULT_SENTENCES) {

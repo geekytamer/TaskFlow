@@ -13,6 +13,7 @@ const blockTypes = new Set([
   'signature',
   'qr',
   'pageBreak',
+  'slot',
 ]);
 const visibleWhenValues = new Set([
   'always',
@@ -21,6 +22,10 @@ const visibleWhenValues = new Set([
   'hasLogo',
   'hasStamp',
   'hasSignature',
+  'hasDiscount',
+  'hasOptionalLines',
+  'lang:ar',
+  'lang:en',
 ]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -124,7 +129,7 @@ function columns(value: unknown, path: string, errors: string[]) {
       return;
     }
     stringValue(column.id, `${itemPath}.id`, errors, { max: 100 });
-    if (!['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom'].includes(String(column.key))) {
+    if (!['sku', 'description', 'quantity', 'unitPrice', 'amount', 'custom', 'index', 'discount', 'unit'].includes(String(column.key))) {
       errors.push(`${itemPath}.key is invalid.`);
     }
     stringValue(column.label, `${itemPath}.label`, errors, { max: 100, allowEmpty: true });
@@ -198,6 +203,12 @@ function block(
     case 'shape':
       finiteNumber(value.height, `${path}.height`, errors, { optional: true, min: 1, max: 2000 });
       break;
+    case 'slot':
+      if (typeof value.slot !== 'string' || !/^[a-z][a-zA-Z0-9]{0,39}$/.test(value.slot)) errors.push(`${path}.slot must be a slot name like "terms".`);
+      stringValue(value.title, `${path}.title`, errors, { optional: true, max: 200, allowEmpty: true });
+      if (value.fallback !== undefined && typeof value.fallback !== 'string' && !isRecord(value.fallback)) errors.push(`${path}.fallback must be text or a rich-text document.`);
+      if (value.fallback !== undefined && JSON.stringify(value.fallback).length > 60000) errors.push(`${path}.fallback is too long.`);
+      break;
     case 'lineItems':
       columns(value.columns, `${path}.columns`, errors);
       break;
@@ -207,6 +218,7 @@ function block(
       }
       break;
     case 'details':
+      if (value.layout !== undefined && value.layout !== 'inline' && value.layout !== 'rows') errors.push(`${path}.layout must be inline or rows.`);
       stringValue(value.title, `${path}.title`, errors, { optional: true, max: 200, allowEmpty: true });
       if (!Array.isArray(value.fields) || value.fields.length > 50) {
         errors.push(`${path}.fields must be an array with at most 50 entries.`);

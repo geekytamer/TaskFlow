@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
+import type { DocExtras } from '@/modules/finance/doc/tokens';
+import type { RichNode } from '@/modules/finance/doc/types';
 import { InvoiceDocument } from '@/modules/finance/components/invoice-document';
 import { getPublicQuotation, publicQuotationUrl, type PublicInvoicePayload } from '@/services/publicService';
 import { useI18n } from '@/context/i18n-context';
@@ -13,7 +15,7 @@ export default function PublicQuotationPage() {
   const { setLanguage, language } = useI18n();
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const id = params?.id as string;
-  const [data, setData] = React.useState<(PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en' }) | null>(null);
+  const [data, setData] = React.useState<(PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en'; extras: DocExtras; content: Record<string, RichNode | string>; fields: Record<string, string> }) | null>(null);
   // ?lang=ar|en on the link wins; otherwise the quote's own language; otherwise the reader's.
   const [linkLanguage, setLinkLanguage] = React.useState<'ar' | 'en' | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -78,6 +80,9 @@ export default function PublicQuotationPage() {
           template={data.template}
           publicUrl={publicQuotationUrl(id)}
           language={linkLanguage ?? data.language ?? null}
+          extras={data.extras}
+          content={data.content}
+          fields={data.fields}
         />
       </div>
     </div>

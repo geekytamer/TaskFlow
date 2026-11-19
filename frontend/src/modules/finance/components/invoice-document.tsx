@@ -2,6 +2,8 @@
 
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice, InvoiceTemplate } from '../types';
+import type { DocExtras } from '../doc/tokens';
+import type { RichNode } from '../doc/types';
 import { DocRenderer } from '../doc/doc-renderer';
 import { templateToDoc } from '../doc/template-to-doc';
 import { isInvoiceDoc } from '../doc/validation';
@@ -15,6 +17,11 @@ interface InvoiceDocumentProps {
   publicUrl?: string;
   /** The language this document prints in; the design's or the reader's when omitted. */
   language?: 'ar' | 'en' | null;
+  /** Quote data by token name (contact, owner, ...). */
+  extras?: DocExtras;
+  /** Per-document text by slot name. */
+  content?: Record<string, RichNode | string>;
+  fields?: Record<string, string>;
 }
 
 /**
@@ -24,10 +31,10 @@ interface InvoiceDocumentProps {
  * One engine means the on-screen preview, the print page, and the server-side
  * PDF are always pixel-identical.
  */
-export function InvoiceDocument({ invoice, client, company, template, publicUrl, language }: InvoiceDocumentProps) {
+export function InvoiceDocument({ invoice, client, company, template, publicUrl, language, extras, content, fields }: InvoiceDocumentProps) {
   const custom = template?.doc;
   const doc = isInvoiceDoc(custom) ? custom : templateToDoc(template);
   return (
-    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} direction={language === 'ar' ? 'rtl' : language === 'en' ? 'ltr' : undefined} />
+    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} extras={extras} content={content} fields={fields} direction={language === 'ar' ? 'rtl' : language === 'en' ? 'ltr' : undefined} />
   );
 }

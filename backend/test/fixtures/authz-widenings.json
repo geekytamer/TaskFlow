@@ -261,7 +261,8 @@
   ],
   "sales:create": [
     "POST /companies/:companyId/services",
-    "POST /companies/:companyId/shipments"
+    "POST /companies/:companyId/shipments",
+    "POST /quotations/:id/copy"
   ],
   "sales:delete": [
     "DELETE /sales-orders/:id",

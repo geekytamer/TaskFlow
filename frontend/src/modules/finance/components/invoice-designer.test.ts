@@ -30,3 +30,61 @@ test('page-flow blocks stay at the document root when a group is selected', asyn
     ['inside'],
   );
 });
+
+test('the proposal starter is a valid quote layout with intro, scope and terms slots', async () => {
+  const { proposalDoc } = await import('../doc/presets');
+  const { validateInvoiceDoc } = await import('../doc/validation');
+  const doc = proposalDoc();
+  assert.deepEqual(validateInvoiceDoc(doc), []);
+  const slots: string[] = [];
+  const walk = (blocks: any[]) => blocks.forEach((b) => { if (b.type === 'slot') slots.push(b.slot); if (b.children) walk(b.children); });
+  walk(doc.body);
+  assert.deepEqual(slots, ['intro', 'scope', 'terms']);
+  const columns = JSON.stringify(doc.body);
+  assert.ok(columns.includes('"key":"index"') && columns.includes('"key":"unit"'));
+});
+
+test('the proposal preset is listed and its words localise to Arabic', async () => {
+  const { invoicePresets, proposalDoc } = await import('../doc/presets');
+  const { localizeLabel, docStrings } = await import('../doc/strings');
+  assert.ok(invoicePresets.some((p) => p.id === 'proposal'));
+  const ar = docStrings('ar');
+  const doc: any = proposalDoc();
+  const slot = (name: string) => doc.body.find((b: any) => b.type === 'slot' && b.slot === name);
+  assert.equal(localizeLabel(slot('scope').title, ar), 'نطاق العمل');
+  assert.equal(localizeLabel(slot('intro').fallback, ar), 'شكرًا لإتاحة الفرصة. تجدون عرضنا أدناه.');
+  assert.equal(localizeLabel('Attention', ar), 'عناية');
+  assert.equal(localizeLabel('Prepared by', ar), 'أعدّه');
+  assert.equal(localizeLabel('Unit', ar), 'سعر الوحدة');
+  assert.equal(localizeLabel('Unit of measure', ar), 'الوحدة');
+});
+
+test('the proposal details labels read Issue date and Quotation no. and localise to Arabic', async () => {
+  const { proposalDoc } = await import('../doc/presets');
+  const { localizeLabel, docStrings } = await import('../doc/strings');
+  const ar = docStrings('ar');
+  const meta: any = (proposalDoc() as any).body.find((b: any) => b.id === 'p-meta');
+  const labels = meta.fields.map((f: any) => f.label);
+  assert.ok(labels.includes('Issue date') && labels.includes('Quotation no.'));
+  assert.ok(!labels.includes('Date') && !labels.includes('Quotation'));
+  assert.equal(localizeLabel('Issue date', ar), docStrings('ar').issueDate);
+  assert.notEqual(localizeLabel('Issue date', ar), 'Issue date');
+  assert.equal(localizeLabel('Quotation no.', ar), 'رقم عرض السعر');
+  assert.equal(localizeLabel('Quotation no.', docStrings('en')), 'Quotation no.');
+  assert.equal(localizeLabel('Quotation', ar, { quote: true }), localizeLabel('Quotation', ar, { quote: true }));
+});
+
+test('the trade quotation starter is a valid quote layout with both-language labels and fill-in fields', async () => {
+  const { invoicePresets } = await import('../doc/presets');
+  const { validateInvoiceDoc } = await import('../doc/validation');
+  const { templateFields } = await import('../doc/tokens');
+  const preset = invoicePresets.find((p) => p.id === 'trade');
+  assert.ok(preset, 'trade preset is listed');
+  const doc = preset!.build();
+  assert.deepEqual(validateInvoiceDoc(doc), []);
+  assert.deepEqual(templateFields(doc).sort(), ['field.certificate_of_origin', 'field.delivery_terms', 'field.destination', 'field.inspection', 'field.origin', 'field.packaging']);
+  const text = JSON.stringify(doc);
+  for (const token of ['{{doc.number}}', '{{fields.validity}}', '{{to.name}}', '{{contact.name}}', '{{line1.quantity}}', '{{line1.unitPrice}}', '{{owner.title}}']) assert.ok(text.includes(token), token);
+  assert.ok(text.includes('"visibleWhen":"lang:ar"') && text.includes('بيانات المشتري'), 'Arabic labels shown only in Arabic');
+  assert.notEqual(preset!.build().body, preset!.build().body, 'a fresh copy each time');
+});

@@ -149,3 +149,21 @@ test('rewriting a document Legal approved asks Legal again', () => {
   store.updateDocument(doc.id, { title: 'NDA, rewritten' });
   assert.equal(store.approvals.outcome('document', doc.id), 'pending');
 });
+
+test('a quotation asks for approval on the most it can reach, optional lines with VAT included', () => {
+  const { store, co, asRequester, client } = setup();
+  store.approvals.setPolicy(co, 'quotation', { steps: [{ approvers: [{ kind: 'role', id: 'Admin' }], need: 'any', minAmount: 100 }] });
+  const at = new Date();
+  const until = new Date(Date.now() + 30 * 86_400_000);
+  const base = { companyId: co, clientId: client.id, issueDate: at, validUntil: until, taxRate: 10 };
+  const plain = asRequester(() => store.createQuotation({ ...base, items: [{ description: 'A', quantity: 1, unitPrice: 50 }] }));
+  assert.equal(store.approvals.outcome('quotation', plain.id), 'not_required', '50 + 5 VAT is under 100');
+  const withOptional = asRequester(() => store.createQuotation({ ...base, items: [{ description: 'A', quantity: 1, unitPrice: 50 }, { description: 'B', quantity: 1, unitPrice: 60, optional: true }] }));
+  assert.equal(withOptional.totalAmount, 55);
+  assert.equal(store.approvals.outcome('quotation', withOptional.id), 'pending', '55 + 66 = 121 reaches 100');
+  // Editing: adding an optional line raises the reachable amount, so the plain quote now asks too.
+  store.updateQuotation(plain.id, { items: [{ description: 'A', quantity: 1, unitPrice: 50 }, { description: 'B', quantity: 1, unitPrice: 60, optional: true }] });
+  assert.equal(store.approvals.outcome('quotation', plain.id), 'pending');
+  const copy = asRequester(() => store.copyQuotation(withOptional.id));
+  assert.equal(store.approvals.outcome('quotation', copy.id), 'pending', 'a copy is covered too');
+});

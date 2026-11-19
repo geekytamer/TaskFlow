@@ -3,6 +3,12 @@ import type { Client, Invoice } from '../types';
 import { getCurrentLocale } from '@/lib/locale';
 import { localizeStatus } from './strings';
 import { displayName } from '@/lib/display-name';
+import type { RichNode } from './types';
+import { countedLines, optionalTotal } from './quote-lines';
+import { discountTotals } from '@/lib/discount';
+
+/** Record data beyond the invoice shape, keyed by final token name (spec 2026-11-19 §4.3). */
+export type DocExtras = Record<string, { type: 'text' | 'date'; value: string }>;
 
 const isArabic = (locale: string) => locale.toLowerCase().startsWith('ar');
 
@@ -15,11 +21,21 @@ export interface DocDataContext {
   total: number;
   /** Formats a numeric amount in the invoice currency. */
   formatMoney: (value: number) => string;
+  /**
+   * Money as readable text with the document currency. Only the newer tokens
+   * (line1.*) use it; the older ones keep printing through formatMoney so
+   * existing documents come out exactly as before.
+   */
+  formatMoneyText?: (value: number) => string;
   publicUrl: string;
   /** Values typed when a document was created, keyed `field.<name>` (and `document.notes`). */
   fields?: Record<string, string>;
   /** The document's own language for dates; unset follows the interface. */
   locale?: string;
+  /** Quote data and other kind fields, by token name ("contact.name", "fields.validUntil"). */
+  extras?: DocExtras;
+  /** Text written for this document, by slot. */
+  content?: Record<string, RichNode | string>;
 }
 
 const fmtDate = (d?: Date, locale?: string) =>
@@ -97,13 +113,59 @@ export function templateFields(doc: unknown): string[] {
   return [...seen];
 }
 
+/** Slot blocks a template uses, in order of first appearance. */
+export function templateSlots(doc: unknown): Array<{ slot: string; title?: string; fallback?: unknown }> {
+  const out: Array<{ slot: string; title?: string; fallback?: unknown }> = [];
+  const walk = (blocks: unknown) => {
+    if (!Array.isArray(blocks)) return;
+    for (const block of blocks as any[]) {
+      if (block?.type === 'slot' && typeof block.slot === 'string' && !out.some((o) => o.slot === block.slot)) {
+        out.push({ slot: block.slot, title: block.title, fallback: block.fallback });
+      }
+      walk(block?.children);
+    }
+  };
+  walk((doc as any)?.body);
+  return out;
+}
+
 const AR_TOKEN_LABELS: Record<string, string> = {
   Document: 'المستند', Client: 'العميل', Company: 'الشركة', 'Filled in per document': 'يُملأ لكل مستند',
   'Document number': 'رقم المستند', 'Document date': 'تاريخ المستند', Status: 'الحالة', Notes: 'الملاحظات',
   'Client name': 'اسم العميل', 'Client address': 'عنوان العميل', 'Client email': 'بريد العميل',
   'Company name': 'اسم الشركة', 'Company address': 'عنوان الشركة',
   Recipient: 'المستلم', Subject: 'الموضوع', Reference: 'المرجع', Date: 'التاريخ', Amount: 'المبلغ', 'Body text': 'نص المستند',
+  Quotation: 'عرض السعر', 'Valid until': 'صالح حتى', Salesperson: 'مسؤول المبيعات', 'Salesperson email': 'بريد مسؤول المبيعات',
+  'Contact person': 'الشخص المسؤول', 'Contact phone': 'هاتف المسؤول', 'Client phone': 'هاتف العميل',
+  'Client tax number': 'الرقم الضريبي للعميل', 'Total discount': 'إجمالي الخصم', 'Optional extras total': 'إجمالي الإضافات الاختيارية',
+  Validity: 'مدة الصلاحية', 'Salesperson title': 'المسمى الوظيفي لمسؤول المبيعات',
+  'First line: description': 'البند الأول: الوصف', 'First line: quantity': 'البند الأول: الكمية', 'First line: unit': 'البند الأول: الوحدة',
+  'First line: unit price': 'البند الأول: سعر الوحدة', 'First line: amount': 'البند الأول: المبلغ',
 };
+
+/** Quote data in the designer's picker (quote templates only). */
+export const QUOTE_TOKEN_GROUP: (typeof TOKEN_GROUPS)[number] = {
+  group: 'Quotation',
+  tokens: [
+    { token: 'fields.validUntil', label: 'Valid until' },
+    { token: 'fields.validity', label: 'Validity' },
+    { token: 'owner.name', label: 'Salesperson' },
+    { token: 'owner.email', label: 'Salesperson email' },
+    { token: 'owner.title', label: 'Salesperson title' },
+    { token: 'contact.name', label: 'Contact person' },
+    { token: 'contact.phone', label: 'Contact phone' },
+    { token: 'to.phone', label: 'Client phone' },
+    { token: 'to.taxId', label: 'Client tax number' },
+    { token: 'doc.discount', label: 'Total discount' },
+    { token: 'doc.optionalTotal', label: 'Optional extras total' },
+    { token: 'line1.description', label: 'First line: description' },
+    { token: 'line1.quantity', label: 'First line: quantity' },
+    { token: 'line1.unit', label: 'First line: unit' },
+    { token: 'line1.unitPrice', label: 'First line: unit price' },
+    { token: 'line1.amount', label: 'First line: amount' },
+  ],
+};
+export const quoteTokenGroups = (base: typeof TOKEN_GROUPS): typeof TOKEN_GROUPS => [...base, QUOTE_TOKEN_GROUP];
 
 /** Token groups with their labels in the reader's language. */
 export function localizedTokenGroups(groups: typeof TOKEN_GROUPS, language: string): typeof TOKEN_GROUPS {
@@ -125,6 +187,35 @@ const FIELD_FALLBACKS: Record<string, (ctx: DocDataContext) => string> = {
 export function fieldLabel(token: string): string {
   const name = token.replace(/^field\./, '').replace(/[._]+/g, ' ').trim();
   return name ? name.charAt(0).toUpperCase() + name.slice(1) : token;
+}
+
+/** Whole days from issue to valid-until, as "15 days" / "15 يومًا"; empty when a date is missing. */
+function validityText(ctx: DocDataContext): string {
+  const from = ctx.invoice.issueDate ? new Date(ctx.invoice.issueDate).getTime() : NaN;
+  const to = ctx.invoice.dueDate ? new Date(ctx.invoice.dueDate).getTime() : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  const days = Math.round((to - from) / 86_400_000);
+  if (days < 0) return '';
+  if (!isArabic(ctx.locale ?? getCurrentLocale())) return `${days} ${days === 1 ? 'day' : 'days'}`;
+  if (days === 1) return 'يوم واحد';
+  if (days === 2) return 'يومان';
+  return `${days} ${days >= 3 && days <= 10 ? 'أيام' : 'يومًا'}`;
+}
+
+/** The first priced line of a quote (sections and optional lines do not count). */
+function firstLineToken(key: string, ctx: DocDataContext): string {
+  const line = countedLines(ctx.invoice.lineItems || [])[0];
+  if (!line) return '';
+  const money = ctx.formatMoneyText ?? ctx.formatMoney;
+  switch (key) {
+    case 'description': return (isArabic(ctx.locale ?? getCurrentLocale()) ? line.descriptionAr : line.descriptionEn) || line.description || '';
+    // Grouped like the sample sheet (12,000), Latin digits in both languages.
+    case 'quantity': return Number(line.quantity || 0).toLocaleString('en-US', { maximumFractionDigits: 4 });
+    case 'unit': return line.unit || '';
+    case 'unitPrice': return money(Number(line.unitPrice) || 0);
+    case 'amount': return money(Number(line.amount) || 0);
+    default: return '';
+  }
 }
 
 export function resolveToken(token: string, ctx: DocDataContext): string {
@@ -156,9 +247,35 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'company.phone': return company?.phone || '';
     case 'company.email': return company?.email || '';
     case 'today': return fmtDate(new Date(), ctx.locale);
-    default:
-      if (!token.trim().startsWith('field.')) return '';
-      return ctx.fields?.[token.trim()] || FIELD_FALLBACKS[token.trim()]?.(ctx) || '';
+    case 'doc.number': return invoice.invoiceNumber || '';
+    case 'doc.date': return fmtDate(invoice.issueDate, ctx.locale);
+    case 'doc.status': return localizeStatus(invoice.status || '', ctx.locale);
+    case 'doc.currency': return invoice.currency || 'USD';
+    case 'doc.total': return ctx.formatMoney(ctx.total);
+    case 'doc.discount': return ctx.formatMoney(discountTotals(countedLines(invoice.lineItems || [])).discount);
+    case 'doc.optionalTotal': return ctx.formatMoney(optionalTotal(invoice.lineItems || []));
+    case 'fields.validity': return validityText(ctx);
+    case 'line1.description':
+    case 'line1.quantity':
+    case 'line1.unit':
+    case 'line1.unitPrice':
+    case 'line1.amount': return firstLineToken(token.trim().slice(6), ctx);
+    case 'to.name': return resolveToken('client.name', ctx);
+    case 'to.address': return client?.address || '';
+    case 'to.email': return client?.email || '';
+    case 'from.name': return company?.name || '';
+    case 'from.address': return company?.address || '';
+    default: {
+      const key = token.trim();
+      if (key.startsWith('field.')) {
+        const own = Object.prototype.hasOwnProperty.call(ctx.fields ?? {}, key) ? ctx.fields![key] : '';
+        const fallback = Object.prototype.hasOwnProperty.call(FIELD_FALLBACKS, key) ? FIELD_FALLBACKS[key](ctx) : '';
+        if (own || fallback) return own || fallback;
+      }
+      const extra = Object.prototype.hasOwnProperty.call(ctx.extras ?? {}, key) ? ctx.extras![key] : undefined;
+      if (typeof extra?.value !== 'string') return '';
+      return extra.type === 'date' ? fmtDate(new Date(extra.value), ctx.locale) : extra.value;
+    }
   }
 }
 

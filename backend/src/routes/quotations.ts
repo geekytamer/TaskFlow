@@ -1,4 +1,4 @@
-import type { DocumentLanguage, QuotationStatus } from '../types';
+import type { DocumentLanguage, Quotation, QuotationStatus, SalesOrderLineItem } from '../types';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalDateInput, optionalNumber, optionalString, requiredDateInput, requiredString } from '../validation';
 import type { RouteContext } from './context';
@@ -16,10 +16,81 @@ const parseDocumentLanguage = (value: unknown): DocumentLanguage | null | undefi
   throw new HttpError(400, 'language must be "ar", "en" or empty.');
 };
 
+/** Line numbers (0-based) of optional lines the customer ticked. */
+const parseIncludeOptional = (value: unknown): number[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((v) => !Number.isInteger(v) || v < 0)) throw new HttpError(400, 'includeOptional must be a list of line numbers.');
+  return value as number[];
+};
+
+/** Quotation lines: a section row needs only a description; other rows parse as sales lines. */
+const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) => SalesOrderLineItem[]): SalesOrderLineItem[] => {
+  if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'items must contain at least one line item.');
+  if (value.length > 300) throw new HttpError(400, 'A quotation can have at most 300 lines.');
+  return value.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    if (record.lineType === 'section') {
+      return { lineType: 'section', description: requiredString(record.description, `items[${index}].description`), quantity: 0, unitPrice: 0, lineTotal: 0,
+        descriptionAr: optionalString(record.descriptionAr), descriptionEn: optionalString(record.descriptionEn) } as SalesOrderLineItem;
+    }
+    const [line] = parseSalesOrderItems([record]);
+    return {
+      ...line,
+      optional: record.optional === true ? true : undefined,
+      details: optionalString(record.details),
+      unit: optionalString(record.unit),
+    };
+  });
+};
+
+const SLOT_KEY = /^[a-z][a-zA-Z0-9]{0,39}$/;
+/** `{ slot: rich-text JSON | string | null }`; null removes the slot's own text. */
+const FIELD_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+/** Fill-in answers for {{field.<name>}}: a flat { name: text } object; null removes them all. */
+const parseFillIns = (value: unknown): Record<string, string> | null => {
+  if (value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'content.fields must be an object of names and text.');
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 50) throw new HttpError(400, 'content.fields can hold at most 50 entries.');
+  const out: Record<string, string> = {};
+  for (const [name, text] of entries) {
+    if (!FIELD_NAME.test(name)) throw new HttpError(400, `content.fields.${name} is not a valid field name.`);
+    if (typeof text !== 'string' || text.length > 2000) throw new HttpError(400, `content.fields.${name} must be text of at most 2000 characters.`);
+    out[name] = text;
+  }
+  return out;
+};
+
+const parseDocContent = (value: unknown): Record<string, unknown | null> | undefined => {
+  if (value === undefined) return undefined;
+  const record = asRecord(value, 'content');
+  const out: Record<string, unknown | null> = {};
+  for (const [slot, body] of Object.entries(record)) {
+    if (slot === 'fields') {
+      out.fields = parseFillIns(body);
+      continue;
+    }
+    if (!SLOT_KEY.test(slot)) throw new HttpError(400, `content.${slot} is not a valid slot name.`);
+    if (body !== null && typeof body !== 'string' && (typeof body !== 'object' || Array.isArray(body) || typeof (body as any).type !== 'string')) {
+      throw new HttpError(400, `content.${slot} must be text or a rich-text document.`);
+    }
+    if (body !== null && JSON.stringify(body).length > 60000) throw new HttpError(400, `content.${slot} is too long.`);
+    out[slot] = body;
+  }
+  return out;
+};
+
 export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
   const { store, authMiddleware, requireCompanyRoles, withActor, ensureClientBelongsToCompany, parseSalesOrderItems, ensureSalesItemsBelongToCompany } = ctx;
 
   const quotationStatuses: QuotationStatus[] = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
+
+  const ensureOwner = (ownerUserId: string | null | undefined, companyId: string) => {
+    if (!ownerUserId) return;
+    const user = store.getUserById(ownerUserId);
+    if (!user || !(user.companyIds ?? []).includes(companyId)) throw new HttpError(400, 'The salesperson must be a member of this company.');
+  };
+  const withContent = (quote: Quotation) => ({ ...quote, content: store.getDocumentContent('quote', quote.id) });
 
   const loadQuotation = (req: AuthedRequest) => {
     const quote = store.getQuotationById(req.params.id);
@@ -78,15 +149,18 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (!clientId) throw new HttpError(400, 'Choose the client this quotation is for.');
       ensureClientBelongsToCompany(clientId, companyId);
       if (!store.getClientById(clientId)) throw new HttpError(400, 'Client not found.');
-      const items = parseSalesOrderItems(body.items);
+      const items = parseQuotationItems(body.items, parseSalesOrderItems);
       ensureSalesItemsBelongToCompany(items, companyId);
+      const content = parseDocContent(body.content);
+      const ownerUserId = optionalString(body.ownerUserId);
+      ensureOwner(ownerUserId, companyId);
       const templateId = optionalString(body.templateId);
       ensureQuoteTemplate(templateId, companyId);
       const issueDate = optionalDateInput(body.issueDate) || new Date().toISOString();
       const validUntil = optionalDateInput(body.validUntil)
         || new Date(new Date(issueDate).getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
-      const quote = asBadRequest(() => withActor(req, () =>
-        store.createQuotation({
+      const quote = asBadRequest(() => withActor(req, () => {
+        const created = store.createQuotation({
           companyId,
           clientId: clientId!,
           contactId,
@@ -100,9 +174,12 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           notes: optionalString(body.notes),
           templateId,
           language: parseDocumentLanguage(body.language),
-        }),
-      ));
-      res.status(201).json(quote);
+          ownerUserId,
+        });
+        if (content) store.setDocumentContent(companyId, 'quote', created.id, content);
+        return created;
+      }));
+      res.status(201).json(withContent(quote));
     }),
   );
 
@@ -110,7 +187,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
     '/quotations/:id',
     authMiddleware,
     handler((req, res) => {
-      res.json(loadQuotation(req));
+      res.json(withContent(loadQuotation(req)));
     }),
   );
 
@@ -149,7 +226,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
         ensureClientBelongsToCompany(clientId, existing.companyId);
         if (!store.getClientById(clientId)) throw new HttpError(400, 'Client not found.');
       }
-      const items = body.items !== undefined ? parseSalesOrderItems(body.items) : undefined;
+      const items = body.items !== undefined ? parseQuotationItems(body.items, parseSalesOrderItems) : undefined;
       if (items) ensureSalesItemsBelongToCompany(items, existing.companyId);
       const contactId = body.contactId !== undefined ? optionalString(body.contactId) ?? null : undefined;
       if (contactId) {
@@ -158,8 +235,15 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       }
       const templateId = body.templateId !== undefined ? optionalString(body.templateId) ?? null : undefined;
       ensureQuoteTemplate(templateId ?? undefined, existing.companyId);
-      const updated = asBadRequest(() => withActor(req, () =>
-        store.updateQuotation(existing.id, {
+      const content = parseDocContent(body.content);
+      const ownerUserId = body.ownerUserId !== undefined ? optionalString(body.ownerUserId) ?? null : undefined;
+      if (ownerUserId !== undefined && (ownerUserId ?? undefined) !== (existing.ownerUserId ?? undefined)) ensureOwner(ownerUserId, existing.companyId);
+      // Text is part of the offer, like the lines: it freezes when the quote does.
+      if (content && (existing.salesOrderId || existing.invoiceId || existing.status === 'Accepted' || existing.status === 'Declined')) {
+        throw new HttpError(400, 'An accepted, declined or converted quotation cannot change its text. Reopen it as a draft first.');
+      }
+      const updated = asBadRequest(() => withActor(req, () => {
+        const result = store.updateQuotation(existing.id, {
           clientId,
           contactId,
           issueDate: body.issueDate !== undefined ? requiredDateInput(body.issueDate, 'issueDate') : undefined,
@@ -171,10 +255,13 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
           templateId,
           language: parseDocumentLanguage(body.language),
-        }),
-      ));
+          ownerUserId,
+        });
+        if (result && content) store.setDocumentContent(existing.companyId, 'quote', existing.id, content);
+        return result;
+      }));
       if (!updated) throw new HttpError(404, 'Quotation not found.');
-      res.json(updated);
+      res.json(withContent(updated));
     }),
   );
 
@@ -206,8 +293,9 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (quote.invoiceId) throw new HttpError(409, 'This quotation was already invoiced directly.');
       if (quote.status !== 'Accepted') throw new HttpError(400, 'Only an accepted quotation becomes a sales order.');
       // Items archived since the quote was written cannot be sold again until restored.
-      ensureSalesItemsBelongToCompany(quote.items, quote.companyId);
       const body = asRecord(req.body ?? {}, 'body');
+      const sale = asBadRequest(() => store.quoteSaleLines(quote, parseIncludeOptional(body.includeOptional)));
+      ensureSalesItemsBelongToCompany(sale.items, quote.companyId);
       const expectedDate = optionalDateInput(body.expectedDate);
       const order = asBadRequest(() => withActor(req, () => {
         const created = store.createSalesOrder({
@@ -217,7 +305,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           orderDate: new Date(optionalDateInput(body.orderDate) || new Date().toISOString()),
           expectedDate: expectedDate ? new Date(expectedDate) : undefined,
           status: 'Confirmed',
-          items: quote.items,
+          items: sale.items,
           notes: optionalString(body.notes) || `Created from quotation ${quote.quoteNumber}.`,
         });
         store.linkQuotation(quote.id, { salesOrderId: created.id });
@@ -243,6 +331,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (quote.salesOrderId) throw new HttpError(409, 'This quotation became a sales order. Invoice the sales order instead.');
       if (quote.status !== 'Accepted') throw new HttpError(400, 'Only an accepted quotation can be invoiced.');
       const body = asRecord(req.body ?? {}, 'body');
+      const sale = asBadRequest(() => store.quoteSaleLines(quote, parseIncludeOptional(body.includeOptional)));
       const templateId = optionalString(body.templateId);
       if (templateId) {
         const template = store.getInvoiceTemplateById(templateId);
@@ -260,7 +349,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           templateId,
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
-          lineItems: quote.items.map((item) => ({
+          lineItems: sale.items.map((item) => ({
             itemType: 'Manual',
             sku: item.sku,
             description: item.description,
@@ -272,7 +361,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
             discountType: item.discountType,
             amount: item.lineTotal,
           })),
-          total: quote.totalAmount,
+          total: sale.totals.totalAmount,
           status: 'Draft',
           notes: optionalString(body.notes) || `Created from quotation ${quote.quoteNumber}.`,
           currency: quote.currency,
@@ -283,6 +372,17 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
         return created;
       }));
       res.status(201).json(invoice);
+    }),
+  );
+
+  app.post(
+    '/quotations/:id/copy',
+    authMiddleware,
+    handler((req, res) => {
+      const quote = loadQuotation(req);
+      ensureSalesItemsBelongToCompany(quote.items.filter((i) => i.lineType !== 'section'), quote.companyId);
+      const copy = asBadRequest(() => withActor(req, () => store.copyQuotation(quote.id)));
+      res.status(201).json(withContent(copy));
     }),
   );
 

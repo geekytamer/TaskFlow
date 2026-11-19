@@ -422,6 +422,8 @@ type CreatePurchaseRequisitionInput = {
 };
 /** Tasks of an archived project are put away: no reminders or alerts for them. */
 const NOT_ARCHIVED = "(projectId IS NULL OR projectId = '' OR projectId NOT IN (SELECT id FROM projects WHERE status = 'Archived'))";
+/** A quotation line that counts toward the price: not a section heading, not optional. */
+const isCountedLine = (item: { lineType?: string; optional?: boolean }) => item.lineType !== 'section' && !item.optional;
 type CreateExpenseInput = {
   companyId: string;
   expenseDate?: Date | string;
@@ -6175,6 +6177,27 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Quote documents (spec 2026-11-19): the salesperson on a quote, and
+        // text written per document (intro, scope, terms…) for any kind.
+        id: '177_quote_documents',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(quotations)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('ownerUserId')) this.db.exec('ALTER TABLE quotations ADD COLUMN ownerUserId TEXT;');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS document_content (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              recordId TEXT NOT NULL,
+              slot TEXT NOT NULL,
+              body TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_document_content_slot ON document_content (kind, recordId, slot);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -8326,6 +8349,7 @@ export class DataStore {
       this.db.prepare('DELETE FROM follow_up_assignees WHERE userId = ?').run(userId);
       this.db.prepare('UPDATE opportunities SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
       this.db.prepare('UPDATE contacts SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
+      this.db.prepare('UPDATE quotations SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
       this.db.prepare('UPDATE employees SET userId = NULL WHERE userId = ?').run(userId);
       // Contribution shares not yet turned into commissions would keep counting
       // toward a deal's 100% with nobody to pay.
@@ -16279,10 +16303,18 @@ export class DataStore {
   }
 
   private quotationTotals(items: SalesOrder['items'], taxRate: number) {
-    const subtotal = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const subtotal = Number(items.filter(isCountedLine).reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     const rate = Number(taxRate) > 0 ? Number(taxRate) : 0;
     const taxAmount = Number(((subtotal * rate) / 100).toFixed(2));
     return { subtotal, taxRate: rate, taxAmount, totalAmount: Number((subtotal + taxAmount).toFixed(2)) };
+  }
+
+  /** What a quote can reach: its total plus every optional line with VAT. Approvals are asked on this figure. */
+  /** The most a quote can come to: its total plus the optional lines with VAT. Approvals ask on this. */
+  quotationApprovalAmount(quote: { items: SalesOrder['items']; taxRate: number; totalAmount: number }) {
+    const rate = Number(quote.taxRate) > 0 ? Number(quote.taxRate) : 0;
+    const optional = quote.items.filter((i) => i.lineType !== 'section' && i.optional).reduce((sum, i) => sum + i.lineTotal, 0);
+    return Number((Number(quote.totalAmount) + optional * (1 + rate / 100)).toFixed(2));
   }
 
   private assertQuotationDates(issueDate: Date, validUntil: Date) {
@@ -16296,15 +16328,17 @@ export class DataStore {
     companyId: string; clientId: string; contactId?: string; opportunityId?: string;
     issueDate: Date | string; validUntil: Date | string; items: any[]; taxRate?: number;
     currency?: string; exchangeRate?: number; notes?: string; templateId?: string; quoteNumber?: string;
-    language?: DocumentLanguage | null;
+    language?: DocumentLanguage | null; ownerUserId?: string;
   }): Quotation {
-    const items = this.normalizeSalesOrderItems(input.items);
-    if (!items.length) throw new Error('A quotation needs at least one line.');
+    const items = this.normalizeQuotationItems(input.items);
+    if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
     const issueDate = new Date(input.issueDate);
     const validUntil = new Date(input.validUntil);
     this.assertQuotationDates(issueDate, validUntil);
     const money = this.resolveTransactionCurrency(input.companyId, input.currency, input.exchangeRate);
     const now = new Date();
+    const opportunity = input.opportunityId ? this.getOpportunityById(input.opportunityId) : undefined;
+    const ownerUserId = input.ownerUserId || opportunity?.ownerUserId || this.currentActor?.userId || undefined;
     const quote: Quotation = {
       id: uuid(),
       companyId: input.companyId,
@@ -16322,14 +16356,15 @@ export class DataStore {
       notes: input.notes,
       templateId: input.templateId,
       language: input.language ?? undefined,
+      ownerUserId,
       createdAt: now,
       updatedAt: now,
     };
     this.db.prepare(
       `INSERT INTO quotations (id, companyId, quoteNumber, clientId, contactId, opportunityId, issueDate, validUntil, status, items,
-         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, language, createdAt, updatedAt)
+         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, language, ownerUserId, createdAt, updatedAt)
        VALUES (@id, @companyId, @quoteNumber, @clientId, @contactId, @opportunityId, @issueDate, @validUntil, @status, @items,
-         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @language, @createdAt, @updatedAt)`,
+         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @language, @ownerUserId, @createdAt, @updatedAt)`,
     ).run({
       ...quote,
       contactId: quote.contactId ?? null,
@@ -16340,6 +16375,7 @@ export class DataStore {
       notes: quote.notes ?? null,
       templateId: quote.templateId ?? null,
       language: quote.language ?? null,
+      ownerUserId: ownerUserId ?? null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
@@ -16349,7 +16385,7 @@ export class DataStore {
       summary: `Quotation ${quote.quoteNumber} created.`,
       metadata: { totalAmount: quote.totalAmount, clientId: quote.clientId, opportunityId: quote.opportunityId },
     });
-    this.beginApproval(quote.companyId, 'quotation', quote.id, Number(quote.totalAmount) || 0);
+    this.beginApproval(quote.companyId, 'quotation', quote.id, this.quotationApprovalAmount(quote));
     // Read back, so a quote dated with a valid-until already past says Expired at once.
     return this.getQuotationById(quote.id)!;
   }
@@ -16358,23 +16394,31 @@ export class DataStore {
   updateQuotation(id: string, updates: {
     clientId?: string; contactId?: string | null; issueDate?: Date | string; validUntil?: Date | string; items?: any[];
     taxRate?: number; currency?: string; exchangeRate?: number; notes?: string | null; templateId?: string | null;
-    language?: DocumentLanguage | null;
+    language?: DocumentLanguage | null; ownerUserId?: string | null;
   }): Quotation | undefined {
     const existing = this.getQuotationById(id);
     if (!existing) return undefined;
     // The language only changes how the quote reads, not what it offers, so it
     // changes at any stage, an accepted or converted quote included.
-    const { language, ...offer } = updates;
+    // The salesperson says who handles the quote, not what it offers: same rule.
+    const { language, ownerUserId, ...offer } = updates;
+    const touchesOffer = Object.values(offer).some((v) => v !== undefined);
+    // Guards first, so a refused edit changes nothing, not even the language or salesperson.
+    if (touchesOffer) {
+      if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
+      if (existing.status === 'Accepted' || existing.status === 'Declined') {
+        throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
+      }
+    }
     if (language !== undefined) {
       this.db.prepare('UPDATE quotations SET language=?, updatedAt=? WHERE id=?').run(language ?? null, new Date().toISOString(), id);
     }
-    if (!Object.values(offer).some((v) => v !== undefined)) return this.getQuotationById(id);
-    if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
-    if (existing.status === 'Accepted' || existing.status === 'Declined') {
-      throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
+    if (ownerUserId !== undefined) {
+      this.db.prepare('UPDATE quotations SET ownerUserId=?, updatedAt=? WHERE id=?').run(ownerUserId ?? null, new Date().toISOString(), id);
     }
-    const items = updates.items !== undefined ? this.normalizeSalesOrderItems(updates.items) : existing.items;
-    if (!items.length) throw new Error('A quotation needs at least one line.');
+    if (!touchesOffer) return this.getQuotationById(id);
+    const items = updates.items !== undefined ? this.normalizeQuotationItems(updates.items) : existing.items;
+    if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
     const issueDate = updates.issueDate !== undefined ? new Date(updates.issueDate) : existing.issueDate;
     const validUntil = updates.validUntil !== undefined ? new Date(updates.validUntil) : existing.validUntil;
     this.assertQuotationDates(issueDate, validUntil);
@@ -16409,7 +16453,7 @@ export class DataStore {
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'updated',
       summary: `Quotation ${existing.quoteNumber} updated.`, metadata: { totalAmount: result?.totalAmount },
     });
-    if (result) this.reapprove(existing.companyId, 'quotation', id, Number(existing.totalAmount) || 0, Number(result.totalAmount) || 0, result.clientId !== existing.clientId);
+    if (result) this.reapprove(existing.companyId, 'quotation', id, this.quotationApprovalAmount(existing), this.quotationApprovalAmount(result), result.clientId !== existing.clientId);
     return result;
   }
 
@@ -16461,6 +16505,37 @@ export class DataStore {
     ).run({ id, salesOrderId: link.salesOrderId ?? null, invoiceId: link.invoiceId ?? null, now: new Date().toISOString() });
   }
 
+  /** The lines a quote sells: no section rows; optional lines only when ticked (by index), then as normal lines. */
+  quoteSaleLines(quote: Quotation, includeOptional: number[] = []) {
+    const ticked = new Set(includeOptional);
+    for (const index of ticked) {
+      if (!quote.items[index]?.optional) throw new Error(`Line ${index + 1} is not an optional line.`);
+    }
+    const items = quote.items
+      .filter((item, index) => item.lineType !== 'section' && (!item.optional || ticked.has(index)))
+      .map(({ lineType: _l, optional: _o, details: _d, ...line }) => line);
+    return { items, totals: this.quotationTotals(items, quote.taxRate) };
+  }
+
+  /** A fresh draft from an existing quote: same client, lines, text and salesperson; dated today, valid 30 days. */
+  copyQuotation(id: string): Quotation {
+    const source = this.getQuotationById(id);
+    if (!source) throw new Error('Quotation not found.');
+    const issueDate = new Date();
+    // A salesperson who has left the company does not carry over: the copier becomes the owner.
+    const owner = source.ownerUserId ? this.getUserById(source.ownerUserId) : undefined;
+    const ownerStays = !!owner && (owner.companyIds ?? []).includes(source.companyId);
+    const copy = this.createQuotation({
+      companyId: source.companyId, clientId: source.clientId, contactId: source.contactId, opportunityId: source.opportunityId,
+      issueDate, validUntil: new Date(issueDate.getTime() + 30 * 86400000), items: source.items, taxRate: source.taxRate,
+      currency: source.currency, exchangeRate: source.exchangeRate, notes: source.notes, templateId: source.templateId,
+      language: source.language ?? null, ownerUserId: ownerStays ? source.ownerUserId : undefined,
+    });
+    const content = this.getDocumentContent('quote', source.id);
+    if (Object.keys(content).length) this.setDocumentContent(copy.companyId, 'quote', copy.id, content);
+    return copy;
+  }
+
   deleteQuotation(id: string): void {
     // Its approval request goes with it, so nobody is asked to decide a document that is gone.
     this.forgetApproval('quotation', id);
@@ -16470,10 +16545,37 @@ export class DataStore {
       throw new Error('This quotation has been converted. Delete the sales order or invoice it became first.');
     }
     this.db.prepare('DELETE FROM quotations WHERE id = ?').run(id);
+    this.deleteDocumentContent('quote', id);
     this.createActivityEvent({
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'deleted',
       summary: `Quotation ${existing.quoteNumber} deleted.`,
     });
+  }
+
+  /** Text written for one document, by slot ("terms" → rich-text JSON or plain string). */
+  getDocumentContent(kind: string, recordId: string): Record<string, unknown> {
+    const rows = this.db.prepare('SELECT slot, body FROM document_content WHERE kind = ? AND recordId = ? ORDER BY slot').all(kind, recordId) as any[];
+    return Object.fromEntries(rows.map((r) => [r.slot, this.parseJson(r.body)]));
+  }
+
+  /** Sets or (with null) removes slots; slots not named are left alone. */
+  setDocumentContent(companyId: string, kind: string, recordId: string, content: Record<string, unknown | null>): void {
+    const now = new Date().toISOString();
+    const upsert = this.db.prepare(
+      `INSERT INTO document_content (id, companyId, kind, recordId, slot, body, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (kind, recordId, slot) DO UPDATE SET body = excluded.body, updatedAt = excluded.updatedAt`,
+    );
+    const remove = this.db.prepare('DELETE FROM document_content WHERE kind = ? AND recordId = ? AND slot = ?');
+    this.db.transaction(() => {
+      for (const [slot, body] of Object.entries(content)) {
+        if (body === null) remove.run(kind, recordId, slot);
+        else upsert.run(uuid(), companyId, kind, recordId, slot, JSON.stringify(body), now);
+      }
+    })();
+  }
+
+  deleteDocumentContent(kind: string, recordId: string): void {
+    this.db.prepare('DELETE FROM document_content WHERE kind = ? AND recordId = ?').run(kind, recordId);
   }
 
   private decodeQuotation(row: any): Quotation {
@@ -16490,7 +16592,7 @@ export class DataStore {
       issueDate: new Date(row.issueDate),
       validUntil,
       status: (stored === 'Draft' || stored === 'Sent') && lapsed && !row.salesOrderId && !row.invoiceId ? 'Expired' : stored,
-      items: this.normalizeSalesOrderItems(this.parseJson(row.items) || []),
+      items: this.normalizeQuotationItems(this.parseJson(row.items) || []),
       subtotal: Number(row.subtotal) || 0,
       taxRate: Number(row.taxRate) || 0,
       taxAmount: Number(row.taxAmount) || 0,
@@ -16500,6 +16602,8 @@ export class DataStore {
       notes: row.notes ?? undefined,
       templateId: row.templateId ?? undefined,
       language: row.language === 'ar' || row.language === 'en' ? row.language : undefined,
+      ownerUserId: row.ownerUserId ?? undefined,
+      ownerName: row.ownerUserId ? this.getUserById(row.ownerUserId)?.name : undefined,
       salesOrderId: row.salesOrderId ?? undefined,
       invoiceId: row.invoiceId ?? undefined,
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,
@@ -20548,6 +20652,26 @@ export class DataStore {
         unitPrice: Number(item.unitPrice.toFixed(4)),
         lineTotal: Number(item.lineTotal.toFixed(2)),
       }));
+  }
+
+  /** Sales lines plus section headings and optional lines; order is kept. */
+  private normalizeQuotationItems(rawItems: any[]): SalesOrder['items'] {
+    const clip = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.replace(/[ \t]+/g, ' ').trim().slice(0, max) : undefined);
+    const out: SalesOrder['items'] = [];
+    for (const item of Array.isArray(rawItems) ? rawItems : []) {
+      if (item?.lineType === 'section') {
+        const description = clip(item.description, 300);
+        if (description) out.push({ lineType: 'section', description, ...this.lineNames(item), quantity: 0, unitPrice: 0, lineTotal: 0 });
+        continue;
+      }
+      const [rawLine] = this.normalizeSalesOrderItems([item]);
+      if (!rawLine) continue;
+      const line = Object.fromEntries(Object.entries(rawLine).filter(([, v]) => v !== undefined)) as SalesOrder['items'][number];
+      const details = clip(item?.details, 2000);
+      const unit = clip(item?.unit, 40);
+      out.push({ ...line, ...(item?.optional === true ? { optional: true } : {}), ...(details ? { details } : {}), ...(unit ? { unit } : {}) });
+    }
+    return out;
   }
 
   private normalizePurchaseOrderItems(rawItems: any[]): PurchaseOrder['items'] {

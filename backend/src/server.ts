@@ -2334,6 +2334,28 @@ export function createServer(options: CreateServerOptions = {}) {
         || (brand ? { ...brand, docType: 'quote' as const, doc: undefined } : undefined);
       const companyRecord = store.getCompanyById(quote.companyId);
       const client = store.getClientById(quote.clientId);
+      // Quote data for the document (spec 2026-11-19 §4.3 names). The opportunity stays out on purpose.
+      const contact = quote.contactId ? store.getContactById(quote.contactId) : undefined;
+      const owner = quote.ownerUserId ? store.getUserById(quote.ownerUserId) : undefined;
+      // The salesperson's job title in this company: the employee record, else the position.
+      const ownerTitle = owner
+        ? store.listEmployees(quote.companyId).find((e) => e.userId === owner.id && e.jobTitle?.trim())?.jobTitle?.trim()
+          || (() => {
+            const positionId = owner.companyRoles?.find((r) => r.companyId === quote.companyId)?.positionId || owner.positionId;
+            return positionId ? store.getPositionById(positionId)?.title : undefined;
+          })()
+        : undefined;
+      const extrasRaw: Record<string, { type: 'text' | 'date'; value: string | undefined }> = {
+        'fields.validUntil': { type: 'date', value: new Date(quote.validUntil).toISOString() },
+        'contact.name': { type: 'text', value: contact?.contactPerson || client?.contactName },
+        'contact.phone': { type: 'text', value: contact?.phone },
+        'owner.name': { type: 'text', value: owner?.name },
+        'owner.email': { type: 'text', value: owner?.email },
+        'owner.title': { type: 'text', value: ownerTitle },
+        'to.phone': { type: 'text', value: client?.phone || contact?.phone },
+        'to.taxId': { type: 'text', value: client?.vatNumber || contact?.taxNumber },
+      };
+      const extras = Object.fromEntries(Object.entries(extrasRaw).filter(([, v]) => v.value));
       res.json({
         quotation: {
           id: quote.id,
@@ -2345,6 +2367,7 @@ export function createServer(options: CreateServerOptions = {}) {
             sku: item.sku, description: item.description, descriptionAr: item.descriptionAr, descriptionEn: item.descriptionEn,
             quantity: item.quantity, unitPrice: item.unitPrice,
             discount: item.discount, discountType: item.discountType, lineTotal: item.lineTotal,
+            lineType: item.lineType, optional: item.optional, details: item.details, unit: item.unit,
           })),
           subtotal: quote.subtotal,
           taxRate: quote.taxRate,
@@ -2353,6 +2376,8 @@ export function createServer(options: CreateServerOptions = {}) {
           currency: quote.currency,
           notes: quote.notes,
           language: quote.language ?? null,
+          extras,
+          content: store.getDocumentContent('quote', quote.id),
         },
         template,
         company: companyRecord
@@ -7257,7 +7282,8 @@ export function createServer(options: CreateServerOptions = {}) {
   }, (id) => store.getInvoiceById(id));
   approvalDocs.quotation = followsRequest((id) => {
     const q = store.getQuotationById(id);
-    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: Number(q.totalAmount) || 0, party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
+    // The approver sees the amount the request was raised on: optional lines included.
+    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: store.quotationApprovalAmount(q), party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
   }, (id) => store.getQuotationById(id));
   approvalDocs.payroll_run = followsRequest((id) => {
     const r = store.getPayrollRunById(id);

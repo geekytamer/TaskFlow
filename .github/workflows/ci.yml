@@ -37,8 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+        with: { node-version: 22, cache: npm, cache-dependency-path: "frontend/package-lock.json\nbackend/package-lock.json" }
       - run: npm ci
+      # Some frontend tests check the permission catalogue against the server's own
+      # source (backend/src/authz), so typecheck and tests need backend packages too.
+      - run: npm ci
+        working-directory: backend
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
