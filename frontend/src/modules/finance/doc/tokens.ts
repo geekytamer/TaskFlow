@@ -21,6 +21,12 @@ export interface DocDataContext {
   total: number;
   /** Formats a numeric amount in the invoice currency. */
   formatMoney: (value: number) => string;
+  /**
+   * Money as readable text with the document currency. Only the newer tokens
+   * (line1.*) use it; the older ones keep printing through formatMoney so
+   * existing documents come out exactly as before.
+   */
+  formatMoneyText?: (value: number) => string;
   publicUrl: string;
   /** Values typed when a document was created, keyed `field.<name>` (and `document.notes`). */
   fields?: Record<string, string>;
@@ -132,6 +138,9 @@ const AR_TOKEN_LABELS: Record<string, string> = {
   Quotation: 'عرض السعر', 'Valid until': 'صالح حتى', Salesperson: 'مسؤول المبيعات', 'Salesperson email': 'بريد مسؤول المبيعات',
   'Contact person': 'الشخص المسؤول', 'Contact phone': 'هاتف المسؤول', 'Client phone': 'هاتف العميل',
   'Client tax number': 'الرقم الضريبي للعميل', 'Total discount': 'إجمالي الخصم', 'Optional extras total': 'إجمالي الإضافات الاختيارية',
+  Validity: 'مدة الصلاحية', 'Salesperson title': 'المسمى الوظيفي لمسؤول المبيعات',
+  'First line: description': 'البند الأول: الوصف', 'First line: quantity': 'البند الأول: الكمية', 'First line: unit': 'البند الأول: الوحدة',
+  'First line: unit price': 'البند الأول: سعر الوحدة', 'First line: amount': 'البند الأول: المبلغ',
 };
 
 /** Quote data in the designer's picker (quote templates only). */
@@ -139,14 +148,21 @@ export const QUOTE_TOKEN_GROUP: (typeof TOKEN_GROUPS)[number] = {
   group: 'Quotation',
   tokens: [
     { token: 'fields.validUntil', label: 'Valid until' },
+    { token: 'fields.validity', label: 'Validity' },
     { token: 'owner.name', label: 'Salesperson' },
     { token: 'owner.email', label: 'Salesperson email' },
+    { token: 'owner.title', label: 'Salesperson title' },
     { token: 'contact.name', label: 'Contact person' },
     { token: 'contact.phone', label: 'Contact phone' },
     { token: 'to.phone', label: 'Client phone' },
     { token: 'to.taxId', label: 'Client tax number' },
     { token: 'doc.discount', label: 'Total discount' },
     { token: 'doc.optionalTotal', label: 'Optional extras total' },
+    { token: 'line1.description', label: 'First line: description' },
+    { token: 'line1.quantity', label: 'First line: quantity' },
+    { token: 'line1.unit', label: 'First line: unit' },
+    { token: 'line1.unitPrice', label: 'First line: unit price' },
+    { token: 'line1.amount', label: 'First line: amount' },
   ],
 };
 export const quoteTokenGroups = (base: typeof TOKEN_GROUPS): typeof TOKEN_GROUPS => [...base, QUOTE_TOKEN_GROUP];
@@ -171,6 +187,34 @@ const FIELD_FALLBACKS: Record<string, (ctx: DocDataContext) => string> = {
 export function fieldLabel(token: string): string {
   const name = token.replace(/^field\./, '').replace(/[._]+/g, ' ').trim();
   return name ? name.charAt(0).toUpperCase() + name.slice(1) : token;
+}
+
+/** Whole days from issue to valid-until, as "15 days" / "15 يومًا"; empty when a date is missing. */
+function validityText(ctx: DocDataContext): string {
+  const from = ctx.invoice.issueDate ? new Date(ctx.invoice.issueDate).getTime() : NaN;
+  const to = ctx.invoice.dueDate ? new Date(ctx.invoice.dueDate).getTime() : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  const days = Math.round((to - from) / 86_400_000);
+  if (days < 0) return '';
+  if (!isArabic(ctx.locale ?? getCurrentLocale())) return `${days} ${days === 1 ? 'day' : 'days'}`;
+  if (days === 1) return 'يوم واحد';
+  if (days === 2) return 'يومان';
+  return `${days} ${days >= 3 && days <= 10 ? 'أيام' : 'يومًا'}`;
+}
+
+/** The first priced line of a quote (sections and optional lines do not count). */
+function firstLineToken(key: string, ctx: DocDataContext): string {
+  const line = countedLines(ctx.invoice.lineItems || [])[0];
+  if (!line) return '';
+  const money = ctx.formatMoneyText ?? ctx.formatMoney;
+  switch (key) {
+    case 'description': return (isArabic(ctx.locale ?? getCurrentLocale()) ? line.descriptionAr : line.descriptionEn) || line.description || '';
+    case 'quantity': return String(Number(Number(line.quantity || 0).toFixed(4)));
+    case 'unit': return line.unit || '';
+    case 'unitPrice': return money(Number(line.unitPrice) || 0);
+    case 'amount': return money(Number(line.amount) || 0);
+    default: return '';
+  }
 }
 
 export function resolveToken(token: string, ctx: DocDataContext): string {
@@ -209,6 +253,12 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'doc.total': return ctx.formatMoney(ctx.total);
     case 'doc.discount': return ctx.formatMoney(discountTotals(countedLines(invoice.lineItems || [])).discount);
     case 'doc.optionalTotal': return ctx.formatMoney(optionalTotal(invoice.lineItems || []));
+    case 'fields.validity': return validityText(ctx);
+    case 'line1.description':
+    case 'line1.quantity':
+    case 'line1.unit':
+    case 'line1.unitPrice':
+    case 'line1.amount': return firstLineToken(token.trim().slice(6), ctx);
     case 'to.name': return resolveToken('client.name', ctx);
     case 'to.address': return client?.address || '';
     case 'to.email': return client?.email || '';

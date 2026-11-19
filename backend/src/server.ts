@@ -2337,12 +2337,21 @@ export function createServer(options: CreateServerOptions = {}) {
       // Quote data for the document (spec 2026-11-19 §4.3 names). The opportunity stays out on purpose.
       const contact = quote.contactId ? store.getContactById(quote.contactId) : undefined;
       const owner = quote.ownerUserId ? store.getUserById(quote.ownerUserId) : undefined;
+      // The salesperson's job title in this company: the employee record, else the position.
+      const ownerTitle = owner
+        ? store.listEmployees(quote.companyId).find((e) => e.userId === owner.id && e.jobTitle?.trim())?.jobTitle?.trim()
+          || (() => {
+            const positionId = owner.companyRoles?.find((r) => r.companyId === quote.companyId)?.positionId || owner.positionId;
+            return positionId ? store.getPositionById(positionId)?.title : undefined;
+          })()
+        : undefined;
       const extrasRaw: Record<string, { type: 'text' | 'date'; value: string | undefined }> = {
         'fields.validUntil': { type: 'date', value: new Date(quote.validUntil).toISOString() },
         'contact.name': { type: 'text', value: contact?.contactPerson || client?.contactName },
         'contact.phone': { type: 'text', value: contact?.phone },
         'owner.name': { type: 'text', value: owner?.name },
         'owner.email': { type: 'text', value: owner?.email },
+        'owner.title': { type: 'text', value: ownerTitle },
         'to.phone': { type: 'text', value: client?.phone || contact?.phone },
         'to.taxId': { type: 'text', value: client?.vatNumber || contact?.taxNumber },
       };
