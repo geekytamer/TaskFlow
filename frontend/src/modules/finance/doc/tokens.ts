@@ -217,11 +217,11 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     default: {
       const key = token.trim();
       if (key.startsWith('field.')) {
-        const own = Object.hasOwn(ctx.fields ?? {}, key) ? ctx.fields![key] : '';
-        const fallback = Object.hasOwn(FIELD_FALLBACKS, key) ? FIELD_FALLBACKS[key](ctx) : '';
+        const own = Object.prototype.hasOwnProperty.call(ctx.fields ?? {}, key) ? ctx.fields![key] : '';
+        const fallback = Object.prototype.hasOwnProperty.call(FIELD_FALLBACKS, key) ? FIELD_FALLBACKS[key](ctx) : '';
         if (own || fallback) return own || fallback;
       }
-      const extra = Object.hasOwn(ctx.extras ?? {}, key) ? ctx.extras![key] : undefined;
+      const extra = Object.prototype.hasOwnProperty.call(ctx.extras ?? {}, key) ? ctx.extras![key] : undefined;
       if (typeof extra?.value !== 'string') return '';
       return extra.type === 'date' ? fmtDate(new Date(extra.value), ctx.locale) : extra.value;
     }

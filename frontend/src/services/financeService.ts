@@ -112,6 +112,13 @@ export const mapSalesOrderLineItem = (item: any): SalesOrderLineItem => {
     discount: Number(item?.discount) > 0 ? Number(item.discount) : undefined,
     discountType: Number(item?.discount) > 0 ? item.discountType : undefined,
     lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+    // Quote fields: kept only when present so plain lines gain no new keys.
+    ...(item?.lineType === 'section' ? { lineType: 'section' as const } : {}),
+    ...(item?.optional ? { optional: true } : {}),
+    ...(item?.details ? { details: String(item.details) } : {}),
+    ...(item?.unit ? { unit: String(item.unit) } : {}),
+    ...(item?.descriptionAr ? { descriptionAr: String(item.descriptionAr) } : {}),
+    ...(item?.descriptionEn ? { descriptionEn: String(item.descriptionEn) } : {}),
   };
 };
 
