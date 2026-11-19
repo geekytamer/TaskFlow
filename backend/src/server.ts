@@ -2340,7 +2340,7 @@ export function createServer(options: CreateServerOptions = {}) {
       const extrasRaw: Record<string, { type: 'text' | 'date'; value: string | undefined }> = {
         'fields.validUntil': { type: 'date', value: new Date(quote.validUntil).toISOString() },
         'contact.name': { type: 'text', value: contact?.contactPerson || client?.contactName },
-        'contact.phone': { type: 'text', value: contact?.phone || client?.phone },
+        'contact.phone': { type: 'text', value: contact?.phone },
         'owner.name': { type: 'text', value: owner?.name },
         'owner.email': { type: 'text', value: owner?.email },
         'to.phone': { type: 'text', value: client?.phone || contact?.phone },
