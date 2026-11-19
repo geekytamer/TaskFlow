@@ -318,6 +318,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /companies/:companyId/quotations': { module: 'sales', action: 'create' },
   'POST /quotations/:id/sales-order': { module: 'sales', action: 'create' },
   'POST /quotations/:id/invoice': { module: 'sales', action: 'create' },
+  'POST /quotations/:id/copy': { module: 'sales', action: 'create' },
   'POST /sales-orders/:id/deliveries': { module: 'sales', action: 'create' },
   'PUT /sales-orders/:id': { module: 'sales', action: 'write' },
   'PATCH /sales-orders/:id/status': { module: 'sales', action: 'write' },

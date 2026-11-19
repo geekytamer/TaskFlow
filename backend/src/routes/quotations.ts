@@ -17,6 +17,12 @@ const parseDocumentLanguage = (value: unknown): DocumentLanguage | null | undefi
 };
 
 /** Quotation lines: a section row needs only a description; other rows parse as sales lines. */
+const parseIncludeOptional = (value: unknown): number[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((v) => !Number.isInteger(v) || v < 0)) throw new HttpError(400, 'includeOptional must be a list of line numbers.');
+  return value as number[];
+};
+
 const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) => SalesOrderLineItem[]): SalesOrderLineItem[] => {
   if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'items must contain at least one line item.');
   if (value.length > 300) throw new HttpError(400, 'A quotation can have at most 300 lines.');
@@ -266,8 +272,9 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (quote.invoiceId) throw new HttpError(409, 'This quotation was already invoiced directly.');
       if (quote.status !== 'Accepted') throw new HttpError(400, 'Only an accepted quotation becomes a sales order.');
       // Items archived since the quote was written cannot be sold again until restored.
-      ensureSalesItemsBelongToCompany(quote.items, quote.companyId);
       const body = asRecord(req.body ?? {}, 'body');
+      const sale = asBadRequest(() => store.quoteSaleLines(quote, parseIncludeOptional(body.includeOptional)));
+      ensureSalesItemsBelongToCompany(sale.items, quote.companyId);
       const expectedDate = optionalDateInput(body.expectedDate);
       const order = asBadRequest(() => withActor(req, () => {
         const created = store.createSalesOrder({
@@ -277,7 +284,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           orderDate: new Date(optionalDateInput(body.orderDate) || new Date().toISOString()),
           expectedDate: expectedDate ? new Date(expectedDate) : undefined,
           status: 'Confirmed',
-          items: quote.items,
+          items: sale.items,
           notes: optionalString(body.notes) || `Created from quotation ${quote.quoteNumber}.`,
         });
         store.linkQuotation(quote.id, { salesOrderId: created.id });
@@ -303,6 +310,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (quote.salesOrderId) throw new HttpError(409, 'This quotation became a sales order. Invoice the sales order instead.');
       if (quote.status !== 'Accepted') throw new HttpError(400, 'Only an accepted quotation can be invoiced.');
       const body = asRecord(req.body ?? {}, 'body');
+      const sale = asBadRequest(() => store.quoteSaleLines(quote, parseIncludeOptional(body.includeOptional)));
       const templateId = optionalString(body.templateId);
       if (templateId) {
         const template = store.getInvoiceTemplateById(templateId);
@@ -320,7 +328,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           templateId,
           issueDate: new Date(issueDate),
           dueDate: new Date(dueDate),
-          lineItems: quote.items.map((item) => ({
+          lineItems: sale.items.map((item) => ({
             itemType: 'Manual',
             sku: item.sku,
             description: item.description,
@@ -332,7 +340,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
             discountType: item.discountType,
             amount: item.lineTotal,
           })),
-          total: quote.totalAmount,
+          total: sale.totals.totalAmount,
           status: 'Draft',
           notes: optionalString(body.notes) || `Created from quotation ${quote.quoteNumber}.`,
           currency: quote.currency,
@@ -343,6 +351,17 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
         return created;
       }));
       res.status(201).json(invoice);
+    }),
+  );
+
+  app.post(
+    '/quotations/:id/copy',
+    authMiddleware,
+    handler((req, res) => {
+      const quote = loadQuotation(req);
+      ensureSalesItemsBelongToCompany(quote.items.filter((i) => i.lineType !== 'section'), quote.companyId);
+      const copy = asBadRequest(() => withActor(req, () => store.copyQuotation(quote.id)));
+      res.status(201).json(withContent(copy));
     }),
   );
 

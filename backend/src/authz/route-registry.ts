@@ -75,6 +75,7 @@ export const ROUTES: readonly RouteDecl[] = [
   { method: 'PATCH', path: '/quotations/:id/status', permission: 'sales.edit', legacyRoles: MGMT },
   { method: 'POST', path: '/quotations/:id/sales-order', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'POST', path: '/quotations/:id/invoice', permission: 'sales.create', legacyRoles: MGMT },
+  { method: 'POST', path: '/quotations/:id/copy', permission: 'sales.create', legacyRoles: MGMT },
   { method: 'DELETE', path: '/quotations/:id', permission: 'sales.delete', legacyRoles: MGMT },
   { method: 'DELETE', path: '/sales-orders/:id', permission: 'sales.delete', legacyRoles: MGMT, note: 'deleteRoute: companyManagementRoles' },
 

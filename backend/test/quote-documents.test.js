@@ -85,10 +85,9 @@ test('a quote has a salesperson: the creator unless chosen, and must be a compan
   assert.equal(quote.ownerUserId, admin.id);
   assert.equal(quote.ownerName, admin.name);
   const outsider = store.listUsers().find((u) => !(u.companyIds || []).includes('1'));
-  if (outsider) {
-    const bad = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: outsider.id });
-    assert.equal(bad.status, 400);
-  }
+  assert.ok(outsider, 'seed has a user outside company 1');
+  const bad = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: outsider.id });
+  assert.equal(bad.status, 400);
 });
 
 test('reading a quote back returns the same lines (decode path)', async () => {
@@ -119,4 +118,55 @@ test('per-quote text is saved, returned on the quote, editable while open and re
   await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Draft' });
   await as(request(app).delete(`/quotations/${quote.id}`));
   assert.deepEqual(store.getDocumentContent('quote', quote.id), {});
+});
+
+test('converting drops sections and unticked optional lines; a ticked one counts', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as);
+  await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
+  const order = await as(request(app).post(`/quotations/${quote.id}/sales-order`)).send({ includeOptional: [4] });
+  assert.equal(order.status, 201, JSON.stringify(order.body));
+  assert.deepEqual(order.body.items.map((i) => i.description), ['Discovery workshop', 'Design sprint', 'Extra revision round']);
+  assert.ok(order.body.items.every((i) => i.lineType === undefined && i.optional === undefined));
+  assert.equal(order.body.totalAmount, 1700);
+});
+
+test('invoicing a quote without ticking optional lines bills only counted lines', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as);
+  await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
+  const invoice = await as(request(app).post(`/quotations/${quote.id}/invoice`)).send({});
+  assert.equal(invoice.status, 201, JSON.stringify(invoice.body));
+  assert.equal(invoice.body.lineItems.length, 2);
+  assert.equal(invoice.body.total, 1470);
+  const bad = await as(request(app).post(`/quotations/${(await newQuote(app, as)).id}/invoice`)).send({ includeOptional: [1] });
+  assert.equal(bad.status, 400, 'index 1 is not an optional line (and the quote is not accepted)');
+});
+
+test('copy quote makes a fresh draft with the same lines, text and salesperson', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as, { content: { terms }, notes: 'n' });
+  await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Declined' });
+  const copy = await as(request(app).post(`/quotations/${quote.id}/copy`));
+  assert.equal(copy.status, 201, JSON.stringify(copy.body));
+  assert.notEqual(copy.body.id, quote.id);
+  assert.notEqual(copy.body.quoteNumber, quote.quoteNumber);
+  assert.equal(copy.body.status, 'Draft');
+  assert.deepEqual(copy.body.items, quote.items);
+  assert.equal(copy.body.notes, 'n');
+  assert.equal(copy.body.ownerUserId, quote.ownerUserId);
+  assert.deepEqual(copy.body.content, { terms });
+  assert.ok(new Date(copy.body.validUntil) > new Date(Date.now() + 29 * 86400000));
+});
+
+test('deleting the salesperson clears the quote owner', async () => {
+  const { app, as, store } = setup();
+  const user = store.createUser({ name: 'Seller', email: 'seller@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  const quote = await newQuote(app, as);
+  const put = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: user.id });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.equal(put.body.ownerUserId, user.id);
+  store.deleteUser(user.id);
+  const read = await as(request(app).get(`/quotations/${quote.id}`));
+  assert.equal(read.body.ownerUserId, undefined);
 });

@@ -8349,6 +8349,7 @@ export class DataStore {
       this.db.prepare('DELETE FROM follow_up_assignees WHERE userId = ?').run(userId);
       this.db.prepare('UPDATE opportunities SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
       this.db.prepare('UPDATE contacts SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
+      this.db.prepare('UPDATE quotations SET ownerUserId = NULL WHERE ownerUserId = ?').run(userId);
       this.db.prepare('UPDATE employees SET userId = NULL WHERE userId = ?').run(userId);
       // Contribution shares not yet turned into commissions would keep counting
       // toward a deal's 100% with nobody to pay.
@@ -16490,6 +16491,34 @@ export class DataStore {
     this.db.prepare(
       'UPDATE quotations SET salesOrderId = COALESCE(@salesOrderId, salesOrderId), invoiceId = COALESCE(@invoiceId, invoiceId), updatedAt = @now WHERE id = @id',
     ).run({ id, salesOrderId: link.salesOrderId ?? null, invoiceId: link.invoiceId ?? null, now: new Date().toISOString() });
+  }
+
+  /** The lines a quote sells: no section rows; optional lines only when ticked (by index), then as normal lines. */
+  quoteSaleLines(quote: Quotation, includeOptional: number[] = []) {
+    const ticked = new Set(includeOptional);
+    for (const index of ticked) {
+      if (!quote.items[index]?.optional) throw new Error(`Line ${index + 1} is not an optional line.`);
+    }
+    const items = quote.items
+      .filter((item, index) => item.lineType !== 'section' && (!item.optional || ticked.has(index)))
+      .map(({ lineType: _l, optional: _o, details: _d, ...line }) => line);
+    return { items, totals: this.quotationTotals(items, quote.taxRate) };
+  }
+
+  /** A fresh draft from an existing quote: same client, lines, text and salesperson; dated today, valid 30 days. */
+  copyQuotation(id: string): Quotation {
+    const source = this.getQuotationById(id);
+    if (!source) throw new Error('Quotation not found.');
+    const issueDate = new Date();
+    const copy = this.createQuotation({
+      companyId: source.companyId, clientId: source.clientId, contactId: source.contactId, opportunityId: source.opportunityId,
+      issueDate, validUntil: new Date(issueDate.getTime() + 30 * 86400000), items: source.items, taxRate: source.taxRate,
+      currency: source.currency, exchangeRate: source.exchangeRate, notes: source.notes, templateId: source.templateId,
+      language: source.language ?? null, ownerUserId: source.ownerUserId,
+    });
+    const content = this.getDocumentContent('quote', source.id);
+    if (Object.keys(content).length) this.setDocumentContent(copy.companyId, 'quote', copy.id, content);
+    return copy;
   }
 
   deleteQuotation(id: string): void {
