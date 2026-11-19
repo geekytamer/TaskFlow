@@ -15,7 +15,7 @@ import type { Company } from '@/modules/companies/types';
 import { DocRenderer } from '../doc/doc-renderer';
 import { templateToDoc } from '../doc/template-to-doc';
 import { invoicePresets } from '../doc/presets';
-import { GENERIC_TOKEN_GROUPS, TOKEN_GROUPS } from '../doc/tokens';
+import { GENERIC_TOKEN_GROUPS, TOKEN_GROUPS, quoteTokenGroups } from '../doc/tokens';
 import type {
   Block,
   BlockStyle,
@@ -23,6 +23,7 @@ import type {
   DetailsBlock,
   ImageBlock,
   InvoiceDoc,
+  SlotBlock,
   TotalsBlock,
 } from '../doc/types';
 import { cloneInvoiceDoc, countBlocks, isInvoiceDoc, validateInvoiceDoc } from '../doc/validation';
@@ -100,6 +101,7 @@ const BLOCK_DEFAULTS: Record<string, () => Block> = {
   payment: () => ({ id: makeId(), type: 'payment', title: 'Payment', style: { margin: { top: 24 } } }),
   signature: () => ({ id: makeId(), type: 'signature', style: { margin: { top: 32 } } }),
   qr: () => ({ id: makeId(), type: 'qr', style: { align: 'center', margin: { top: 24 } } }),
+  slot: () => ({ id: makeId(), type: 'slot', slot: 'terms', title: 'Terms', fallback: '', style: { margin: { top: 16 } } }),
   pageBreak: () => ({ id: makeId(), type: 'pageBreak' }),
 };
 
@@ -114,6 +116,7 @@ const PALETTE: { type: string; label: string; icon: React.ElementType }[] = [
   { type: 'payment', label: 'Payment', icon: Banknote },
   { type: 'signature', label: 'Signature', icon: PenLine },
   { type: 'qr', label: 'QR code', icon: QrCode },
+  { type: 'slot', label: 'Written per quote', icon: PenLine },
   { type: 'divider', label: 'Divider', icon: Minus },
   { type: 'spacer', label: 'Spacer', icon: MoveVertical },
   { type: 'shape', label: 'Color band', icon: Square },
@@ -291,12 +294,12 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const tr = (en: string, ar: string) => (language === 'ar' ? ar : en);
   const financialDocument = ['invoice', 'quote', 'statement'].includes(template.docType ?? 'invoice');
   const genericDocument = ['letter', 'memo', 'certificate', 'custom'].includes(template.docType ?? 'invoice');
-  const availablePresets = ['invoice', 'delivery', 'quote', 'statement'].includes(template.docType ?? 'invoice')
-    ? invoicePresets
-    : [];
-  const palette = financialDocument
+  const availablePresets = (['invoice', 'delivery', 'quote', 'statement'].includes(template.docType ?? 'invoice') ? invoicePresets : [])
+    .filter((p) => p.id !== 'proposal' || template.docType === 'quote');
+  const palette = (financialDocument
     ? PALETTE
-    : PALETTE.filter((item) => !['lineItems', 'totals', 'payment'].includes(item.type));
+    : PALETTE.filter((item) => !['lineItems', 'totals', 'payment'].includes(item.type)))
+    .filter((item) => item.type !== 'slot' || template.docType === 'quote');
   const paletteLabel = (type: string, fallback: string) => {
     switch (type) {
       case 'container': return tr('Group', 'مجموعة');
@@ -309,6 +312,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
       case 'payment': return tr('Payment', 'الدفع');
       case 'signature': return tr('Signature', 'التوقيع');
       case 'qr': return tr('QR code', 'رمز QR');
+      case 'slot': return tr('Written per quote', 'نص يُكتب لكل عرض');
       case 'divider': return tr('Divider', 'فاصل');
       case 'spacer': return tr('Spacer', 'مسافة');
       case 'shape': return tr('Color band', 'شريط لوني');
@@ -602,7 +606,8 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
               <BlockProperties
                 block={selected}
                 templateColumns={template.columns}
-                tokenGroups={genericDocument ? GENERIC_TOKEN_GROUPS : TOKEN_GROUPS}
+                docType={template.docType}
+                tokenGroups={genericDocument ? GENERIC_TOKEN_GROUPS : template.docType === 'quote' ? quoteTokenGroups(TOKEN_GROUPS) : TOKEN_GROUPS}
                 onChange={(patch) => updateBlock(selected.id, patch)}
                 onStyle={(style) => updateStyle(selected.id, style)}
               />
@@ -805,10 +810,12 @@ function BlockProperties({
   block,
   templateColumns,
   tokenGroups,
+  docType,
   onChange,
   onStyle,
 }: {
   block: Block;
+  docType?: string;
   templateColumns?: InvoiceColumn[];
   tokenGroups: typeof TOKEN_GROUPS;
   onChange: (patch: Partial<Block>) => void;
@@ -925,6 +932,28 @@ function BlockProperties({
         </Field>
       )}
 
+      {block.type === 'slot' && (
+        <>
+          <Field label={tr('Which text', 'أي نص')}>
+            <Select value={(block as SlotBlock).slot} onValueChange={(slot) => onChange({ slot } as Partial<Block>)}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="intro">{tr('Introduction', 'المقدمة')}</SelectItem>
+                <SelectItem value="scope">{tr('Scope of work', 'نطاق العمل')}</SelectItem>
+                <SelectItem value="terms">{tr('Terms', 'الشروط')}</SelectItem>
+                <SelectItem value="closing">{tr('Closing', 'الخاتمة')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label={tr('Heading', 'العنوان')}>
+            <Input className="h-8" value={(block as SlotBlock).title ?? ''} onChange={(e) => onChange({ title: e.target.value } as Partial<Block>)} />
+          </Field>
+          <Field label={tr('Default text (each quote can change it)', 'النص الافتراضي (يمكن تغييره في كل عرض)')}>
+            <Textarea dir="auto" rows={4} value={typeof (block as SlotBlock).fallback === 'string' ? (block as SlotBlock).fallback as string : ''} onChange={(e) => onChange({ fallback: e.target.value } as Partial<Block>)} />
+          </Field>
+        </>
+      )}
+
       <div className="space-y-3 border-t pt-3">
         <Field label={tr('Show when', 'إظهار عند')}>
           <Select value={block.visibleWhen ?? 'always'} onValueChange={(visibleWhen) => onChange({ visibleWhen } as Partial<Block>)}>
@@ -936,6 +965,12 @@ function BlockProperties({
               <SelectItem value="hasLogo">{tr('Logo exists', 'يوجد شعار')}</SelectItem>
               <SelectItem value="hasStamp">{tr('Stamp exists', 'يوجد ختم')}</SelectItem>
               <SelectItem value="hasSignature">{tr('Signature exists', 'يوجد توقيع')}</SelectItem>
+              {docType === 'quote' && <>
+                <SelectItem value="hasDiscount">{tr('Quote has a discount', 'العرض فيه خصم')}</SelectItem>
+                <SelectItem value="hasOptionalLines">{tr('Quote has optional lines', 'العرض فيه بنود اختيارية')}</SelectItem>
+              </>}
+              <SelectItem value="lang:ar">{tr('Printed in Arabic', 'مطبوع بالعربي')}</SelectItem>
+              <SelectItem value="lang:en">{tr('Printed in English', 'مطبوع بالإنجليزي')}</SelectItem>
             </SelectContent>
           </Select>
         </Field>
@@ -1223,6 +1258,16 @@ function ColumnsProperties({
           </div>
         </div>
       ))}
+      {!inherited && (
+        <Select value="" onValueChange={(key) => setColumns([...columns, { id: makeId(), key: key as InvoiceColumn['key'], label: ({ index: '#', unit: 'Unit', discount: 'Discount', sku: 'Code' } as Record<string, string>)[key] ?? key, visible: true, width: 8, align: key === 'index' || key === 'unit' || key === 'sku' ? 'left' : 'right' }])}>
+          <SelectTrigger className="h-8 w-44"><SelectValue placeholder={tr('Add column…', 'إضافة عمود…')} /></SelectTrigger>
+          <SelectContent>
+            {(['index', 'unit', 'discount', 'sku'] as const).filter((k) => !columns.some((c) => c.key === k)).map((k) => (
+              <SelectItem key={k} value={k}>{{ index: tr('Line number', 'رقم البند'), unit: tr('Unit', 'الوحدة'), discount: tr('Discount', 'الخصم'), sku: tr('Code', 'الرمز') }[k]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       {!inherited && (
         <Button type="button" variant="outline" size="sm" onClick={() => setColumns([
           ...columns,
