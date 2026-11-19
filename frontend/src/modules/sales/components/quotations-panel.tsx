@@ -229,13 +229,18 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     if (canCreate) openNew();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, canCreate]);
+  const editRequest = React.useRef(0);
   const openEdit = async (quote: Quotation) => {
     // The list carries no written text: fetch the whole quote.
+    const request = ++editRequest.current;
     let full = quote;
     try { full = await getQuotation(quote.id); } catch (error: any) {
+      if (request !== editRequest.current) return;
       toast({ variant: 'destructive', title: t('quotes.unavailable'), description: error?.message });
       return;
     }
+    // A newer edit click started while this one was loading: drop this result.
+    if (request !== editRequest.current) return;
     const content: Record<string, string> = {};
     const richSlots: string[] = [];
     Object.entries(full.content || {}).forEach(([slot, value]) => {
