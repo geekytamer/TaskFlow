@@ -295,7 +295,7 @@ export function InvoiceDesigner({ template, company, onClose, onSaved }: Invoice
   const financialDocument = ['invoice', 'quote', 'statement'].includes(template.docType ?? 'invoice');
   const genericDocument = ['letter', 'memo', 'certificate', 'custom'].includes(template.docType ?? 'invoice');
   const availablePresets = (['invoice', 'delivery', 'quote', 'statement'].includes(template.docType ?? 'invoice') ? invoicePresets : [])
-    .filter((p) => p.id !== 'proposal' || template.docType === 'quote');
+    .filter((p) => (p.id !== 'proposal' && p.id !== 'trade') || template.docType === 'quote');
   const palette = (financialDocument
     ? PALETTE
     : PALETTE.filter((item) => !['lineItems', 'totals', 'payment'].includes(item.type)))

@@ -73,3 +73,18 @@ test('the proposal details labels read Issue date and Quotation no. and localise
   assert.equal(localizeLabel('Quotation no.', docStrings('en')), 'Quotation no.');
   assert.equal(localizeLabel('Quotation', ar, { quote: true }), localizeLabel('Quotation', ar, { quote: true }));
 });
+
+test('the trade quotation starter is a valid quote layout with both-language labels and fill-in fields', async () => {
+  const { invoicePresets } = await import('../doc/presets');
+  const { validateInvoiceDoc } = await import('../doc/validation');
+  const { templateFields } = await import('../doc/tokens');
+  const preset = invoicePresets.find((p) => p.id === 'trade');
+  assert.ok(preset, 'trade preset is listed');
+  const doc = preset!.build();
+  assert.deepEqual(validateInvoiceDoc(doc), []);
+  assert.deepEqual(templateFields(doc).sort(), ['field.certificate_of_origin', 'field.delivery_terms', 'field.destination', 'field.inspection', 'field.origin', 'field.packaging']);
+  const text = JSON.stringify(doc);
+  for (const token of ['{{doc.number}}', '{{fields.validity}}', '{{to.name}}', '{{contact.name}}', '{{line1.quantity}}', '{{line1.unitPrice}}', '{{owner.title}}']) assert.ok(text.includes(token), token);
+  assert.ok(text.includes('"visibleWhen":"lang:ar"') && text.includes('بيانات المشتري'), 'Arabic labels shown only in Arabic');
+  assert.notEqual(preset!.build().body, preset!.build().body, 'a fresh copy each time');
+});

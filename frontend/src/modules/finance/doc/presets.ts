@@ -1,6 +1,7 @@
 import type { InvoiceTemplate } from '../types';
 import type { Block, InvoiceDoc } from './types';
 import { templateToDoc } from './template-to-doc';
+import { tradeQuotationDoc } from './trade-quotation';
 
 /**
  * Starter layouts for the visual designer. Each preset builds a complete,
@@ -101,4 +102,5 @@ export const invoicePresets: InvoicePreset[] = [
     },
   },
   { id: 'proposal', name: 'Proposal', description: 'Sales proposal: intro, scope, priced sections, optional extras, terms and acceptance.', build: (template) => proposalDoc(template) },
+  { id: 'trade', name: 'Trade quotation', description: 'One commodity: buyer, product and commercial terms as rows, payment, documents, signature and stamp.', build: (template) => tradeQuotationDoc(template) },
 ];
