@@ -331,3 +331,42 @@ test('a line picked from a service prints in the document language; a typed line
   assert.match(arabic, /مطعم ليلاس/);
   assert.doesNotMatch(arabic, /Solo onboarding|Lilas Restaurant/);
 });
+
+test('a quote with sections and optional lines totals only counted lines and prints quote data and slots', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const doc = {
+    version: 1, direction: 'ltr', page: { size: 'A4', orientation: 'portrait', margin: {} },
+    theme: { fontFamily: 'Inter', primaryColor: '#111111', accentColor: '#222222', textColor: '#333333' },
+    body: [
+      { id: 'd', type: 'details', fields: [{ label: 'Contact', value: '{{contact.name}}' }] },
+      { id: 'l', type: 'lineItems', columns: [
+        { id: 'n', key: 'index', label: '#', visible: true }, { id: 'ds', key: 'description', label: 'Description', visible: true },
+        { id: 'u', key: 'unit', label: 'Unit', visible: true }, { id: 'a', key: 'amount', label: 'Amount', visible: true },
+      ] },
+      { id: 't', type: 'totals' },
+      { id: 's', type: 'slot', slot: 'terms', title: 'Terms', fallback: 'Template terms' },
+      { id: 'i', type: 'slot', slot: 'intro', fallback: 'Template intro' },
+      { id: 'ar', type: 'text', content: 'ARABIC ONLY', visibleWhen: 'lang:ar' },
+    ],
+  } as never;
+  const invoice = {
+    id: 'q1', invoiceNumber: 'QT-1', issueDate: new Date(), dueDate: new Date(), status: 'Draft', currency: 'USD', taxRate: 0, total: 10,
+    lineItems: [
+      { itemType: 'Manual', lineType: 'section', description: 'Package A', quantity: 0, unitPrice: 0, amount: 0 },
+      { itemType: 'Manual', description: 'Workshop', details: 'Half day', unit: 'day', quantity: 1, unitPrice: 10, amount: 10 },
+      { itemType: 'Manual', description: 'Extra', quantity: 1, unitPrice: 99, amount: 99, optional: true },
+    ],
+  } as never;
+  const html = renderToStaticMarkup(
+    <DocRenderer doc={doc} invoice={invoice} publicUrl="" extras={{ 'contact.name': { type: 'text', value: 'Sara' } }} content={{ terms: 'Our own terms' }} />,
+  );
+  assert.ok(html.includes('Package A'));
+  assert.ok(html.includes('Half day'));
+  assert.ok(html.includes('day'));
+  assert.ok(html.includes('Sara'));
+  assert.ok(html.includes('Our own terms') && !html.includes('Template terms'), 'document text wins over the fallback');
+  assert.ok(html.includes('Template intro'), 'fallback used when the document has none');
+  assert.ok(html.includes('Optional'));
+  assert.ok(!html.includes('ARABIC ONLY'));
+  assert.ok(!html.includes('109'), 'the optional 99 is not in the total');
+});

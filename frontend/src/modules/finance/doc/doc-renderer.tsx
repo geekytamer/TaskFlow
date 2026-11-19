@@ -17,14 +17,17 @@ import type {
   LineItemsBlock,
   PaymentBlock,
   QrBlock,
+  RichNode,
+  SlotBlock,
   TextBlock,
   TotalsBlock,
 } from './types';
-import { resolveToken, resolveTokens, type DocDataContext } from './tokens';
+import { resolveToken, resolveTokens, type DocDataContext, type DocExtras } from './tokens';
 import { RichNodeView } from './rich-text';
 import { BODY_KEY, withWrittenBody } from '@/modules/documents/written-body';
 import { docStrings, isRtlLocale, localizeLabel, type DocStrings } from './strings';
 import { discountTotals } from '@/lib/discount';
+import { countedLines, itemNumbers, optionalTotal } from './quote-lines';
 
 const DEFAULT_COLUMNS: InvoiceColumn[] = [
   { id: 'description', key: 'description', label: 'Description', visible: true, width: 55, align: 'left' },
@@ -52,6 +55,10 @@ interface DocRendererProps {
   direction?: 'rtl' | 'ltr';
   /** Designer-only: show the labels exactly as typed, so editing them is not confusing. */
   rawLabels?: boolean;
+  /** Record data beyond the invoice shape (quote data), by token name. */
+  extras?: DocExtras;
+  /** Text written for this document, by slot. */
+  content?: Record<string, RichNode | string>;
 }
 
 /**
@@ -142,6 +149,10 @@ function isVisible(block: Block, ctx: DocDataContext, template?: InvoiceTemplate
     case 'hasLogo': return Boolean(template?.logoUrl);
     case 'hasStamp': return Boolean(template?.stampUrl);
     case 'hasSignature': return Boolean(template?.signatureUrl);
+    case 'hasDiscount': return countedLines(ctx.invoice.lineItems).some((l) => Number(l.discount) > 0);
+    case 'hasOptionalLines': return ctx.invoice.lineItems.some((l) => l.optional && l.lineType !== 'section');
+    case 'lang:ar': return (ctx.locale ?? getCurrentLocale()).toLowerCase().startsWith('ar');
+    case 'lang:en': return !(ctx.locale ?? getCurrentLocale()).toLowerCase().startsWith('ar');
     default: return true;
   }
 }
@@ -267,6 +278,8 @@ export function DocRenderer({
   onReorderBlock,
   direction,
   rawLabels,
+  extras,
+  content,
 }: DocRendererProps) {
   // A document written like in Word prints its own wording in place of the template's.
   const writtenBody = fields?.[BODY_KEY];
@@ -278,7 +291,7 @@ export function DocRenderer({
     return { ...directed, body: localizeDocLabels(directed.body, docStrings(locale), template?.docType === 'quote') };
   }, [designDoc, writtenBody, direction, rawLabels, template?.docType]);
   // Only standard-rated lines carry VAT (the same rule the server totals and posts with).
-  const vat = invoiceVat(invoice.lineItems, invoice.taxRate || 0);
+  const vat = invoiceVat(countedLines(invoice.lineItems), invoice.taxRate || 0);
   const subtotal = vat.net;
   const taxAmount = vat.tax;
   // Always derive the total from subtotal + tax so the document adds up. The
@@ -298,6 +311,8 @@ export function DocRenderer({
     formatMoney: (v) => String(v),
     publicUrl: publicUrl ?? publicInvoiceUrl(invoice.id),
     fields,
+    extras,
+    content,
     locale: doc.direction === 'rtl' ? 'ar' : doc.direction === 'ltr' ? 'en' : undefined,
   };
   const theme = doc.theme;
@@ -421,6 +436,20 @@ export function DocRenderer({
             rowOffset={lineItemStart ?? 0}
           />
         );
+      case 'slot': {
+        const slot = block as SlotBlock;
+        const own = ctx.content?.[slot.slot];
+        const body = own ?? slot.fallback;
+        if (!body || (typeof body === 'string' && !body.trim())) return null;
+        return (
+          <div key={block.id} style={base}>
+            {slot.title && <div style={{ fontWeight: 600, color: theme.primaryColor, marginBottom: 6 }}>{localizeLabel(slot.title, s)}</div>}
+            {typeof body === 'string'
+              ? <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(body, ctx)}</div>
+              : <RichNodeView node={body} resolve={(token) => resolveToken(token, ctx)} primaryColor={theme.primaryColor} />}
+          </div>
+        );
+      }
       case 'totals':
         return <TotalsView key={block.id} block={block as TotalsBlock} ctx={ctx} theme={theme} money={money} style={base} s={s} />;
       case 'details':
@@ -727,8 +756,12 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
 }) {
   const rows = lineItems ?? ctx.invoice.lineItems;
   const columns = (block.columns?.length ? block.columns : (template?.columns?.length ? template!.columns : DEFAULT_COLUMNS)).filter((c) => c.visible);
-  const cell = (col: InvoiceColumn, line: typeof ctx.invoice.lineItems[number]) => {
+  const numbers = itemNumbers(ctx.invoice.lineItems);
+  const cell = (col: InvoiceColumn, line: typeof ctx.invoice.lineItems[number], rowIndex: number) => {
     switch (col.key) {
+      case 'index': return numbers[rowOffset + rowIndex] ?? '';
+      case 'unit': return line.unit ?? '';
+      case 'discount': return Number(line.discount) > 0 ? (line.discountType === 'amount' ? money(line.discount!) : `${Number(line.discount!.toFixed(2))}%`) : '';
       case 'sku': return line.sku ?? '';
       case 'description': {
         // A line that does not carry the standard VAT says so on the document.
@@ -736,7 +769,9 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
         // A line picked from an item prints its name in the document's language.
         const arabic = (ctx.locale ?? getCurrentLocale()).toLowerCase().startsWith('ar');
         const text = (arabic ? line.descriptionAr : line.descriptionEn) || line.description;
-        return note ? <>{text} <span style={{ color: '#64748b', fontSize: 12 }}>({note})</span></> : text;
+        const body = note ? <>{text} <span style={{ color: '#64748b', fontSize: 12 }}>({note})</span></> : text;
+        const optionalTag = line.optional ? <span style={{ marginInlineStart: 6, fontSize: 11, color: '#64748b' }}>({s?.optional ?? 'Optional'})</span> : null;
+        return <>{body}{optionalTag}{line.details && <div style={{ color: '#64748b', fontSize: 12, whiteSpace: 'pre-wrap', marginTop: 2 }}>{line.details}</div>}</>;
       }
       case 'quantity': return line.quantity;
       case 'unitPrice': return money(line.unitPrice);
@@ -757,7 +792,7 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
       default: return '';
     }
   };
-  const defaultAlign = (col: InvoiceColumn) => col.align || (col.key === 'description' || col.key === 'sku' ? 'left' : 'right');
+  const defaultAlign = (col: InvoiceColumn) => col.align || (col.key === 'description' || col.key === 'sku' || col.key === 'unit' ? 'left' : 'right');
   return (
     <table className="doc-line-items" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, ...style }}>
       <colgroup>{columns.map((c) => <col key={c.id} style={c.width ? { width: `${c.width}%` } : undefined} />)}</colgroup>
@@ -767,9 +802,15 @@ function LineItemsView({ block, ctx, theme, money, template, style, lineItems, r
         </tr>
       </thead>
       <tbody>
-        {rows.map((line, i) => (
-          <tr key={rowOffset + i} style={{ background: (rowOffset + i) % 2 ? '#f8fafc' : '#fff' }}>
-            {columns.map((c) => <td key={c.id} style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', textAlign: alignClass[defaultAlign(c)] }}>{cell(c, line)}</td>)}
+        {rows.map((line, i) => line.lineType === 'section' ? (
+          <tr key={rowOffset + i}>
+            <td colSpan={columns.length} style={{ padding: '14px 16px 6px', fontWeight: 700, color: theme.primaryColor, borderBottom: `2px solid ${theme.accentColor}` }}>
+              {((ctx.locale ?? getCurrentLocale()).toLowerCase().startsWith('ar') ? line.descriptionAr : line.descriptionEn) || line.description}
+            </td>
+          </tr>
+        ) : (
+          <tr key={rowOffset + i} style={{ background: (rowOffset + i) % 2 ? '#f8fafc' : '#fff', fontStyle: line.optional ? 'italic' : undefined }}>
+            {columns.map((c) => <td key={c.id} style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', textAlign: alignClass[defaultAlign(c)] }}>{cell(c, line, i)}</td>)}
           </tr>
         ))}
       </tbody>
@@ -782,7 +823,7 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
   const showSubtotal = block.showSubtotal !== false;
   const showTax = block.showTax !== false;
   const showTotal = block.showTotal !== false;
-  const disc = discountTotals(ctx.invoice.lineItems);
+  const disc = discountTotals(countedLines(ctx.invoice.lineItems));
   const row = { display: 'flex', justifyContent: 'space-between', padding: '4px 0' } as const;
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', ...style }}>
@@ -794,6 +835,9 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
         {showSubtotal && <div style={row}><span style={{ color: '#64748b' }}>{disc.discount > 0 ? s.afterDiscount : s.subtotal}</span><span>{money(ctx.subtotal)}</span></div>}
         {showTax && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#64748b' }}>{s.tax} {taxRate.toFixed(2)}%</span><span>{money(ctx.taxAmount)}</span></div>}
         {showTotal && <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${theme.accentColor}`, paddingTop: 12, marginTop: 4, fontSize: 18, fontWeight: 700, color: theme.primaryColor }}><span>{s.total}</span><span>{money(ctx.total)}</span></div>}
+        {optionalTotal(ctx.invoice.lineItems) > 0 && (
+          <div style={{ ...row, marginTop: 8, color: '#64748b', fontSize: 13 }}><span>{s.optionalExtras}</span><span>{money(optionalTotal(ctx.invoice.lineItems))}</span></div>
+        )}
       </div>
     </div>
   );

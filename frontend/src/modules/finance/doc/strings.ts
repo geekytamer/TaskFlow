@@ -42,6 +42,8 @@ export interface DocStrings {
   qty: string;
   unit: string;
   amount: string;
+  optional: string;
+  optionalExtras: string;
 }
 
 const EN: DocStrings = {
@@ -81,6 +83,8 @@ const EN: DocStrings = {
   qty: 'Qty',
   unit: 'Unit',
   amount: 'Amount',
+  optional: 'Optional',
+  optionalExtras: 'Optional extras',
 };
 
 const AR: DocStrings = {
@@ -120,6 +124,8 @@ const AR: DocStrings = {
   qty: 'الكمية',
   unit: 'سعر الوحدة',
   amount: 'المبلغ',
+  optional: 'اختياري',
+  optionalExtras: 'إضافات اختيارية',
 };
 
 export function isRtlLocale(locale: string = getCurrentLocale()): boolean {

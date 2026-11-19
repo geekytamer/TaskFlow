@@ -4,6 +4,8 @@ import { getCurrentLocale } from '@/lib/locale';
 import { localizeStatus } from './strings';
 import { displayName } from '@/lib/display-name';
 import type { RichNode } from './types';
+import { countedLines, optionalTotal } from './quote-lines';
+import { discountTotals } from '@/lib/discount';
 
 /** Record data beyond the invoice shape, keyed by final token name (spec 2026-11-19 §4.3). */
 export type DocExtras = Record<string, { type: 'text' | 'date'; value: string }>;
@@ -189,6 +191,8 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'doc.status': return localizeStatus(invoice.status || '', ctx.locale);
     case 'doc.currency': return invoice.currency || 'USD';
     case 'doc.total': return ctx.formatMoney(ctx.total);
+    case 'doc.discount': return ctx.formatMoney(discountTotals(countedLines(invoice.lineItems || [])).discount);
+    case 'doc.optionalTotal': return ctx.formatMoney(optionalTotal(invoice.lineItems || []));
     case 'to.name': return resolveToken('client.name', ctx);
     case 'to.address': return client?.address || '';
     case 'to.email': return client?.email || '';
