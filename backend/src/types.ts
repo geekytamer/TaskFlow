@@ -866,6 +866,11 @@ export interface Quotation {
   templateId?: string;
   /** The language the quote prints in; unset follows whoever opens it. */
   language?: DocumentLanguage;
+  /** The salesperson handling the quote. */
+  ownerUserId?: string;
+  ownerName?: string;
+  /** Text written for this quote, by slot; only on single-quote responses. */
+  content?: Record<string, unknown>;
   salesOrderId?: string;
   invoiceId?: string;
   sentAt?: Date;

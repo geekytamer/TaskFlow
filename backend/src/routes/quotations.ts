@@ -1,4 +1,4 @@
-import type { DocumentLanguage, QuotationStatus, SalesOrderLineItem } from '../types';
+import type { DocumentLanguage, Quotation, QuotationStatus, SalesOrderLineItem } from '../types';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalDateInput, optionalNumber, optionalString, requiredDateInput, requiredString } from '../validation';
 import type { RouteContext } from './context';
@@ -36,10 +36,34 @@ const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) 
   });
 };
 
+const SLOT_KEY = /^[a-z][a-zA-Z0-9]{0,39}$/;
+/** `{ slot: rich-text JSON | string | null }`; null removes the slot's own text. */
+const parseDocContent = (value: unknown): Record<string, unknown | null> | undefined => {
+  if (value === undefined) return undefined;
+  const record = asRecord(value, 'content');
+  const out: Record<string, unknown | null> = {};
+  for (const [slot, body] of Object.entries(record)) {
+    if (!SLOT_KEY.test(slot)) throw new HttpError(400, `content.${slot} is not a valid slot name.`);
+    if (body !== null && typeof body !== 'string' && (typeof body !== 'object' || Array.isArray(body) || typeof (body as any).type !== 'string')) {
+      throw new HttpError(400, `content.${slot} must be text or a rich-text document.`);
+    }
+    if (body !== null && JSON.stringify(body).length > 60000) throw new HttpError(400, `content.${slot} is too long.`);
+    out[slot] = body;
+  }
+  return out;
+};
+
 export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
   const { store, authMiddleware, requireCompanyRoles, withActor, ensureClientBelongsToCompany, parseSalesOrderItems, ensureSalesItemsBelongToCompany } = ctx;
 
   const quotationStatuses: QuotationStatus[] = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
+
+  const ensureOwner = (ownerUserId: string | null | undefined, companyId: string) => {
+    if (!ownerUserId) return;
+    const user = store.getUserById(ownerUserId);
+    if (!user || !(user.companyIds ?? []).includes(companyId)) throw new HttpError(400, 'The salesperson must be a member of this company.');
+  };
+  const withContent = (quote: Quotation) => ({ ...quote, content: store.getDocumentContent('quote', quote.id) });
 
   const loadQuotation = (req: AuthedRequest) => {
     const quote = store.getQuotationById(req.params.id);
@@ -100,13 +124,16 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (!store.getClientById(clientId)) throw new HttpError(400, 'Client not found.');
       const items = parseQuotationItems(body.items, parseSalesOrderItems);
       ensureSalesItemsBelongToCompany(items, companyId);
+      const content = parseDocContent(body.content);
+      const ownerUserId = optionalString(body.ownerUserId);
+      ensureOwner(ownerUserId, companyId);
       const templateId = optionalString(body.templateId);
       ensureQuoteTemplate(templateId, companyId);
       const issueDate = optionalDateInput(body.issueDate) || new Date().toISOString();
       const validUntil = optionalDateInput(body.validUntil)
         || new Date(new Date(issueDate).getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
-      const quote = asBadRequest(() => withActor(req, () =>
-        store.createQuotation({
+      const quote = asBadRequest(() => withActor(req, () => {
+        const created = store.createQuotation({
           companyId,
           clientId: clientId!,
           contactId,
@@ -120,9 +147,12 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           notes: optionalString(body.notes),
           templateId,
           language: parseDocumentLanguage(body.language),
-        }),
-      ));
-      res.status(201).json(quote);
+          ownerUserId,
+        });
+        if (content) store.setDocumentContent(companyId, 'quote', created.id, content);
+        return created;
+      }));
+      res.status(201).json(withContent(quote));
     }),
   );
 
@@ -130,7 +160,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
     '/quotations/:id',
     authMiddleware,
     handler((req, res) => {
-      res.json(loadQuotation(req));
+      res.json(withContent(loadQuotation(req)));
     }),
   );
 
@@ -178,8 +208,15 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       }
       const templateId = body.templateId !== undefined ? optionalString(body.templateId) ?? null : undefined;
       ensureQuoteTemplate(templateId ?? undefined, existing.companyId);
-      const updated = asBadRequest(() => withActor(req, () =>
-        store.updateQuotation(existing.id, {
+      const content = parseDocContent(body.content);
+      const ownerUserId = body.ownerUserId !== undefined ? optionalString(body.ownerUserId) ?? null : undefined;
+      ensureOwner(ownerUserId, existing.companyId);
+      // Text is part of the offer, like the lines: it freezes when the quote does.
+      if (content && (existing.salesOrderId || existing.invoiceId || existing.status === 'Accepted' || existing.status === 'Declined')) {
+        throw new HttpError(400, 'An accepted, declined or converted quotation cannot change its text. Reopen it as a draft first.');
+      }
+      const updated = asBadRequest(() => withActor(req, () => {
+        const result = store.updateQuotation(existing.id, {
           clientId,
           contactId,
           issueDate: body.issueDate !== undefined ? requiredDateInput(body.issueDate, 'issueDate') : undefined,
@@ -191,10 +228,13 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
           notes: body.notes !== undefined ? optionalString(body.notes) ?? null : undefined,
           templateId,
           language: parseDocumentLanguage(body.language),
-        }),
-      ));
+          ownerUserId,
+        });
+        if (result && content) store.setDocumentContent(existing.companyId, 'quote', existing.id, content);
+        return result;
+      }));
       if (!updated) throw new HttpError(404, 'Quotation not found.');
-      res.json(updated);
+      res.json(withContent(updated));
     }),
   );
 

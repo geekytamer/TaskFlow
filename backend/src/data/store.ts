@@ -6177,6 +6177,27 @@ export class DataStore {
           `);
         },
       },
+      {
+        // Quote documents (spec 2026-11-19): the salesperson on a quote, and
+        // text written per document (intro, scope, terms…) for any kind.
+        id: '177_quote_documents',
+        run: () => {
+          const columns = (this.db.prepare('PRAGMA table_info(quotations)').all() as any[]).map((c) => c.name);
+          if (!columns.includes('ownerUserId')) this.db.exec('ALTER TABLE quotations ADD COLUMN ownerUserId TEXT;');
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS document_content (
+              id TEXT PRIMARY KEY,
+              companyId TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              recordId TEXT NOT NULL,
+              slot TEXT NOT NULL,
+              body TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_document_content_slot ON document_content (kind, recordId, slot);
+          `);
+        },
+      },
     ];
 
     migrations.forEach((migration) => {
@@ -16298,7 +16319,7 @@ export class DataStore {
     companyId: string; clientId: string; contactId?: string; opportunityId?: string;
     issueDate: Date | string; validUntil: Date | string; items: any[]; taxRate?: number;
     currency?: string; exchangeRate?: number; notes?: string; templateId?: string; quoteNumber?: string;
-    language?: DocumentLanguage | null;
+    language?: DocumentLanguage | null; ownerUserId?: string;
   }): Quotation {
     const items = this.normalizeQuotationItems(input.items);
     if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
@@ -16307,6 +16328,8 @@ export class DataStore {
     this.assertQuotationDates(issueDate, validUntil);
     const money = this.resolveTransactionCurrency(input.companyId, input.currency, input.exchangeRate);
     const now = new Date();
+    const opportunity = input.opportunityId ? this.getOpportunityById(input.opportunityId) : undefined;
+    const ownerUserId = input.ownerUserId || opportunity?.ownerUserId || this.currentActor?.userId || undefined;
     const quote: Quotation = {
       id: uuid(),
       companyId: input.companyId,
@@ -16324,14 +16347,15 @@ export class DataStore {
       notes: input.notes,
       templateId: input.templateId,
       language: input.language ?? undefined,
+      ownerUserId,
       createdAt: now,
       updatedAt: now,
     };
     this.db.prepare(
       `INSERT INTO quotations (id, companyId, quoteNumber, clientId, contactId, opportunityId, issueDate, validUntil, status, items,
-         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, language, createdAt, updatedAt)
+         subtotal, taxRate, taxAmount, totalAmount, currency, exchangeRate, notes, templateId, language, ownerUserId, createdAt, updatedAt)
        VALUES (@id, @companyId, @quoteNumber, @clientId, @contactId, @opportunityId, @issueDate, @validUntil, @status, @items,
-         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @language, @createdAt, @updatedAt)`,
+         @subtotal, @taxRate, @taxAmount, @totalAmount, @currency, @exchangeRate, @notes, @templateId, @language, @ownerUserId, @createdAt, @updatedAt)`,
     ).run({
       ...quote,
       contactId: quote.contactId ?? null,
@@ -16342,6 +16366,7 @@ export class DataStore {
       notes: quote.notes ?? null,
       templateId: quote.templateId ?? null,
       language: quote.language ?? null,
+      ownerUserId: ownerUserId ?? null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     });
@@ -16360,15 +16385,19 @@ export class DataStore {
   updateQuotation(id: string, updates: {
     clientId?: string; contactId?: string | null; issueDate?: Date | string; validUntil?: Date | string; items?: any[];
     taxRate?: number; currency?: string; exchangeRate?: number; notes?: string | null; templateId?: string | null;
-    language?: DocumentLanguage | null;
+    language?: DocumentLanguage | null; ownerUserId?: string | null;
   }): Quotation | undefined {
     const existing = this.getQuotationById(id);
     if (!existing) return undefined;
     // The language only changes how the quote reads, not what it offers, so it
     // changes at any stage, an accepted or converted quote included.
-    const { language, ...offer } = updates;
+    // The salesperson says who handles the quote, not what it offers: same rule.
+    const { language, ownerUserId, ...offer } = updates;
     if (language !== undefined) {
       this.db.prepare('UPDATE quotations SET language=?, updatedAt=? WHERE id=?').run(language ?? null, new Date().toISOString(), id);
+    }
+    if (ownerUserId !== undefined) {
+      this.db.prepare('UPDATE quotations SET ownerUserId=?, updatedAt=? WHERE id=?').run(ownerUserId ?? null, new Date().toISOString(), id);
     }
     if (!Object.values(offer).some((v) => v !== undefined)) return this.getQuotationById(id);
     if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
@@ -16472,10 +16501,37 @@ export class DataStore {
       throw new Error('This quotation has been converted. Delete the sales order or invoice it became first.');
     }
     this.db.prepare('DELETE FROM quotations WHERE id = ?').run(id);
+    this.deleteDocumentContent('quote', id);
     this.createActivityEvent({
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'deleted',
       summary: `Quotation ${existing.quoteNumber} deleted.`,
     });
+  }
+
+  /** Text written for one document, by slot ("terms" → rich-text JSON or plain string). */
+  getDocumentContent(kind: string, recordId: string): Record<string, unknown> {
+    const rows = this.db.prepare('SELECT slot, body FROM document_content WHERE kind = ? AND recordId = ? ORDER BY slot').all(kind, recordId) as any[];
+    return Object.fromEntries(rows.map((r) => [r.slot, this.parseJson(r.body)]));
+  }
+
+  /** Sets or (with null) removes slots; slots not named are left alone. */
+  setDocumentContent(companyId: string, kind: string, recordId: string, content: Record<string, unknown | null>): void {
+    const now = new Date().toISOString();
+    const upsert = this.db.prepare(
+      `INSERT INTO document_content (id, companyId, kind, recordId, slot, body, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (kind, recordId, slot) DO UPDATE SET body = excluded.body, updatedAt = excluded.updatedAt`,
+    );
+    const remove = this.db.prepare('DELETE FROM document_content WHERE kind = ? AND recordId = ? AND slot = ?');
+    this.db.transaction(() => {
+      for (const [slot, body] of Object.entries(content)) {
+        if (body === null) remove.run(kind, recordId, slot);
+        else upsert.run(uuid(), companyId, kind, recordId, slot, JSON.stringify(body), now);
+      }
+    })();
+  }
+
+  deleteDocumentContent(kind: string, recordId: string): void {
+    this.db.prepare('DELETE FROM document_content WHERE kind = ? AND recordId = ?').run(kind, recordId);
   }
 
   private decodeQuotation(row: any): Quotation {
@@ -16502,6 +16558,8 @@ export class DataStore {
       notes: row.notes ?? undefined,
       templateId: row.templateId ?? undefined,
       language: row.language === 'ar' || row.language === 'en' ? row.language : undefined,
+      ownerUserId: row.ownerUserId ?? undefined,
+      ownerName: row.ownerUserId ? this.getUserById(row.ownerUserId)?.name : undefined,
       salesOrderId: row.salesOrderId ?? undefined,
       invoiceId: row.invoiceId ?? undefined,
       sentAt: row.sentAt ? new Date(row.sentAt) : undefined,

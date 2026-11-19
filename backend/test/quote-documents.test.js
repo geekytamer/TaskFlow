@@ -76,3 +76,47 @@ test('editing keeps sections and optional lines', async () => {
   assert.equal(res.body.items[0].lineType, 'section');
   assert.equal(res.body.subtotal, 1400);
 });
+
+const terms = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Valid for 30 days.' }] }] };
+
+test('a quote has a salesperson: the creator unless chosen, and must be a company member', async () => {
+  const { app, as, admin, store } = setup();
+  const quote = await newQuote(app, as);
+  assert.equal(quote.ownerUserId, admin.id);
+  assert.equal(quote.ownerName, admin.name);
+  const outsider = store.listUsers().find((u) => !(u.companyIds || []).includes('1'));
+  if (outsider) {
+    const bad = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: outsider.id });
+    assert.equal(bad.status, 400);
+  }
+});
+
+test('reading a quote back returns the same lines (decode path)', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as);
+  const read = await as(request(app).get(`/quotations/${quote.id}`));
+  assert.equal(read.status, 200);
+  assert.deepEqual(read.body.items, quote.items);
+  assert.equal(read.body.items[0].lineType, 'section');
+  assert.equal(read.body.items[4].optional, true);
+});
+
+test('per-quote text is saved, returned on the quote, editable while open and removed with the quote', async () => {
+  const { app, as, store } = setup();
+  const quote = await newQuote(app, as, { content: { terms, intro: 'Dear client,' } });
+  const read = await as(request(app).get(`/quotations/${quote.id}`));
+  assert.deepEqual(read.body.content, { terms, intro: 'Dear client,' });
+
+  const cleared = await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { intro: null } });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+  assert.deepEqual(cleared.body.content, { terms });
+
+  assert.equal((await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { 'bad key!': 'x' } })).status, 400);
+  assert.equal((await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { scope: 'x'.repeat(60001) } })).status, 400);
+
+  await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
+  assert.equal((await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { terms: 'changed' } })).status, 400);
+  await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Draft' });
+  await as(request(app).delete(`/quotations/${quote.id}`));
+  assert.deepEqual(store.getDocumentContent('quote', quote.id), {});
+});
