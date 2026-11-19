@@ -16310,7 +16310,8 @@ export class DataStore {
   }
 
   /** What a quote can reach: its total plus every optional line with VAT. Approvals are asked on this figure. */
-  private quotationApprovalAmount(quote: { items: SalesOrder['items']; taxRate: number; totalAmount: number }) {
+  /** The most a quote can come to: its total plus the optional lines with VAT. Approvals ask on this. */
+  quotationApprovalAmount(quote: { items: SalesOrder['items']; taxRate: number; totalAmount: number }) {
     const rate = Number(quote.taxRate) > 0 ? Number(quote.taxRate) : 0;
     const optional = quote.items.filter((i) => i.lineType !== 'section' && i.optional).reduce((sum, i) => sum + i.lineTotal, 0);
     return Number((Number(quote.totalAmount) + optional * (1 + rate / 100)).toFixed(2));

@@ -253,7 +253,7 @@ test('a refused PUT on an accepted quote changes nothing, not even the salespers
   const quote = await newQuote(app, as);
   const acc = await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
   assert.equal(acc.status, 200, JSON.stringify(acc.body));
-  const put = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: user.id, language: 'ar', notes: 'x', content: { terms } });
+  const put = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: user.id, language: 'ar', notes: 'x' }); // no content: the store's own check must refuse it
   assert.equal(put.status, 400, JSON.stringify(put.body));
   const read = await as(request(app).get(`/quotations/${quote.id}`));
   assert.equal(read.body.ownerUserId, quote.ownerUserId);
@@ -317,4 +317,11 @@ test('a details block accepts layout rows and inline, nothing else', async () =>
   assert.equal((await create('rows')).status, 201);
   assert.equal((await create('inline')).status, 201);
   assert.equal((await create('table')).status, 400);
+});
+
+test('the approval inbox shows the amount the quote can reach, optional lines included', async () => {
+  const { app, as, store } = setup();
+  const quote = await newQuote(app, as);
+  // 1470 counted + optional 300 with 5% VAT = 1785
+  assert.equal(store.quotationApprovalAmount(store.getQuotationById(quote.id)), 1785);
 });

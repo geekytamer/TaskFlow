@@ -7282,7 +7282,8 @@ export function createServer(options: CreateServerOptions = {}) {
   }, (id) => store.getInvoiceById(id));
   approvalDocs.quotation = followsRequest((id) => {
     const q = store.getQuotationById(id);
-    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: Number(q.totalAmount) || 0, party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
+    // The approver sees the amount the request was raised on: optional lines included.
+    return q ? { companyId: q.companyId, number: q.quoteNumber, amount: store.quotationApprovalAmount(q), party: store.getClientById(q.clientId)?.name ?? null, date: new Date(q.issueDate) } : undefined;
   }, (id) => store.getQuotationById(id));
   approvalDocs.payroll_run = followsRequest((id) => {
     const r = store.getPayrollRunById(id);
