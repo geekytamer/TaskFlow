@@ -1,7 +1,7 @@
 # One document engine for every record
 
 **Date:** 2026-11-19
-**Status:** Draft, waiting for the owner's review
+**Status:** Approved with order change (quotations first), 2026-11-19
 **Owner's ask:** "Improve how quotations are created and how the quote document can be customised… can we generalise this for all documents?"
 
 ## 1. Problem
@@ -172,23 +172,35 @@ New column keys: `index`, `unit`, `discount`, `tax`, `orderedQuantity`, `image`.
 
 Each phase ships on its own and is deployed to prod with the usual backup, swap and rollback recipe.
 
-**Phase 1: engine, with no visible change**
-- `DocData`, the registry, adapters for the kinds that print today (invoice, quote, delivery, bill, document/letter/memo/certificate/custom, statement).
+**Order (owner, 2026-11-19): quotations first, generalise after.** Phase 1 delivers the quote features on today's engine, built so they move into the shared engine unchanged. Phase 2 is the engine. The rules that keep Phase 1 from becoming throw-away work:
+- New quote data reaches the renderer as one `extras` object on the render context (`DocDataContext.extras: Record<string, DocValue>`), already shaped like `DocData.fields`. The Phase 2 quote adapter fills the same keys.
+- New tokens use their final names from 4.3 (`fields.validUntil`, `contact.name`, `owner.name`, `to.phone`, `to.taxId`, `doc.discount`…), not `quote.*`. `client.*` and `invoice.*` keep working as they do today.
+- Slots, the `document_content` table, line sections and optional lines, the new columns and the new conditions are built exactly as sections 4.4 to 4.6 describe. They are kind-neutral already; Phase 1 only switches them on for quotes.
+
+**Phase 1: quotations (on today's engine)**
+- **Quote data:** a new `ownerUserId` column on quotations (the salesperson; defaults to the opportunity's owner, else the creator; editable on the form). The public quote payload adds valid-until, contact person name and phone, owner name and phone, opportunity title, client phone and tax number, and discount totals, all in `extras`.
+- **Tokens and data picker:** the tokens above, shown under a "Quotation" group in the designer when the template's type is quote.
+- **Columns:** `index`, `discount`, `unit`, and the long description under a line. `custom` columns get a value typed per line.
+- **Slots:** the `slot` block, the `document_content` table (migration), and intro/scope/terms boxes on the quote form. They carry to the sales order and invoice in Phase 2, once those kinds have slots.
+- **Lines:** sections and optional lines in the sales line editor and the store totals. A convert dialog (to sales order or invoice) with "include optional lines".
+- **Conditions:** `hasDiscount`, `hasOptionalLines`, `lang:ar`, `lang:en` for quote templates.
+- **Proposal starter:** a quote-only starting layout (cover, intro, prices with sections, optional extras, terms, acceptance area) in Arabic and English.
+- **Small wins from the quotation review:** "Copy quote", and quote list search over both language names of client and lines.
+- **Gate:** existing quote templates on a prod copy print identically, in Arabic and English, when none of the new features is used (screenshot diff, production mode).
+
+**Phase 2: engine, with no visible change**
+- `DocData`, the registry, adapters for the kinds that print today (invoice, quote, delivery, bill, document/letter/memo/certificate/custom, statement). The quote adapter fills the same `extras` keys Phase 1 added.
 - `/public/doc/:kind/:id`, the `/d/:kind/:id` page, old URLs rendering through it, `/public/resolve` from the registry.
 - The renderer reads `DocData`; the token alias table; `documentPdf`.
+- Slots switched on for sales orders and invoices, so quote text carries over on conversion.
 - **Gate:** every template on a copy of the prod database (Peak, GIG, Smart Hammer) renders pixel-identical before and after, in Arabic and English. This is checked by a screenshot-diff script run against both builds in production mode. A difference blocks the release.
-
-**Phase 2: quote features**
-- Quote fields (valid-until, salesperson, contact, opportunity, discount totals) and the new columns.
-- Slots on the quote form (intro, scope, terms).
-- Section and optional lines in the line editor; convert dialog with "include optional lines".
-- Kind conditions in the designer.
 
 **Phase 3: new printed documents**
 - Sales order, purchase order (to the supplier), credit note, payment receipt. Each one gets a kind adapter, a template type, a starter layout in both languages, and print, PDF, link and WhatsApp buttons on its list.
+- Each kind's own fields, columns, conditions and slots (invoice: overdue/paid; delivery: carrier, tracking, ordered vs delivered quantity, so its prices no longer sit at zero and its details no longer go into notes).
 
 **Phase 4: starter layouts and polish**
-- A quote-only "Proposal" starter (cover, intro, prices, terms, acceptance area), plus starters per kind.
+- Starter layouts for every kind, in both languages.
 - Designer block names and starter names in Arabic. The data picker groups by party (Us / Them / Contact / Owner / This document).
 
 ## 6. Error handling
@@ -208,11 +220,11 @@ Each phase ships on its own and is deployed to prod with the usual backup, swap 
 
 - Unit: each adapter (record → DocData), the alias table (every old token), conditions, totals with sections and optional lines, conversion with and without optional lines.
 - Poison fixtures: a record with both-language names, a discount on one line, a zero-VAT line, an optional line and a section, in a non-company currency.
-- Render: the Phase 1 screenshot gate. After it, the existing `doc-renderer.test.tsx` runs against `DocData`.
+- Render: the Phase 1 quote gate and the Phase 2 screenshot gate. After Phase 2, the existing `doc-renderer.test.tsx` runs against `DocData`.
 - Mutation check: break an alias or an adapter field on purpose and confirm a test fails.
 
-## 9. Files touched (Phase 1)
+## 9. Files touched (Phase 2, engine)
 
 - New: `backend/src/documents/kinds/*.ts`, `backend/src/documents/registry.ts`, `backend/src/routes/public-documents.ts`, `frontend/src/app/d/[kind]/[id]/page.tsx`, `frontend/src/modules/finance/doc/aliases.ts`.
 - Changed: `doc/doc-renderer.tsx`, `doc/tokens.ts`, `doc/template-to-doc.ts`, `components/invoice-document.tsx`, `services/publicService.ts`, `backend/src/pdf/document-pdf.ts`, `backend/src/server.ts` (public routes and resolve), the old public pages (thin wrappers).
-- Migration (Phase 2): `document_content` table; no change to existing tables in Phase 1.
+- Migrations come in Phase 1 (`document_content` table, `quotations.ownerUserId`). Phase 2 changes no tables.
