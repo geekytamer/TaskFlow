@@ -95,6 +95,7 @@ test('line1.* reads the first priced line, skipping sections and optional lines'
   assert.equal(resolveToken('line1.unitPrice', c), 'M300');
   assert.equal(resolveToken('line1.amount', c), 'M3750');
   assert.equal(resolveToken('line1.quantity', lineInvoice([{ description: 'x', quantity: 1.23456789, unitPrice: 1, amount: 1 }])), '1.2346');
+  assert.equal(resolveToken('line1.quantity', lineInvoice([{ description: 'x', quantity: 12000, unitPrice: 1, amount: 1 }])), '12,000');
   for (const t of ['description', 'quantity', 'unit', 'unitPrice', 'amount']) assert.equal(resolveToken(`line1.${t}`, lineInvoice([])), '');
 });
 

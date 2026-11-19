@@ -209,7 +209,8 @@ function firstLineToken(key: string, ctx: DocDataContext): string {
   const money = ctx.formatMoneyText ?? ctx.formatMoney;
   switch (key) {
     case 'description': return (isArabic(ctx.locale ?? getCurrentLocale()) ? line.descriptionAr : line.descriptionEn) || line.description || '';
-    case 'quantity': return String(Number(Number(line.quantity || 0).toFixed(4)));
+    // Grouped like the sample sheet (12,000), Latin digits in both languages.
+    case 'quantity': return Number(line.quantity || 0).toLocaleString('en-US', { maximumFractionDigits: 4 });
     case 'unit': return line.unit || '';
     case 'unitPrice': return money(Number(line.unitPrice) || 0);
     case 'amount': return money(Number(line.amount) || 0);
