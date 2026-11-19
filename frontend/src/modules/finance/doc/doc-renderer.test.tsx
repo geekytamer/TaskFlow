@@ -373,3 +373,23 @@ test('a quote with sections and optional lines totals only counted lines and pri
   const hidden = renderToStaticMarkup(<DocRenderer doc={{ ...(doc as object), body: (doc as any).body.map((b: any) => (b.type === 'totals' ? { ...b, showTotal: false } : b)) } as never} invoice={invoice} publicUrl="" />);
   assert.ok(!hidden.includes('Optional extras'), 'optional extras row follows showTotal=false');
 });
+
+test('a slot prints the template fallback in the document language but never translates the quote content', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const mk = (direction: string) => ({
+    version: 1, direction, page: { size: 'A4', orientation: 'portrait', margin: {} },
+    theme: { fontFamily: 'Inter', primaryColor: '#111111', accentColor: '#222222', textColor: '#333333' },
+    body: [
+      { id: 'i', type: 'slot', slot: 'intro', fallback: 'Thank you for the opportunity. Please find our offer below.' },
+      { id: 's', type: 'slot', slot: 'terms', fallback: 'Prices are valid until the date above.' },
+    ],
+  }) as never;
+  const invoice = { id: 'q1', invoiceNumber: 'QT-1', issueDate: new Date(), dueDate: new Date(), status: 'Draft', currency: 'USD', taxRate: 0, total: 0, lineItems: [] } as never;
+  const ar = renderToStaticMarkup(<DocRenderer doc={mk('rtl')} invoice={invoice} direction="rtl" publicUrl="" content={{ terms: 'Prices are valid until the date above.' }} />);
+  assert.ok(ar.includes('شكرًا لإتاحة الفرصة. تجدون عرضنا أدناه.'), 'template fallback translated');
+  assert.ok(!ar.includes('Thank you for the opportunity'));
+  assert.ok(ar.includes('Prices are valid until the date above.'), 'quote content stays as written');
+  assert.ok(!ar.includes('الأسعار سارية'));
+  const en = renderToStaticMarkup(<DocRenderer doc={mk('ltr')} invoice={invoice} publicUrl="" />);
+  assert.ok(en.includes('Thank you for the opportunity. Please find our offer below.'));
+});

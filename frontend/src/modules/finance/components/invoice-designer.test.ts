@@ -58,3 +58,18 @@ test('the proposal preset is listed and its words localise to Arabic', async () 
   assert.equal(localizeLabel('Unit', ar), 'سعر الوحدة');
   assert.equal(localizeLabel('Unit of measure', ar), 'الوحدة');
 });
+
+test('the proposal details labels read Issue date and Quotation no. and localise to Arabic', async () => {
+  const { proposalDoc } = await import('../doc/presets');
+  const { localizeLabel, docStrings } = await import('../doc/strings');
+  const ar = docStrings('ar');
+  const meta: any = (proposalDoc() as any).body.find((b: any) => b.id === 'p-meta');
+  const labels = meta.fields.map((f: any) => f.label);
+  assert.ok(labels.includes('Issue date') && labels.includes('Quotation no.'));
+  assert.ok(!labels.includes('Date') && !labels.includes('Quotation'));
+  assert.equal(localizeLabel('Issue date', ar), docStrings('ar').issueDate);
+  assert.notEqual(localizeLabel('Issue date', ar), 'Issue date');
+  assert.equal(localizeLabel('Quotation no.', ar), 'رقم عرض السعر');
+  assert.equal(localizeLabel('Quotation no.', docStrings('en')), 'Quotation no.');
+  assert.equal(localizeLabel('Quotation', ar, { quote: true }), localizeLabel('Quotation', ar, { quote: true }));
+});

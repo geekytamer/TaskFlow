@@ -196,7 +196,7 @@ export function SalesLineItemsEditor({
               <TableRow key={index} className="bg-muted/40">
                 <TableCell colSpan={7}>
                   <div className="flex items-center gap-2">
-                    <Input dir="auto" className="font-semibold" value={item.description} onChange={(event) => update(index, { description: event.target.value })} placeholder={tr('Section heading', 'عنوان القسم')} />
+                    <Input dir="auto" className="max-w-md font-semibold" value={item.description} onChange={(event) => update(index, { description: event.target.value })} placeholder={tr('Section heading', 'عنوان القسم')} />
                     <Button type="button" variant="ghost" size="sm" onClick={() => onChange(rows.filter((_, i) => i !== index))}>{t('sales.remove')}</Button>
                   </div>
                 </TableCell>

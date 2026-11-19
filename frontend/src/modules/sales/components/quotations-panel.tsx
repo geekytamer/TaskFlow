@@ -29,6 +29,7 @@ import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InvoiceTemplate, Quotation, QuotationStatus } from '@/modules/finance/types';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
 import { templateSlots } from '@/modules/finance/doc/tokens';
+import { docStrings, localizeLabel } from '@/modules/finance/doc/strings';
 import { getCompanyMembers } from '@/services/userService';
 import { quoteMatches } from '../lib/quote-search';
 import { OptionalLinesPicker, optionalIndexes } from './optional-lines-picker';
@@ -626,15 +627,16 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           </div>
           {slots.map(({ slot, title, fallback }) => {
             const [en, ar] = SLOT_LABELS[slot] || [slot, slot];
+            const ds = docStrings(form.language || (language === 'ar' ? 'ar' : 'en'));
             return (
               <div key={slot} className="space-y-1">
-                <Label htmlFor={`quote-slot-${slot}`}>{title || tr(en, ar)}</Label>
+                <Label htmlFor={`quote-slot-${slot}`}>{title ? localizeLabel(title, ds) : ((form.language || language) === 'ar' ? ar : en)}</Label>
                 <Textarea
                   id={`quote-slot-${slot}`}
                   dir="auto"
                   rows={3}
                   value={form.content[slot] ?? ''}
-                  placeholder={typeof fallback === 'string' && fallback ? fallback : tr("Empty uses the template's text", 'اتركه فارغًا لاستخدام نص القالب')}
+                  placeholder={typeof fallback === 'string' && fallback ? localizeLabel(fallback, ds) : tr("Empty uses the template's text", 'اتركه فارغًا لاستخدام نص القالب')}
                   onChange={(e) => setForm((prev) => ({
                     ...prev,
                     content: { ...prev.content, [slot]: e.target.value },

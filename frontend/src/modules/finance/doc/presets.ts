@@ -27,8 +27,8 @@ export function proposalDoc(template?: InvoiceTemplate): InvoiceDoc {
     ...header,
     { id: 'p-title', type: 'heading', level: 1, content: 'QUOTATION', style: { margin: { top: 12, bottom: 4 } } },
     { id: 'p-meta', type: 'details', fields: [
-      { label: 'Quotation', value: '{{doc.number}}' },
-      { label: 'Date', value: '{{doc.date}}' },
+      { label: 'Quotation no.', value: '{{doc.number}}' },
+      { label: 'Issue date', value: '{{doc.date}}' },
       { label: 'Valid until', value: '{{fields.validUntil}}' },
       { label: 'Prepared for', value: '{{to.name}}' },
       { label: 'Attention', value: '{{contact.name}}' },

@@ -445,7 +445,7 @@ export function DocRenderer({
           <div key={block.id} style={base}>
             {slot.title && <div style={{ fontWeight: 600, color: theme.primaryColor, marginBottom: 6 }}>{localizeLabel(slot.title, s)}</div>}
             {typeof body === 'string'
-              ? <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(body, ctx)}</div>
+              ? <div style={{ whiteSpace: 'pre-wrap' }}>{resolveTokens(own === undefined ? localizeLabel(body, s) : body, ctx)}</div>
               : <RichNodeView node={body} resolve={(token) => resolveToken(token, ctx)} primaryColor={theme.primaryColor} />}
           </div>
         );

@@ -170,6 +170,7 @@ const DEFAULT_SENTENCES: Array<[string, string]> = [
   ['Attention', 'عناية'],
   ['Prepared by', 'أعدّه'],
   ['Scope of work', 'نطاق العمل'],
+  ['Quotation no.', 'رقم عرض السعر'],
   ['Unit of measure', 'الوحدة'],
   ['Thank you for the opportunity. Please find our offer below.', 'شكرًا لإتاحة الفرصة. تجدون عرضنا أدناه.'],
   ['Prices are valid until the date above.', 'الأسعار سارية حتى التاريخ المذكور أعلاه.'],
