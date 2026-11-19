@@ -45,7 +45,8 @@ export interface BlockStyle {
 }
 
 /** Condition that controls whether a block renders for a given invoice. */
-export type VisibleWhen = 'always' | 'hasNotes' | 'hasBankAccounts' | 'hasLogo' | 'hasStamp' | 'hasSignature';
+export type VisibleWhen = 'always' | 'hasNotes' | 'hasBankAccounts' | 'hasLogo' | 'hasStamp' | 'hasSignature'
+  | 'hasDiscount' | 'hasOptionalLines' | 'lang:ar' | 'lang:en';
 
 export interface BaseBlock {
   id: string;
@@ -154,6 +155,16 @@ export interface RichTextBlock extends BaseBlock {
   node: RichNode;
 }
 
+/** Text written per document (spec 2026-11-19 §4.4): the document's own, else the template's fallback. */
+export interface SlotBlock extends BaseBlock {
+  type: 'slot';
+  /** Slot name, e.g. "intro", "scope", "terms". */
+  slot: string;
+  /** Heading printed above the text; empty prints none. */
+  title?: string;
+  fallback?: RichNode | string;
+}
+
 export type Block =
   | ContainerBlock
   | TextBlock
@@ -169,7 +180,8 @@ export type Block =
   | SignatureBlock
   | QrBlock
   | PageBreakBlock
-  | RichTextBlock;
+  | RichTextBlock
+  | SlotBlock;
 
 export interface DocPageSetup {
   size: 'A4' | 'Letter';

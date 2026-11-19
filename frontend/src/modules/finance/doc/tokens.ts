@@ -3,6 +3,10 @@ import type { Client, Invoice } from '../types';
 import { getCurrentLocale } from '@/lib/locale';
 import { localizeStatus } from './strings';
 import { displayName } from '@/lib/display-name';
+import type { RichNode } from './types';
+
+/** Record data beyond the invoice shape, keyed by final token name (spec 2026-11-19 §4.3). */
+export type DocExtras = Record<string, { type: 'text' | 'date'; value: string }>;
 
 const isArabic = (locale: string) => locale.toLowerCase().startsWith('ar');
 
@@ -20,6 +24,10 @@ export interface DocDataContext {
   fields?: Record<string, string>;
   /** The document's own language for dates; unset follows the interface. */
   locale?: string;
+  /** Quote data and other kind fields, by token name ("contact.name", "fields.validUntil"). */
+  extras?: DocExtras;
+  /** Text written for this document, by slot. */
+  content?: Record<string, RichNode | string>;
 }
 
 const fmtDate = (d?: Date, locale?: string) =>
@@ -103,7 +111,27 @@ const AR_TOKEN_LABELS: Record<string, string> = {
   'Client name': 'اسم العميل', 'Client address': 'عنوان العميل', 'Client email': 'بريد العميل',
   'Company name': 'اسم الشركة', 'Company address': 'عنوان الشركة',
   Recipient: 'المستلم', Subject: 'الموضوع', Reference: 'المرجع', Date: 'التاريخ', Amount: 'المبلغ', 'Body text': 'نص المستند',
+  Quotation: 'عرض السعر', 'Valid until': 'صالح حتى', Salesperson: 'مسؤول المبيعات', 'Salesperson email': 'بريد مسؤول المبيعات',
+  'Contact person': 'الشخص المسؤول', 'Contact phone': 'هاتف المسؤول', 'Client phone': 'هاتف العميل',
+  'Client tax number': 'الرقم الضريبي للعميل', 'Total discount': 'إجمالي الخصم', 'Optional extras total': 'إجمالي الإضافات الاختيارية',
 };
+
+/** Quote data in the designer's picker (quote templates only). */
+export const QUOTE_TOKEN_GROUP: (typeof TOKEN_GROUPS)[number] = {
+  group: 'Quotation',
+  tokens: [
+    { token: 'fields.validUntil', label: 'Valid until' },
+    { token: 'owner.name', label: 'Salesperson' },
+    { token: 'owner.email', label: 'Salesperson email' },
+    { token: 'contact.name', label: 'Contact person' },
+    { token: 'contact.phone', label: 'Contact phone' },
+    { token: 'to.phone', label: 'Client phone' },
+    { token: 'to.taxId', label: 'Client tax number' },
+    { token: 'doc.discount', label: 'Total discount' },
+    { token: 'doc.optionalTotal', label: 'Optional extras total' },
+  ],
+};
+export const quoteTokenGroups = (base: typeof TOKEN_GROUPS): typeof TOKEN_GROUPS => [...base, QUOTE_TOKEN_GROUP];
 
 /** Token groups with their labels in the reader's language. */
 export function localizedTokenGroups(groups: typeof TOKEN_GROUPS, language: string): typeof TOKEN_GROUPS {
@@ -156,9 +184,23 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'company.phone': return company?.phone || '';
     case 'company.email': return company?.email || '';
     case 'today': return fmtDate(new Date(), ctx.locale);
-    default:
-      if (!token.trim().startsWith('field.')) return '';
-      return ctx.fields?.[token.trim()] || FIELD_FALLBACKS[token.trim()]?.(ctx) || '';
+    case 'doc.number': return invoice.invoiceNumber || '';
+    case 'doc.date': return fmtDate(invoice.issueDate, ctx.locale);
+    case 'doc.status': return localizeStatus(invoice.status || '', ctx.locale);
+    case 'doc.currency': return invoice.currency || 'USD';
+    case 'doc.total': return ctx.formatMoney(ctx.total);
+    case 'to.name': return resolveToken('client.name', ctx);
+    case 'to.address': return client?.address || '';
+    case 'to.email': return client?.email || '';
+    case 'from.name': return company?.name || '';
+    case 'from.address': return company?.address || '';
+    default: {
+      const key = token.trim();
+      const extra = ctx.extras?.[key];
+      if (extra) return extra.type === 'date' ? fmtDate(new Date(extra.value), ctx.locale) : extra.value;
+      if (!key.startsWith('field.')) return '';
+      return ctx.fields?.[key] || FIELD_FALLBACKS[key]?.(ctx) || '';
+    }
   }
 }
 

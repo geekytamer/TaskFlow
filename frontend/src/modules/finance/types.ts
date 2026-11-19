@@ -76,6 +76,14 @@ export interface InvoiceLineItem {
   custom?: Record<string, string>;
   /** How VAT applies to the line; absent means standard-rated. */
   vatTreatment?: import('@/lib/vat').VatTreatment;
+  /** 'section' marks a heading row with no price; absent means an ordinary item. */
+  lineType?: 'section';
+  /** Offered extra: priced and shown, left out of the totals until the client ticks it. */
+  optional?: boolean;
+  /** Longer text printed under the description. */
+  details?: string;
+  /** Unit of measure, e.g. "pcs", "day". */
+  unit?: string;
 }
 
 export interface Invoice {
@@ -140,6 +148,14 @@ export interface SalesOrderLineItem {
   discount?: number;
   discountType?: LineDiscountType;
   lineTotal: number;
+  /** 'section' marks a heading row with no price; absent means an ordinary item. */
+  lineType?: 'section';
+  /** Offered extra: priced and shown, left out of the totals until the client ticks it. */
+  optional?: boolean;
+  /** Longer text printed under the description. */
+  details?: string;
+  /** Unit of measure, e.g. "pcs", "day". */
+  unit?: string;
 }
 
 /** Stored states plus Expired, which the server derives from validUntil. */
@@ -166,6 +182,11 @@ export interface Quotation {
   templateId?: string;
   /** The language the quote prints in; unset follows whoever opens it. */
   language?: 'ar' | 'en';
+  /** The salesperson printed on the quote. */
+  ownerUserId?: string;
+  ownerName?: string;
+  /** Text written for this quote, by slot name. */
+  content?: Record<string, unknown>;
   salesOrderId?: string;
   invoiceId?: string;
   sentAt?: Date;
@@ -237,7 +258,7 @@ export type TemplateDocumentType =
   | 'statement'
   | 'custom';
 
-export type InvoiceColumnKey = 'sku' | 'description' | 'quantity' | 'unitPrice' | 'amount' | 'custom';
+export type InvoiceColumnKey = 'sku' | 'description' | 'quantity' | 'unitPrice' | 'amount' | 'custom' | 'index' | 'discount' | 'unit';
 export type InvoiceColumnAlign = 'left' | 'center' | 'right';
 
 export interface InvoiceColumn {
