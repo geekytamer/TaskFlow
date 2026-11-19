@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveToken, resolveTokens, type DocDataContext } from './tokens';
+import { resolveToken, resolveTokens, templateSlots, type DocDataContext } from './tokens';
 import { isInvoiceDoc, validateInvoiceDoc } from './validation';
 
 const ctx = (extra: Partial<DocDataContext> = {}): DocDataContext => ({
@@ -52,4 +52,16 @@ test('inherited object names are not tokens', () => {
 test('a fill-in field wins over an extras entry of the same name', () => {
   const c = ctx({ fields: { 'field.x': 'mine' }, extras: { 'field.x': { type: 'text', value: 'theirs' } } });
   assert.equal(resolveToken('field.x', c), 'mine');
+});
+
+test('templateSlots lists each slot once, including inside containers', () => {
+  const doc = { body: [
+    { id: 'a', type: 'slot', slot: 'intro', fallback: 'Hello' },
+    { id: 'b', type: 'container', children: [{ id: 'c', type: 'slot', slot: 'terms', title: 'Terms' }, { id: 'd', type: 'slot', slot: 'intro' }] },
+  ] };
+  assert.deepEqual(templateSlots(doc), [
+    { slot: 'intro', title: undefined, fallback: 'Hello' },
+    { slot: 'terms', title: 'Terms', fallback: undefined },
+  ]);
+  assert.deepEqual(templateSlots(undefined), []);
 });

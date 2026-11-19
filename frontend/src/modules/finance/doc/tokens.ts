@@ -107,6 +107,22 @@ export function templateFields(doc: unknown): string[] {
   return [...seen];
 }
 
+/** Slot blocks a template uses, in order of first appearance. */
+export function templateSlots(doc: unknown): Array<{ slot: string; title?: string; fallback?: unknown }> {
+  const out: Array<{ slot: string; title?: string; fallback?: unknown }> = [];
+  const walk = (blocks: unknown) => {
+    if (!Array.isArray(blocks)) return;
+    for (const block of blocks as any[]) {
+      if (block?.type === 'slot' && typeof block.slot === 'string' && !out.some((o) => o.slot === block.slot)) {
+        out.push({ slot: block.slot, title: block.title, fallback: block.fallback });
+      }
+      walk(block?.children);
+    }
+  };
+  walk((doc as any)?.body);
+  return out;
+}
+
 const AR_TOKEN_LABELS: Record<string, string> = {
   Document: 'المستند', Client: 'العميل', Company: 'الشركة', 'Filled in per document': 'يُملأ لكل مستند',
   'Document number': 'رقم المستند', 'Document date': 'تاريخ المستند', Status: 'الحالة', Notes: 'الملاحظات',

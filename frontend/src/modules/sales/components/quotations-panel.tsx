@@ -28,6 +28,10 @@ import { useToast } from '@/hooks/use-toast';
 import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InvoiceTemplate, Quotation, QuotationStatus } from '@/modules/finance/types';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
+import { templateSlots } from '@/modules/finance/doc/tokens';
+import { getCompanyMembers } from '@/services/userService';
+import { quoteMatches } from '../lib/quote-search';
+import { OptionalLinesPicker, optionalIndexes } from './optional-lines-picker';
 import { isModuleOn } from '@/modules/companies/lib/company-modules';
 import type { InventoryItem } from '@/modules/operations/types';
 import { getContacts, type Contact } from '@/services/contactService';
@@ -37,10 +41,10 @@ import { getServices } from '@/services/servicesService';
 import { createContact } from '@/services/contactService';
 import { ServiceDialog } from './services-panel';
 import {
-  convertQuotationToInvoice, convertQuotationToSalesOrder, createQuotation, deleteQuotation, downloadQuotationPdf, getQuotations,
+  convertQuotationToInvoice, convertQuotationToSalesOrder, copyQuotation, createQuotation, deleteQuotation, downloadQuotationPdf, getQuotation, getQuotations,
   setQuotationStatus, updateQuotation,
 } from '@/services/quotationService';
-import { SalesLineItemsEditor, emptyItemRow, formDiscountTotals, formItemsTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
+import { SalesLineItemsEditor, emptyItemRow, formDiscountTotals, formItemsTotal, formOptionalTotal, itemsToForm, prepareItems, type SalesItemForm } from './sales-line-items';
 import { ApprovalChip } from '@/modules/approvals/components/approval-chip';
 import { useApprovalStatuses } from '@/modules/approvals/hooks/use-approval-statuses';
 
@@ -64,6 +68,25 @@ type QuoteForm = {
   language: '' | 'ar' | 'en';
   notes: string;
   items: SalesItemForm[];
+  ownerUserId: string;
+  /** Written text per template slot (plain text); '' uses the template's own. */
+  content: Record<string, string>;
+  /** Slots whose stored text is rich and not yet touched: left as they are on save. */
+  richSlots: string[];
+};
+
+const SLOT_LABELS: Record<string, [string, string]> = {
+  intro: ['Introduction', 'مقدمة'], scope: ['Scope of work', 'نطاق العمل'], terms: ['Terms', 'الشروط'], closing: ['Closing', 'الخاتمة'],
+};
+
+/** Plain text of a stored slot value: text as is, rich-text JSON as its paragraphs. */
+const slotPlainText = (value: unknown): { text: string; rich: boolean } => {
+  if (typeof value === 'string') return { text: value, rich: false };
+  if (value && typeof value === 'object') {
+    const node = value as { content?: Array<{ content?: Array<{ text?: string }> }> };
+    return { text: (node.content || []).map((p) => (p.content || []).map((t) => t.text || '').join('')).join('\n'), rich: true };
+  }
+  return { text: '', rich: false };
 };
 
 const blankForm = (): QuoteForm => ({
@@ -75,6 +98,9 @@ const blankForm = (): QuoteForm => ({
   language: '',
   notes: '',
   items: [emptyItemRow()],
+  ownerUserId: '',
+  content: {},
+  richSlots: [],
 });
 
 /**
@@ -99,6 +125,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
 
   const [quotes, setQuotes] = React.useState<Quotation[]>([]);
   const approvalStatus = useApprovalStatuses('quotation', quotes);
+  const [members, setMembers] = React.useState<Awaited<ReturnType<typeof getCompanyMembers>>>([]);
   const [clients, setClients] = React.useState<Contact[]>([]);
   const [inventory, setInventory] = React.useState<InventoryItem[]>([]);
   // A typed line being saved to the price list, and the quick new-client form.
@@ -115,24 +142,29 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const [saving, setSaving] = React.useState(false);
   const [invoicing, setInvoicing] = React.useState<Quotation | null>(null);
   const [invoiceTemplateId, setInvoiceTemplateId] = React.useState('');
+  // Quotes with optional lines ask which ones the client took before converting.
+  const [ordering, setOrdering] = React.useState<Quotation | null>(null);
+  const [taken, setTaken] = React.useState<number[]>([]);
 
   const load = React.useCallback(async () => {
     if (!companyId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [quoteData, clientData, itemData, quoteTemplateData, invoiceTemplateData] = await Promise.all([
+      const [quoteData, clientData, itemData, quoteTemplateData, invoiceTemplateData, memberData] = await Promise.all([
         getQuotations(companyId, { opportunityId }),
         opportunityId ? Promise.resolve([] as Contact[]) : getContacts(companyId, 'Client'),
         // With inventory off the price list is the company's services (behind sales).
         inventoryOn ? getInventoryItems(companyId) : getServices(companyId),
         getInvoiceTemplates(companyId, 'quote'),
         getInvoiceTemplates(companyId, 'invoice'),
+        getCompanyMembers(companyId).catch(() => []),
       ]);
       setQuotes(quoteData);
       setClients(clientData);
       setInventory(itemData);
       setQuoteTemplates(quoteTemplateData);
       setInvoiceTemplates(invoiceTemplateData);
+      setMembers(memberData);
     } catch (error: any) {
       toast({ variant: 'destructive', title: t('quotes.unavailable'), description: error?.message });
     } finally {
@@ -144,8 +176,15 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
 
   const clientName = React.useMemo(() => {
     const map = new Map<string, string>();
-    clients.forEach((c) => { map.set(c.id, c.name); if (c.clientId) map.set(c.clientId, c.name); });
-    return (quote: Quotation) => map.get(quote.contactId || '') || map.get(quote.clientId) || '';
+    const names = new Map<string, string[]>();
+    clients.forEach((c) => {
+      map.set(c.id, c.name); if (c.clientId) map.set(c.clientId, c.name);
+      const all = [c.name, c.nameAr, c.nameEn].filter(Boolean) as string[];
+      names.set(c.id, all); if (c.clientId) names.set(c.clientId, all);
+    });
+    const find = (quote: Quotation) => map.get(quote.contactId || '') || map.get(quote.clientId) || '';
+    find.names = (quote: Quotation) => names.get(quote.contactId || '') || names.get(quote.clientId) || [];
+    return find;
   }, [clients]);
   const clientPhone = React.useCallback(
     (quote: Quotation) => clients.find((c) => c.id === quote.contactId || c.id === quote.clientId || c.clientId === quote.clientId)?.phone || undefined,
@@ -157,10 +196,8 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   const inventoryMap = React.useMemo(() => new Map(inventory.map((item) => [item.id, item])), [inventory]);
 
   const shown = React.useMemo(() => {
-    const query = search.trim().toLowerCase();
     return quotes.filter((quote) => {
-      const matchesQuery = !query || [quote.quoteNumber, clientName(quote), quote.notes || '', ...quote.items.map((i) => i.description)]
-        .some((value) => value.toLowerCase().includes(query));
+      const matchesQuery = quoteMatches(quote, search, { client: clientName.names(quote) });
       return matchesQuery && (statusFilter === 'all' || quote.status === statusFilter);
     });
   }, [quotes, search, statusFilter, clientName]);
@@ -192,7 +229,20 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     if (canCreate) openNew();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, canCreate]);
-  const openEdit = (quote: Quotation) => {
+  const openEdit = async (quote: Quotation) => {
+    // The list carries no written text: fetch the whole quote.
+    let full = quote;
+    try { full = await getQuotation(quote.id); } catch (error: any) {
+      toast({ variant: 'destructive', title: t('quotes.unavailable'), description: error?.message });
+      return;
+    }
+    const content: Record<string, string> = {};
+    const richSlots: string[] = [];
+    Object.entries(full.content || {}).forEach(([slot, value]) => {
+      const { text, rich } = slotPlainText(value);
+      if (text) content[slot] = text;
+      if (rich) richSlots.push(slot);
+    });
     setForm({
       contactId: quote.contactId || quote.clientId,
       issueDate: format(quote.issueDate, 'yyyy-MM-dd'),
@@ -202,10 +252,18 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       language: quote.language ?? '',
       notes: quote.notes || '',
       items: itemsToForm(quote.items),
+      ownerUserId: full.ownerUserId || '',
+      content,
+      richSlots,
     });
     setEditing(quote);
   };
 
+  const slots = React.useMemo(() => {
+    const template = quoteTemplates.find((tpl) => tpl.id === (form.templateId || chooseTemplateId(quoteTemplates)));
+    return templateSlots(template?.doc);
+  }, [quoteTemplates, form.templateId]);
+  const optionalTotal = formOptionalTotal(form.items);
   const subtotal = formItemsTotal(form.items);
   const disc = formDiscountTotals(form.items);
   const vat = Math.round(subtotal * (Number(form.taxRate) || 0)) / 100;
@@ -216,6 +274,16 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       toast({ variant: 'destructive', title: t('quotes.missingClient') });
       return;
     }
+    if (!items.some((item) => item.lineType !== 'section' && !item.optional)) {
+      toast({ variant: 'destructive', title: tr('Add at least one priced line', 'أضف بندًا واحدًا على الأقل بسعر') });
+      return;
+    }
+    // A written box: text when filled, null when emptied (back to the template's own); untouched rich text is not sent.
+    const content: Record<string, string | null> = {};
+    slots.forEach(({ slot }) => {
+      if (form.richSlots.includes(slot)) return;
+      content[slot] = (form.content[slot] || '').trim() || null;
+    });
     const contact = clients.find((c) => c.id === form.contactId);
     const payload = {
       issueDate: new Date(form.issueDate),
@@ -225,9 +293,11 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       notes: form.notes || undefined,
       templateId: form.templateId || undefined,
       language: form.language || undefined,
+      ownerUserId: form.ownerUserId || undefined,
+      content,
     };
     // On edit an emptied field is sent as null so the server clears it.
-    const editPayload = { ...payload, notes: form.notes || null, templateId: form.templateId || null, language: form.language || null } as any;
+    const editPayload = { ...payload, notes: form.notes || null, templateId: form.templateId || null, language: form.language || null, ownerUserId: form.ownerUserId || null } as any;
     setSaving(true);
     try {
       if (editing === 'new') {
@@ -260,10 +330,15 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
   };
 
   const move = (quote: Quotation, status: QuotationStatus) => run(() => setQuotationStatus(quote.id, status));
-  const toOrder = (quote: Quotation) => run(async () => {
-    const order = await convertQuotationToSalesOrder(quote.id);
+  const makeOrder = (quote: Quotation, includeOptional?: number[]) => run(async () => {
+    const order = await convertQuotationToSalesOrder(quote.id, includeOptional ? { includeOptional } : {});
     toast({ title: t('quotes.orderCreated', undefined, { number: order.orderNumber }) });
   });
+  const toOrder = (quote: Quotation) => {
+    if (optionalIndexes(quote).length) { setTaken([]); setOrdering(quote); return; }
+    return makeOrder(quote);
+  };
+  const askInvoice = (quote: Quotation) => { setInvoiceTemplateId(chooseTemplateId(invoiceTemplates)); setTaken([]); setInvoicing(quote); };
   const remove = async (quote: Quotation) => {
     if (!(await confirm({
       title: t('quotes.deleteTitle'),
@@ -278,7 +353,10 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     if (!invoicing) return;
     const quote = invoicing;
     await run(async () => {
-      const created = await convertQuotationToInvoice(quote.id, { templateId: invoiceTemplateId || undefined });
+      const created = await convertQuotationToInvoice(quote.id, {
+        templateId: invoiceTemplateId || undefined,
+        ...(optionalIndexes(quote).length ? { includeOptional: taken } : {}),
+      });
       toast({ title: t('quotes.invoiceCreated', undefined, { number: created.invoiceNumber }) });
     });
     setInvoicing(null);
@@ -395,7 +473,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                               <DropdownMenuItem onClick={() => move(quote, 'Declined')}>{t('quotes.decline')}</DropdownMenuItem>
                             )}
                             {quote.status === 'Accepted' && !converted(quote) && (
-                              <DropdownMenuItem onClick={() => { setInvoiceTemplateId(chooseTemplateId(invoiceTemplates)); setInvoicing(quote); }}>
+                              <DropdownMenuItem onClick={() => askInvoice(quote)}>
                                 <FileText className="me-2 h-4 w-4" />{t('quotes.toInvoice')}
                               </DropdownMenuItem>
                             )}
@@ -403,6 +481,12 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                               <DropdownMenuItem onClick={() => move(quote, 'Draft')}>{t('quotes.reopen')}</DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
+                            {canCreate && (
+                              <DropdownMenuItem onClick={() => run(async () => {
+                                const c = await copyQuotation(quote.id);
+                                toast({ title: tr(`Copied as ${c.quoteNumber}`, `تم النسخ برقم ${c.quoteNumber}`) });
+                              })}>{tr('Copy quote', 'نسخ العرض')}</DropdownMenuItem>
+                            )}
                             {(['ar', 'en'] as const).map((lang) => (
                               <DropdownMenuItem
                                 key={lang}
@@ -504,10 +588,20 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <Label>{tr('Salesperson', 'مسؤول المبيعات')}</Label>
+              <Combobox
+                options={members.map((m) => ({ value: m.id, label: displayName(m, language), keywords: allNames(m) }))}
+                value={form.ownerUserId}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, ownerUserId: value }))}
+                placeholder={tr('Me', 'أنا')}
+                searchPlaceholder={tr('Search people…', 'ابحث عن شخص…')}
+              />
+            </div>
           </div>
           {/* The line table is wider than the dialog: it scrolls on its own instead of stretching the form. */}
           <div className="min-w-0 overflow-x-auto">
-            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} documentLanguage={form.language || undefined} />
+            <SalesLineItemsEditor rows={form.items} onChange={(rows) => setForm((prev) => ({ ...prev, items: rows }))} inventory={inventory} onSaveAsService={canCreate ? setServiceLine : undefined} documentLanguage={form.language || undefined} quoteLines />
           </div>
           <dl className="ms-auto grid w-full max-w-xs grid-cols-2 gap-y-1 text-sm">
             {disc.discount > 0 && <>
@@ -517,11 +611,34 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             <dt className="text-muted-foreground">{disc.discount > 0 ? tr('Total after discount', 'الإجمالي بعد الخصم') : t('quotes.subtotal')}</dt><dd className="text-end tabular-nums">{money(subtotal)}</dd>
             <dt className="text-muted-foreground">{t('quotes.vatAmount')}</dt><dd className="text-end tabular-nums">{money(vat)}</dd>
             <dt className="font-medium">{t('quotes.total')}</dt><dd className="text-end font-semibold tabular-nums">{money(subtotal + vat)}</dd>
+            {optionalTotal > 0 && <>
+              <dt className="text-muted-foreground">{tr('Optional extras', 'إضافات اختيارية')}</dt><dd className="text-end tabular-nums">{money(optionalTotal)}</dd>
+            </>}
           </dl>
           <div className="space-y-1">
             <Label htmlFor="quote-notes">{t('quotes.notes')}</Label>
             <Textarea id="quote-notes" dir="auto" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
           </div>
+          {slots.map(({ slot, title, fallback }) => {
+            const [en, ar] = SLOT_LABELS[slot] || [slot, slot];
+            return (
+              <div key={slot} className="space-y-1">
+                <Label htmlFor={`quote-slot-${slot}`}>{title || tr(en, ar)}</Label>
+                <Textarea
+                  id={`quote-slot-${slot}`}
+                  dir="auto"
+                  rows={3}
+                  value={form.content[slot] ?? ''}
+                  placeholder={typeof fallback === 'string' && fallback ? fallback : tr("Empty uses the template's text", 'اتركه فارغًا لاستخدام نص القالب')}
+                  onChange={(e) => setForm((prev) => ({
+                    ...prev,
+                    content: { ...prev.content, [slot]: e.target.value },
+                    richSlots: prev.richSlots.filter((r) => r !== slot),
+                  }))}
+                />
+              </div>
+            );
+          })}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>{t('common.cancel')}</Button>
             <Button onClick={save} disabled={saving}>{saving ? t('common.loading') : t('quotes.save')}</Button>
@@ -611,6 +728,7 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             <DialogTitle>{t('quotes.invoiceTitle')}</DialogTitle>
             <DialogDescription>{invoicing ? <bdi>{invoicing.quoteNumber}</bdi> : null}</DialogDescription>
           </DialogHeader>
+          {invoicing && <OptionalLinesPicker quote={invoicing} value={taken} onChange={setTaken} />}
           <div className="space-y-2">
             <Label>{t('finance.invoiceTemplate')}</Label>
             <Select value={invoiceTemplateId} onValueChange={setInvoiceTemplateId}>
@@ -623,6 +741,19 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
           <DialogFooter>
             <Button variant="outline" onClick={() => setInvoicing(null)}>{t('common.cancel')}</Button>
             <Button onClick={invoice}>{t('quotes.toInvoice')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(ordering)} onOpenChange={(open) => { if (!open) setOrdering(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('quotes.toOrder')}</DialogTitle>
+            <DialogDescription>{ordering ? <bdi>{ordering.quoteNumber}</bdi> : null}</DialogDescription>
+          </DialogHeader>
+          {ordering && <OptionalLinesPicker quote={ordering} value={taken} onChange={setTaken} />}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOrdering(null)}>{t('common.cancel')}</Button>
+            <Button onClick={() => { const quote = ordering; setOrdering(null); if (quote) void makeOrder(quote, taken); }}>{t('quotes.toOrder')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

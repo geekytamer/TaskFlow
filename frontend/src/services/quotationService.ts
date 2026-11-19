@@ -35,6 +35,10 @@ export interface QuotationInput {
   templateId?: string;
   /** 'ar' / 'en'; null clears it so the quote follows the reader. */
   language?: 'ar' | 'en' | null;
+  /** The salesperson printed on the quote; null clears it. */
+  ownerUserId?: string | null;
+  /** Text written for this quote, by slot name: text, rich-text JSON, or null to use the template's own. */
+  content?: Record<string, unknown | null>;
 }
 
 export async function getQuotations(companyId: string, filter: { opportunityId?: string } = {}): Promise<Quotation[]> {
@@ -60,11 +64,20 @@ export async function deleteQuotation(id: string): Promise<void> {
   await apiFetch(`/quotations/${id}`, { method: 'DELETE' });
 }
 
-export async function convertQuotationToSalesOrder(id: string): Promise<SalesOrder> {
-  return apiFetch<SalesOrder>(`/quotations/${id}/sales-order`, { method: 'POST', body: '{}' });
+export async function getQuotation(id: string): Promise<Quotation> {
+  return mapQuotation(await apiFetch(`/quotations/${id}`));
 }
 
-export async function convertQuotationToInvoice(id: string, data: { templateId?: string } = {}): Promise<Invoice> {
+export async function copyQuotation(id: string): Promise<Quotation> {
+  return mapQuotation(await apiFetch(`/quotations/${id}/copy`, { method: 'POST' }));
+}
+
+/** `includeOptional` = indexes into the quote's items of the optional lines the client took. */
+export async function convertQuotationToSalesOrder(id: string, data: { includeOptional?: number[] } = {}): Promise<SalesOrder> {
+  return apiFetch<SalesOrder>(`/quotations/${id}/sales-order`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function convertQuotationToInvoice(id: string, data: { templateId?: string; includeOptional?: number[] } = {}): Promise<Invoice> {
   return apiFetch<Invoice>(`/quotations/${id}/invoice`, { method: 'POST', body: JSON.stringify(data) });
 }
 
