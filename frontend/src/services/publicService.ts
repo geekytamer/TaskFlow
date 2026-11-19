@@ -1,5 +1,7 @@
 import type { Invoice, InvoiceTemplate, Client } from '@/modules/finance/types';
 import type { Company } from '@/modules/companies/types';
+import type { DocExtras } from '@/modules/finance/doc/tokens';
+import type { RichNode } from '@/modules/finance/doc/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4006';
 
@@ -63,7 +65,7 @@ export async function resolvePublicDocumentPath(id: string): Promise<string | nu
  * Fetches a quotation and maps it into the invoice-shaped payload the shared
  * document engine renders: valid-until stands where an invoice's due date is.
  */
-export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en' }> {
+export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en'; extras: DocExtras; content: Record<string, RichNode | string> }> {
   const res = await fetch(`${API_BASE}/public/quotations/${id}`, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error(res.status === 404 ? 'Quotation not found.' : 'Could not load quotation.');
@@ -90,6 +92,10 @@ export async function getPublicQuotation(id: string): Promise<PublicInvoicePaylo
       discount: it.discount,
       discountType: it.discountType,
       amount: it.lineTotal,
+      lineType: it.lineType,
+      optional: it.optional,
+      details: it.details,
+      unit: it.unit,
     })),
     total: q.totalAmount,
     taxRate: q.taxRate,
@@ -100,7 +106,7 @@ export async function getPublicQuotation(id: string): Promise<PublicInvoicePaylo
     ? { ...data.template, createdAt: toDate(data.template.createdAt) || new Date(), updatedAt: toDate(data.template.updatedAt) || new Date() }
     : undefined;
   const language = q.language === 'ar' || q.language === 'en' ? q.language : undefined;
-  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status, language };
+  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status, language, extras: q.extras ?? {}, content: q.content ?? {} };
 }
 
 /**
