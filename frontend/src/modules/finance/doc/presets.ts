@@ -39,7 +39,7 @@ export function proposalDoc(template?: InvoiceTemplate): InvoiceDoc {
     { id: 'p-lines', type: 'lineItems', columns: [
       { id: 'c-index', key: 'index', label: '#', visible: true, width: 6, align: 'left' },
       { id: 'c-desc', key: 'description', label: 'Description', visible: true, width: 46, align: 'left' },
-      { id: 'c-unit', key: 'unit', label: 'Unit', visible: true, width: 10, align: 'left' },
+      { id: 'c-unit', key: 'unit', label: 'Unit of measure', visible: true, width: 10, align: 'left' },
       { id: 'c-qty', key: 'quantity', label: 'Qty', visible: true, width: 10, align: 'right' },
       { id: 'c-price', key: 'unitPrice', label: 'Unit price', visible: true, width: 14, align: 'right' },
       { id: 'c-amount', key: 'amount', label: 'Amount', visible: true, width: 14, align: 'right' },

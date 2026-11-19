@@ -1259,7 +1259,7 @@ function ColumnsProperties({
         </div>
       ))}
       {!inherited && (
-        <Select value="" onValueChange={(key) => setColumns([...columns, { id: makeId(), key: key as InvoiceColumn['key'], label: ({ index: '#', unit: 'Unit', discount: 'Discount', sku: 'Code' } as Record<string, string>)[key] ?? key, visible: true, width: 8, align: key === 'index' || key === 'unit' || key === 'sku' ? 'left' : 'right' }])}>
+        <Select value="" onValueChange={(key) => setColumns([...columns, { id: makeId(), key: key as InvoiceColumn['key'], label: ({ index: '#', unit: 'Unit of measure', discount: 'Discount', sku: 'Code' } as Record<string, string>)[key] ?? key, visible: true, width: 8, align: key === 'index' || key === 'unit' || key === 'sku' ? 'left' : 'right' }])}>
           <SelectTrigger className="h-8 w-44"><SelectValue placeholder={tr('Add column…', 'إضافة عمود…')} /></SelectTrigger>
           <SelectContent>
             {(['index', 'unit', 'discount', 'sku'] as const).filter((k) => !columns.some((c) => c.key === k)).map((k) => (

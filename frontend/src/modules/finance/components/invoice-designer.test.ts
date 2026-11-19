@@ -55,5 +55,6 @@ test('the proposal preset is listed and its words localise to Arabic', async () 
   assert.equal(localizeLabel(slot('intro').fallback, ar), 'شكرًا لإتاحة الفرصة. تجدون عرضنا أدناه.');
   assert.equal(localizeLabel('Attention', ar), 'عناية');
   assert.equal(localizeLabel('Prepared by', ar), 'أعدّه');
-  assert.equal(localizeLabel('Unit', ar), 'الوحدة');
+  assert.equal(localizeLabel('Unit', ar), 'سعر الوحدة');
+  assert.equal(localizeLabel('Unit of measure', ar), 'الوحدة');
 });
