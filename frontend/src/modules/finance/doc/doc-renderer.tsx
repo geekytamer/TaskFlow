@@ -850,9 +850,10 @@ function DetailsView({ block, ctx, style }: { block: DetailsBlock; ctx: DocDataC
     return (
       <div style={style}>
         {block.title && <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: '#94a3b8' }}>{block.title}</div>}
-        <div style={{ marginTop: 8, fontSize: 14 }}>
+        {/* Rows follow the block's own text size, so a dense sheet fits one page. */}
+        <div style={{ marginTop: block.title ? 8 : 0, fontSize: style.fontSize ?? 14 }}>
           {block.fields.map((f, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '8px 0', borderBottom: i < last ? '1px solid #e5e7eb' : undefined }}>
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '0.45em 0', borderBottom: i < last ? '1px solid #e5e7eb' : undefined }}>
               <span style={{ color: '#64748b' }}>{f.label}</span>
               <span>{resolveTokens(f.value, ctx)}</span>
             </div>

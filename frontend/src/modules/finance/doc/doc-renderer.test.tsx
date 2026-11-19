@@ -419,7 +419,7 @@ test('a details block in rows layout puts label and value on opposite sides with
   assert.ok(first.includes('Reference') && first.includes('N1') && first.includes('Validity') && first.includes('Blank'), 'blank rows still show');
   assert.equal((first.match(/justify-content:space-between/g) || []).length, 3);
   assert.equal((first.match(/border-bottom:1px solid #e5e7eb/g) || []).length, 2, 'no line after the last row');
-  assert.ok(first.includes('padding:8px 0'));
+  assert.ok(first.includes('padding:0.45em 0'));
   assert.ok(first.includes('color:#64748b'));
   assert.ok(!/margin-left|margin-right|padding-left|padding-right|text-align:(left|right)/.test(first.replace(/<style>[\s\S]*?<\/style>/, '')));
   assert.ok(first.includes('>Info<'), 'title above');
