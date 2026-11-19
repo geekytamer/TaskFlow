@@ -155,7 +155,7 @@ The registry is the only list of kinds. `/public/resolve/:id`, the template-type
 `SalesOrderLineItem` gains optional `type: 'item' | 'section'`, `optional`, `details` and `imageUrl`. Rules in the store:
 - A section line has a description only. It is skipped by totals, VAT and stock.
 - An optional line prints with its price and is left out of `subtotal`, `tax` and `total`. Its own "optional extras" sum is shown when the kind's totals block asks for it.
-- When a quote converts to a sales order or an invoice, optional lines are dropped unless the user ticks them in the convert dialog. Sections carry over.
+- When a quote converts to a sales order or an invoice, optional lines are dropped unless the user ticks them in the convert dialog; a ticked one becomes a normal line. In Phase 1 section rows are dropped on conversion, because sales orders index deliveries by line position; they carry over from Phase 2, once sales orders and invoices render sections.
 - Old lines without these fields behave exactly as today.
 
 New column keys: `index`, `unit`, `discount`, `tax`, `orderedQuantity`, `image`. `custom` reads `line.custom[columnId]`.
@@ -178,9 +178,9 @@ Each phase ships on its own and is deployed to prod with the usual backup, swap 
 - Slots, the `document_content` table, line sections and optional lines, the new columns and the new conditions are built exactly as sections 4.4 to 4.6 describe. They are kind-neutral already; Phase 1 only switches them on for quotes.
 
 **Phase 1: quotations (on today's engine)**
-- **Quote data:** a new `ownerUserId` column on quotations (the salesperson; defaults to the opportunity's owner, else the creator; editable on the form). The public quote payload adds valid-until, contact person name and phone, owner name and phone, opportunity title, client phone and tax number, and discount totals, all in `extras`.
+- **Quote data:** a new `ownerUserId` column on quotations (the salesperson; defaults to the opportunity's owner, else the creator; editable on the form). The public quote payload adds valid-until, contact person name and phone, owner name and email, client phone and tax number, and discount and optional-extras totals, all in `extras`. The opportunity stays out: the public quote already promises "no opportunity id, no opportunity title" (`backend/test/quotations.test.js`).
 - **Tokens and data picker:** the tokens above, shown under a "Quotation" group in the designer when the template's type is quote.
-- **Columns:** `index`, `discount`, `unit`, and the long description under a line. `custom` columns get a value typed per line.
+- **Columns:** `index`, `discount`, `unit`, and the long description under a line. Typing values for `custom` columns per line waits for Phase 2.
 - **Slots:** the `slot` block, the `document_content` table (migration), and intro/scope/terms boxes on the quote form. They carry to the sales order and invoice in Phase 2, once those kinds have slots.
 - **Lines:** sections and optional lines in the sales line editor and the store totals. A convert dialog (to sales order or invoice) with "include optional lines".
 - **Conditions:** `hasDiscount`, `hasOptionalLines`, `lang:ar`, `lang:en` for quote templates.
