@@ -815,6 +815,14 @@ export interface SalesOrderLineItem {
   discount?: number;
   discountType?: LineDiscountType;
   lineTotal: number;
+  /** A heading row inside a quotation's table; no price, no stock (spec 2026-11-19 §4.5). Absent = a normal line. */
+  lineType?: 'section';
+  /** Shown with its price, left out of the totals. Quotations only. */
+  optional?: boolean;
+  /** Longer text printed under the line. */
+  details?: string;
+  /** Unit the quantity counts in ("day", "pcs"). */
+  unit?: string;
 }
 
 export interface SalesOrder {

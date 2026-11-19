@@ -1,4 +1,4 @@
-import type { DocumentLanguage, QuotationStatus } from '../types';
+import type { DocumentLanguage, QuotationStatus, SalesOrderLineItem } from '../types';
 import { HttpError } from '../http';
 import { asRecord, enumValue, optionalDateInput, optionalNumber, optionalString, requiredDateInput, requiredString } from '../validation';
 import type { RouteContext } from './context';
@@ -14,6 +14,26 @@ const parseDocumentLanguage = (value: unknown): DocumentLanguage | null | undefi
   if (value === null || value === '') return null;
   if (value === 'ar' || value === 'en') return value;
   throw new HttpError(400, 'language must be "ar", "en" or empty.');
+};
+
+/** Quotation lines: a section row needs only a description; other rows parse as sales lines. */
+const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) => SalesOrderLineItem[]): SalesOrderLineItem[] => {
+  if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'items must contain at least one line item.');
+  if (value.length > 300) throw new HttpError(400, 'A quotation can have at most 300 lines.');
+  return value.map((row, index) => {
+    const record = asRecord(row, `items[${index}]`);
+    if (record.lineType === 'section') {
+      return { lineType: 'section', description: requiredString(record.description, `items[${index}].description`), quantity: 0, unitPrice: 0, lineTotal: 0,
+        descriptionAr: optionalString(record.descriptionAr), descriptionEn: optionalString(record.descriptionEn) } as SalesOrderLineItem;
+    }
+    const [line] = parseSalesOrderItems([record]);
+    return {
+      ...line,
+      optional: record.optional === true ? true : undefined,
+      details: optionalString(record.details),
+      unit: optionalString(record.unit),
+    };
+  });
 };
 
 export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
@@ -78,7 +98,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       if (!clientId) throw new HttpError(400, 'Choose the client this quotation is for.');
       ensureClientBelongsToCompany(clientId, companyId);
       if (!store.getClientById(clientId)) throw new HttpError(400, 'Client not found.');
-      const items = parseSalesOrderItems(body.items);
+      const items = parseQuotationItems(body.items, parseSalesOrderItems);
       ensureSalesItemsBelongToCompany(items, companyId);
       const templateId = optionalString(body.templateId);
       ensureQuoteTemplate(templateId, companyId);
@@ -149,7 +169,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
         ensureClientBelongsToCompany(clientId, existing.companyId);
         if (!store.getClientById(clientId)) throw new HttpError(400, 'Client not found.');
       }
-      const items = body.items !== undefined ? parseSalesOrderItems(body.items) : undefined;
+      const items = body.items !== undefined ? parseQuotationItems(body.items, parseSalesOrderItems) : undefined;
       if (items) ensureSalesItemsBelongToCompany(items, existing.companyId);
       const contactId = body.contactId !== undefined ? optionalString(body.contactId) ?? null : undefined;
       if (contactId) {

@@ -422,6 +422,8 @@ type CreatePurchaseRequisitionInput = {
 };
 /** Tasks of an archived project are put away: no reminders or alerts for them. */
 const NOT_ARCHIVED = "(projectId IS NULL OR projectId = '' OR projectId NOT IN (SELECT id FROM projects WHERE status = 'Archived'))";
+/** A quotation line that counts toward the price: not a section heading, not optional. */
+const isCountedLine = (item: { lineType?: string; optional?: boolean }) => item.lineType !== 'section' && !item.optional;
 type CreateExpenseInput = {
   companyId: string;
   expenseDate?: Date | string;
@@ -16279,7 +16281,7 @@ export class DataStore {
   }
 
   private quotationTotals(items: SalesOrder['items'], taxRate: number) {
-    const subtotal = Number(items.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
+    const subtotal = Number(items.filter(isCountedLine).reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2));
     const rate = Number(taxRate) > 0 ? Number(taxRate) : 0;
     const taxAmount = Number(((subtotal * rate) / 100).toFixed(2));
     return { subtotal, taxRate: rate, taxAmount, totalAmount: Number((subtotal + taxAmount).toFixed(2)) };
@@ -16298,8 +16300,8 @@ export class DataStore {
     currency?: string; exchangeRate?: number; notes?: string; templateId?: string; quoteNumber?: string;
     language?: DocumentLanguage | null;
   }): Quotation {
-    const items = this.normalizeSalesOrderItems(input.items);
-    if (!items.length) throw new Error('A quotation needs at least one line.');
+    const items = this.normalizeQuotationItems(input.items);
+    if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
     const issueDate = new Date(input.issueDate);
     const validUntil = new Date(input.validUntil);
     this.assertQuotationDates(issueDate, validUntil);
@@ -16373,8 +16375,8 @@ export class DataStore {
     if (existing.status === 'Accepted' || existing.status === 'Declined') {
       throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
     }
-    const items = updates.items !== undefined ? this.normalizeSalesOrderItems(updates.items) : existing.items;
-    if (!items.length) throw new Error('A quotation needs at least one line.');
+    const items = updates.items !== undefined ? this.normalizeQuotationItems(updates.items) : existing.items;
+    if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
     const issueDate = updates.issueDate !== undefined ? new Date(updates.issueDate) : existing.issueDate;
     const validUntil = updates.validUntil !== undefined ? new Date(updates.validUntil) : existing.validUntil;
     this.assertQuotationDates(issueDate, validUntil);
@@ -16490,7 +16492,7 @@ export class DataStore {
       issueDate: new Date(row.issueDate),
       validUntil,
       status: (stored === 'Draft' || stored === 'Sent') && lapsed && !row.salesOrderId && !row.invoiceId ? 'Expired' : stored,
-      items: this.normalizeSalesOrderItems(this.parseJson(row.items) || []),
+      items: this.normalizeQuotationItems(this.parseJson(row.items) || []),
       subtotal: Number(row.subtotal) || 0,
       taxRate: Number(row.taxRate) || 0,
       taxAmount: Number(row.taxAmount) || 0,
@@ -20548,6 +20550,26 @@ export class DataStore {
         unitPrice: Number(item.unitPrice.toFixed(4)),
         lineTotal: Number(item.lineTotal.toFixed(2)),
       }));
+  }
+
+  /** Sales lines plus section headings and optional lines; order is kept. */
+  private normalizeQuotationItems(rawItems: any[]): SalesOrder['items'] {
+    const clip = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.replace(/[ \t]+/g, ' ').trim().slice(0, max) : undefined);
+    const out: SalesOrder['items'] = [];
+    for (const item of Array.isArray(rawItems) ? rawItems : []) {
+      if (item?.lineType === 'section') {
+        const description = clip(item.description, 300);
+        if (description) out.push({ lineType: 'section', description, ...this.lineNames(item), quantity: 0, unitPrice: 0, lineTotal: 0 });
+        continue;
+      }
+      const [rawLine] = this.normalizeSalesOrderItems([item]);
+      if (!rawLine) continue;
+      const line = Object.fromEntries(Object.entries(rawLine).filter(([, v]) => v !== undefined)) as SalesOrder['items'][number];
+      const details = clip(item?.details, 2000);
+      const unit = clip(item?.unit, 40);
+      out.push({ ...line, ...(item?.optional === true ? { optional: true } : {}), ...(details ? { details } : {}), ...(unit ? { unit } : {}) });
+    }
+    return out;
   }
 
   private normalizePurchaseOrderItems(rawItems: any[]): PurchaseOrder['items'] {
