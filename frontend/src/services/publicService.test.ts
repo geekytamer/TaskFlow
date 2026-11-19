@@ -10,7 +10,9 @@ test('the public quote keeps line kinds, extras and text for the renderer', asyn
     },
     company: { id: '1' }, client: { id: 'c1' },
   };
+  const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => ({ ok: true, json: async () => payload })) as never;
+  try {
   const { getPublicQuotation } = await import('./publicService');
   const data = await getPublicQuotation('q1');
   const lines = data.invoice.lineItems as any[];
@@ -20,4 +22,7 @@ test('the public quote keeps line kinds, extras and text for the renderer', asyn
   assert.equal(lines[1].details, 'd');
   assert.deepEqual(data.extras, { 'contact.name': { type: 'text', value: 'Sara' } });
   assert.deepEqual(data.content, { terms: 'T' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
