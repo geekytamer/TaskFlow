@@ -2334,6 +2334,19 @@ export function createServer(options: CreateServerOptions = {}) {
         || (brand ? { ...brand, docType: 'quote' as const, doc: undefined } : undefined);
       const companyRecord = store.getCompanyById(quote.companyId);
       const client = store.getClientById(quote.clientId);
+      // Quote data for the document (spec 2026-11-19 §4.3 names). The opportunity stays out on purpose.
+      const contact = quote.contactId ? store.getContactById(quote.contactId) : undefined;
+      const owner = quote.ownerUserId ? store.getUserById(quote.ownerUserId) : undefined;
+      const extrasRaw: Record<string, { type: 'text' | 'date'; value: string | undefined }> = {
+        'fields.validUntil': { type: 'date', value: new Date(quote.validUntil).toISOString() },
+        'contact.name': { type: 'text', value: contact?.contactPerson || client?.contactName },
+        'contact.phone': { type: 'text', value: contact?.phone || client?.phone },
+        'owner.name': { type: 'text', value: owner?.name },
+        'owner.email': { type: 'text', value: owner?.email },
+        'to.phone': { type: 'text', value: client?.phone || contact?.phone },
+        'to.taxId': { type: 'text', value: client?.vatNumber || contact?.taxNumber },
+      };
+      const extras = Object.fromEntries(Object.entries(extrasRaw).filter(([, v]) => v.value));
       res.json({
         quotation: {
           id: quote.id,
@@ -2345,6 +2358,7 @@ export function createServer(options: CreateServerOptions = {}) {
             sku: item.sku, description: item.description, descriptionAr: item.descriptionAr, descriptionEn: item.descriptionEn,
             quantity: item.quantity, unitPrice: item.unitPrice,
             discount: item.discount, discountType: item.discountType, lineTotal: item.lineTotal,
+            lineType: item.lineType, optional: item.optional, details: item.details, unit: item.unit,
           })),
           subtotal: quote.subtotal,
           taxRate: quote.taxRate,
@@ -2353,6 +2367,8 @@ export function createServer(options: CreateServerOptions = {}) {
           currency: quote.currency,
           notes: quote.notes,
           language: quote.language ?? null,
+          extras,
+          content: store.getDocumentContent('quote', quote.id),
         },
         template,
         company: companyRecord

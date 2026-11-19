@@ -139,8 +139,14 @@ test('invoicing a quote without ticking optional lines bills only counted lines'
   assert.equal(invoice.status, 201, JSON.stringify(invoice.body));
   assert.equal(invoice.body.lineItems.length, 2);
   assert.equal(invoice.body.total, 1470);
-  const bad = await as(request(app).post(`/quotations/${(await newQuote(app, as)).id}/invoice`)).send({ includeOptional: [1] });
-  assert.equal(bad.status, 400, 'index 1 is not an optional line (and the quote is not accepted)');
+  // A quote that can be invoiced: the 400 must come from the index check, not the status check.
+  const accepted = await newQuote(app, as);
+  await as(request(app).patch(`/quotations/${accepted.id}/status`)).send({ status: 'Accepted' });
+  const bad = await as(request(app).post(`/quotations/${accepted.id}/invoice`)).send({ includeOptional: [1] });
+  assert.equal(bad.status, 400, JSON.stringify(bad.body));
+  assert.match(bad.body.error || bad.body.message || '', /optional/i);
+  const worse = await as(request(app).post(`/quotations/${accepted.id}/invoice`)).send({ includeOptional: 'x' });
+  assert.equal(worse.status, 400);
 });
 
 test('copy quote makes a fresh draft with the same lines, text and salesperson', async () => {
@@ -169,4 +175,44 @@ test('deleting the salesperson clears the quote owner', async () => {
   store.deleteUser(user.id);
   const read = await as(request(app).get(`/quotations/${quote.id}`));
   assert.equal(read.body.ownerUserId, undefined);
+});
+
+test('the public quote carries lines, quote data and text, still with no opportunity', async () => {
+  const { app, as } = setup();
+  const contact = (await as(request(app).post('/companies/1/contacts')).send({ name: 'Gulf Retail LLC', contactPerson: 'Sara', phone: '+968 9000 0000' })).body;
+  const opp = (await as(request(app).post('/companies/1/opportunities')).send({ contactId: contact.id, title: 'Secret deal', serviceType: 'Web' })).body;
+  const quote = await newQuote(app, as, { opportunityId: opp.id, content: { terms } });
+  const res = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.equal(res.status, 200);
+  const q = res.body.quotation;
+  assert.equal(q.items[0].lineType, 'section');
+  assert.equal(q.items[4].optional, true);
+  assert.equal(q.items[1].details, 'Two half-day sessions');
+  assert.equal(q.extras['contact.name'].value, 'Sara');
+  assert.equal(q.extras['contact.phone'].value, '+968 9000 0000');
+  assert.equal(q.extras['fields.validUntil'].type, 'date');
+  assert.ok(q.extras['owner.name'].value);
+  assert.deepEqual(q.content, { terms });
+  const raw = JSON.stringify(res.body);
+  assert.ok(!raw.includes(opp.id) && !raw.includes('Secret deal'));
+});
+
+test('a quote template may use slots, new columns and new conditions', async () => {
+  const { app, as } = setup();
+  const doc = {
+    version: 1, page: { size: 'A4', orientation: 'portrait', margin: { top: 10, right: 10, bottom: 10, left: 10 } },
+    theme: { fontFamily: 'Inter', primaryColor: '#111111', accentColor: '#222222', textColor: '#333333' },
+    body: [
+      { id: 's1', type: 'slot', slot: 'terms', fallback: 'Payment in 30 days.' },
+      { id: 'l1', type: 'lineItems', visibleWhen: 'hasOptionalLines', columns: [
+        { id: 'c1', key: 'index', label: '#', visible: true }, { id: 'c2', key: 'unit', label: 'Unit', visible: true }, { id: 'c3', key: 'discount', label: 'Off', visible: true },
+      ] },
+      { id: 't1', type: 'text', content: 'x', visibleWhen: 'lang:ar' },
+    ],
+  };
+  const res = await as(request(app).post('/companies/1/invoice-templates')).send({ name: 'Proposal', docType: 'quote', layout: 'classic', primaryColor: '#111111', accentColor: '#222222', doc });
+  assert.ok([200, 201].includes(res.status), JSON.stringify(res.body));
+  const bad = await as(request(app).post('/companies/1/invoice-templates')).send({ name: 'Bad', docType: 'quote', layout: 'classic', primaryColor: '#111111', accentColor: '#222222',
+    doc: { ...doc, body: [{ id: 's1', type: 'slot', slot: 'Bad Slot!' }] } });
+  assert.equal(bad.status, 400);
 });

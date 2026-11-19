@@ -16,13 +16,14 @@ const parseDocumentLanguage = (value: unknown): DocumentLanguage | null | undefi
   throw new HttpError(400, 'language must be "ar", "en" or empty.');
 };
 
-/** Quotation lines: a section row needs only a description; other rows parse as sales lines. */
+/** Line numbers (0-based) of optional lines the customer ticked. */
 const parseIncludeOptional = (value: unknown): number[] => {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((v) => !Number.isInteger(v) || v < 0)) throw new HttpError(400, 'includeOptional must be a list of line numbers.');
   return value as number[];
 };
 
+/** Quotation lines: a section row needs only a description; other rows parse as sales lines. */
 const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) => SalesOrderLineItem[]): SalesOrderLineItem[] => {
   if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'items must contain at least one line item.');
   if (value.length > 300) throw new HttpError(400, 'A quotation can have at most 300 lines.');
