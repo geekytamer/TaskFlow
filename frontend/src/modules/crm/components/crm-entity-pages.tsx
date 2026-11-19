@@ -70,6 +70,8 @@ import {
   type Opportunity,
   type VendorRequest,
   type Commission,
+  type CampaignStatus,
+  campaignStatuses,
 } from '@/services/crmService';
 import {
   CheckCircle2,
@@ -92,6 +94,8 @@ import {
   AlertCircle,
   Pencil,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -525,19 +529,24 @@ export function CampaignsPage() {
   const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', expenseDate: '', billable: false });
 
   const [campaignsLoading, setCampaignsLoading] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<'all' | CampaignStatus>('all');
+  const [clientFilter, setClientFilter] = React.useState('all');
+  // Archived campaigns are only fetched when someone asks to see them.
+  const showArchived = statusFilter === 'Archived';
 
   const loadCampaigns = React.useCallback(async () => {
     if (!selectedCompany) { setCampaigns([]); return; }
     setCampaignsLoading(true);
     try {
-      const data = await getCampaigns(selectedCompany.id);
+      const data = await getCampaigns(selectedCompany.id, showArchived);
       setCampaigns(data);
     } catch (error: any) {
       toast({ variant: 'destructive', title: t('campaignsPage.toastLoadFailed'), description: error?.message });
     } finally {
       setCampaignsLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, toast, showArchived]);
 
   const loadExecution = React.useCallback(async (id: string) => {
     const [d, a, e] = await Promise.allSettled([
@@ -651,12 +660,31 @@ export function CampaignsPage() {
     </SectionPageShell>
   );
 
+  // Stats describe the campaigns in play, so archived ones never count.
+  const liveCampaigns = campaigns.filter((c) => c.status !== 'Archived');
+  const query = search.trim().toLowerCase();
+  const visibleCampaigns = campaigns.filter((c) => {
+    if (statusFilter === 'all' ? c.status === 'Archived' : c.status !== statusFilter) return false;
+    if (clientFilter !== 'all' && (clientFilter === 'none' ? !!c.contactId : c.contactId !== clientFilter)) return false;
+    if (!query) return true;
+    return [c.name, c.contactId ? contactName(c.contactId) : '', c.notes ?? '']
+      .some((text) => text.toLowerCase().includes(query));
+  });
+  // "x of y": y is what the status choice draws from (archived ones only under Archived).
+  const filterPool = showArchived ? campaigns.length - liveCampaigns.length : liveCampaigns.length;
+  const filtersActive = !!query || statusFilter !== 'all' || clientFilter !== 'all';
+  const clearFilters = () => { setSearch(''); setStatusFilter('all'); setClientFilter('all'); };
+  const campaignClients = Array.from(new Set(liveCampaigns.map((c) => c.contactId).filter(Boolean) as string[]))
+    .map((id) => ({ id, name: contactName(id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const active = campaigns.filter((c) => c.status === 'Active').length;
   const planned = campaigns.filter((c) => c.status === 'Planned').length;
-  const totalBudget = campaigns.reduce((s, c) => s + (c.budget ?? 0), 0);
-  const invoiceableDeliverables = deliverables.filter((item) => (item.price ?? 0) > 0);
-  const payableDeliverables = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
-  const missingPayableSetup = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
+  const totalBudget = liveCampaigns.reduce((s, c) => s + (c.budget ?? 0), 0);
+  // Cancelled deliverables are neither billed to the client nor paid to a vendor.
+  const billableDeliverables = deliverables.filter((item) => item.status !== 'Cancelled');
+  const invoiceableDeliverables = billableDeliverables.filter((item) => (item.price ?? 0) > 0);
+  const payableDeliverables = billableDeliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
+  const missingPayableSetup = billableDeliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
   const internalCost = deliverables.filter((item) => item.fulfillment !== 'External').reduce((s, item) => s + (item.cost ?? 0), 0);
   const invoiceDisabledReason = !selectedCampaign?.contactId
     ? t('campaignsPage.invoiceDisabledNoClient')
@@ -673,18 +701,60 @@ export function CampaignsPage() {
     <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')} actions={<GamesLink />}>
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={campaigns.length} />
+        <StatCard icon={Megaphone} label={t('campaignsPage.statTotal')} value={liveCampaigns.length} />
         <StatCard icon={TrendingUp} label={t('campaignsPage.statActive')} value={active} color="text-green-600 dark:text-green-400" />
         <StatCard icon={Clock} label={t('campaignsPage.statPlanned')} value={planned} color="text-purple-600 dark:text-purple-400" />
         <StatCard icon={DollarSign} label={t('campaignsPage.statBudget')} value={amount(totalBudget)} color="text-blue-600 dark:text-blue-400" />
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{(campaigns.length !== 1 ? t('campaignsPage.countPlural') : t('campaignsPage.countSingular')).replace('{count}', String(campaigns.length))}</p>
-        <Button onClick={() => setDialogOpen(true)} data-tutorial="campaigns-create">
-          <Plus className="me-2 h-4 w-4" /> {t('campaignsPage.newCampaign')}
-        </Button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={tr('Search campaigns or clients', 'ابحث في الحملات أو العملاء')}
+              aria-label={tr('Search campaigns', 'بحث في الحملات')}
+              className="ps-8"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+            <SelectTrigger className="flex-1 sm:w-40 sm:flex-none" aria-label={t('common.status')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tr('All statuses', 'كل الحالات')}</SelectItem>
+              {campaignStatuses.map((s) => (
+                <SelectItem key={s} value={s}>{campaignStatusLabel(s)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={clientFilter} onValueChange={setClientFilter}>
+            <SelectTrigger className="flex-1 sm:w-48 sm:flex-none" aria-label={t('campaignsPage.colClient')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tr('All clients', 'كل العملاء')}</SelectItem>
+              <SelectItem value="none">{tr('No client', 'بدون عميل')}</SelectItem>
+              {campaignClients.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {filtersActive && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground">
+              <X className="h-3.5 w-3.5" /> {tr('Clear', 'مسح')}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-3 lg:justify-end">
+          <p className="text-sm text-muted-foreground">
+            {filtersActive
+              ? tr(`${visibleCampaigns.length} of ${filterPool}`, `${visibleCampaigns.length} من ${filterPool}`)
+              : (liveCampaigns.length !== 1 ? t('campaignsPage.countPlural') : t('campaignsPage.countSingular')).replace('{count}', String(liveCampaigns.length))}
+          </p>
+          <Button onClick={() => setDialogOpen(true)} data-tutorial="campaigns-create">
+            <Plus className="me-2 h-4 w-4" /> {t('campaignsPage.newCampaign')}
+          </Button>
+        </div>
       </div>
 
       {/* Campaign table */}
@@ -704,7 +774,7 @@ export function CampaignsPage() {
             {campaignsLoading && [...Array(3)].map((_, i) => (
               <TableRow key={i}><TableCell colSpan={6}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
             ))}
-            {!campaignsLoading && campaigns.map((item) => (
+            {!campaignsLoading && visibleCampaigns.map((item) => (
               <TableRow
                 key={item.id}
                 className={`hover:bg-muted/30 transition-colors cursor-pointer ${selectedCampaign?.id === item.id ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
@@ -757,9 +827,14 @@ export function CampaignsPage() {
                 </TableCell>
               </TableRow>
             ))}
-            {!campaignsLoading && campaigns.length === 0 && (
+            {!campaignsLoading && visibleCampaigns.length === 0 && (
               <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                {t('campaignsPage.emptyState')}
+                {campaigns.length > 0 || filtersActive ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <span>{tr('No campaigns match these filters.', 'لا توجد حملات تطابق هذا البحث.')}</span>
+                    <Button variant="outline" size="sm" onClick={clearFilters}>{tr('Clear filters', 'مسح الفلاتر')}</Button>
+                  </div>
+                ) : t('campaignsPage.emptyState')}
               </TableCell></TableRow>
             )}
           </TableBody>
