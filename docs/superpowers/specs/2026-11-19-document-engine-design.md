@@ -156,6 +156,7 @@ The registry is the only list of kinds. `/public/resolve/:id`, the template-type
 - A section line has a description only. It is skipped by totals, VAT and stock.
 - An optional line prints with its price and is left out of `subtotal`, `tax` and `total`. Its own "optional extras" sum is shown when the kind's totals block asks for it.
 - When a quote converts to a sales order or an invoice, optional lines are dropped unless the user ticks them in the convert dialog; a ticked one becomes a normal line. In Phase 1 section rows are dropped on conversion, because sales orders index deliveries by line position; they carry over from Phase 2, once sales orders and invoices render sections.
+- A quote's approval amount is `totalAmount` plus its optional lines with VAT, the most the quote can become; creating, copying and re-approving after an edit all use that one figure.
 - Old lines without these fields behave exactly as today.
 
 New column keys: `index`, `unit`, `discount`, `tax`, `orderedQuantity`, `image`. `custom` reads `line.custom[columnId]`.

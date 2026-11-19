@@ -217,7 +217,7 @@ export function registerQuotationRoutes(app: Express, ctx: RouteContext): void {
       ensureQuoteTemplate(templateId ?? undefined, existing.companyId);
       const content = parseDocContent(body.content);
       const ownerUserId = body.ownerUserId !== undefined ? optionalString(body.ownerUserId) ?? null : undefined;
-      ensureOwner(ownerUserId, existing.companyId);
+      if (ownerUserId !== undefined && (ownerUserId ?? undefined) !== (existing.ownerUserId ?? undefined)) ensureOwner(ownerUserId, existing.companyId);
       // Text is part of the offer, like the lines: it freezes when the quote does.
       if (content && (existing.salesOrderId || existing.invoiceId || existing.status === 'Accepted' || existing.status === 'Declined')) {
         throw new HttpError(400, 'An accepted, declined or converted quotation cannot change its text. Reopen it as a draft first.');

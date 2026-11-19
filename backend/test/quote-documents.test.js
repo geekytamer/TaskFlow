@@ -216,3 +216,46 @@ test('a quote template may use slots, new columns and new conditions', async () 
     doc: { ...doc, body: [{ id: 's1', type: 'slot', slot: 'Bad Slot!' }] } });
   assert.equal(bad.status, 400);
 });
+
+// ── Final review fixes ───────────────────────────────────────────────
+
+const leaveCompany = (store, userId) => {
+  store.updateUser(userId, { companyIds: ['2'], companyRoles: [{ companyId: '2', role: 'Employee' }] });
+  assert.equal((store.getUserById(userId).companyIds ?? []).includes('1'), false, 'user really left company 1');
+};
+
+test('re-sending an unchanged salesperson who has left the company does not block an edit', async () => {
+  const { app, as, store } = setup();
+  const user = store.createUser({ name: 'Seller2', email: 'seller2@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  const quote = await newQuote(app, as, { ownerUserId: user.id });
+  leaveCompany(store, user.id);
+  const same = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: user.id, notes: 'edited' });
+  assert.equal(same.status, 200, JSON.stringify(same.body));
+  assert.equal(same.body.notes, 'edited');
+  const other = store.createUser({ name: 'Gone', email: 'gone@x.example', password: 'Password1!', companyIds: [], role: 'Employee' });
+  const changed = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: other.id });
+  assert.equal(changed.status, 400, 'a changed owner is still checked');
+});
+
+test('copying a quote whose salesperson left the company makes the copier the owner', async () => {
+  const { app, as, store, admin } = setup();
+  const user = store.createUser({ name: 'Seller3', email: 'seller3@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  const quote = await newQuote(app, as, { ownerUserId: user.id });
+  leaveCompany(store, user.id);
+  const copy = await as(request(app).post(`/quotations/${quote.id}/copy`));
+  assert.equal(copy.status, 201, JSON.stringify(copy.body));
+  assert.equal(copy.body.ownerUserId, admin.id);
+});
+
+test('a refused PUT on an accepted quote changes nothing, not even the salesperson', async () => {
+  const { app, as, store } = setup();
+  const user = store.createUser({ name: 'Seller4', email: 'seller4@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  const quote = await newQuote(app, as);
+  const acc = await as(request(app).patch(`/quotations/${quote.id}/status`)).send({ status: 'Accepted' });
+  assert.equal(acc.status, 200, JSON.stringify(acc.body));
+  const put = await as(request(app).put(`/quotations/${quote.id}`)).send({ ownerUserId: user.id, language: 'ar', notes: 'x', content: { terms } });
+  assert.equal(put.status, 400, JSON.stringify(put.body));
+  const read = await as(request(app).get(`/quotations/${quote.id}`));
+  assert.equal(read.body.ownerUserId, quote.ownerUserId);
+  assert.equal(read.body.language, quote.language);
+});

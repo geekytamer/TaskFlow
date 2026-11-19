@@ -16309,6 +16309,13 @@ export class DataStore {
     return { subtotal, taxRate: rate, taxAmount, totalAmount: Number((subtotal + taxAmount).toFixed(2)) };
   }
 
+  /** What a quote can reach: its total plus every optional line with VAT. Approvals are asked on this figure. */
+  private quotationApprovalAmount(quote: { items: SalesOrder['items']; taxRate: number; totalAmount: number }) {
+    const rate = Number(quote.taxRate) > 0 ? Number(quote.taxRate) : 0;
+    const optional = quote.items.filter((i) => i.lineType !== 'section' && i.optional).reduce((sum, i) => sum + i.lineTotal, 0);
+    return Number((Number(quote.totalAmount) + optional * (1 + rate / 100)).toFixed(2));
+  }
+
   private assertQuotationDates(issueDate: Date, validUntil: Date) {
     if (Number.isNaN(issueDate.getTime()) || Number.isNaN(validUntil.getTime())) throw new Error('Quotation dates are invalid.');
     if (validUntil.toISOString().slice(0, 10) < issueDate.toISOString().slice(0, 10)) {
@@ -16377,7 +16384,7 @@ export class DataStore {
       summary: `Quotation ${quote.quoteNumber} created.`,
       metadata: { totalAmount: quote.totalAmount, clientId: quote.clientId, opportunityId: quote.opportunityId },
     });
-    this.beginApproval(quote.companyId, 'quotation', quote.id, Number(quote.totalAmount) || 0);
+    this.beginApproval(quote.companyId, 'quotation', quote.id, this.quotationApprovalAmount(quote));
     // Read back, so a quote dated with a valid-until already past says Expired at once.
     return this.getQuotationById(quote.id)!;
   }
@@ -16394,17 +16401,21 @@ export class DataStore {
     // changes at any stage, an accepted or converted quote included.
     // The salesperson says who handles the quote, not what it offers: same rule.
     const { language, ownerUserId, ...offer } = updates;
+    const touchesOffer = Object.values(offer).some((v) => v !== undefined);
+    // Guards first, so a refused edit changes nothing, not even the language or salesperson.
+    if (touchesOffer) {
+      if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
+      if (existing.status === 'Accepted' || existing.status === 'Declined') {
+        throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
+      }
+    }
     if (language !== undefined) {
       this.db.prepare('UPDATE quotations SET language=?, updatedAt=? WHERE id=?').run(language ?? null, new Date().toISOString(), id);
     }
     if (ownerUserId !== undefined) {
       this.db.prepare('UPDATE quotations SET ownerUserId=?, updatedAt=? WHERE id=?').run(ownerUserId ?? null, new Date().toISOString(), id);
     }
-    if (!Object.values(offer).some((v) => v !== undefined)) return this.getQuotationById(id);
-    if (existing.salesOrderId || existing.invoiceId) throw new Error('This quotation has been converted and can no longer be edited.');
-    if (existing.status === 'Accepted' || existing.status === 'Declined') {
-      throw new Error(`An ${existing.status.toLowerCase()} quotation cannot be edited. Reopen it as a draft first.`);
-    }
+    if (!touchesOffer) return this.getQuotationById(id);
     const items = updates.items !== undefined ? this.normalizeQuotationItems(updates.items) : existing.items;
     if (!items.some(isCountedLine)) throw new Error('A quotation needs at least one priced line.');
     const issueDate = updates.issueDate !== undefined ? new Date(updates.issueDate) : existing.issueDate;
@@ -16441,7 +16452,7 @@ export class DataStore {
       companyId: existing.companyId, entityType: 'quotation', entityId: id, action: 'updated',
       summary: `Quotation ${existing.quoteNumber} updated.`, metadata: { totalAmount: result?.totalAmount },
     });
-    if (result) this.reapprove(existing.companyId, 'quotation', id, Number(existing.totalAmount) || 0, Number(result.totalAmount) || 0, result.clientId !== existing.clientId);
+    if (result) this.reapprove(existing.companyId, 'quotation', id, this.quotationApprovalAmount(existing), this.quotationApprovalAmount(result), result.clientId !== existing.clientId);
     return result;
   }
 
@@ -16510,11 +16521,14 @@ export class DataStore {
     const source = this.getQuotationById(id);
     if (!source) throw new Error('Quotation not found.');
     const issueDate = new Date();
+    // A salesperson who has left the company does not carry over: the copier becomes the owner.
+    const owner = source.ownerUserId ? this.getUserById(source.ownerUserId) : undefined;
+    const ownerStays = !!owner && (owner.companyIds ?? []).includes(source.companyId);
     const copy = this.createQuotation({
       companyId: source.companyId, clientId: source.clientId, contactId: source.contactId, opportunityId: source.opportunityId,
       issueDate, validUntil: new Date(issueDate.getTime() + 30 * 86400000), items: source.items, taxRate: source.taxRate,
       currency: source.currency, exchangeRate: source.exchangeRate, notes: source.notes, templateId: source.templateId,
-      language: source.language ?? null, ownerUserId: source.ownerUserId,
+      language: source.language ?? null, ownerUserId: ownerStays ? source.ownerUserId : undefined,
     });
     const content = this.getDocumentContent('quote', source.id);
     if (Object.keys(content).length) this.setDocumentContent(copy.companyId, 'quote', copy.id, content);
