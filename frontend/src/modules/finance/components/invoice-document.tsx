@@ -21,6 +21,7 @@ interface InvoiceDocumentProps {
   extras?: DocExtras;
   /** Per-document text by slot name. */
   content?: Record<string, RichNode | string>;
+  fields?: Record<string, string>;
 }
 
 /**
@@ -30,10 +31,10 @@ interface InvoiceDocumentProps {
  * One engine means the on-screen preview, the print page, and the server-side
  * PDF are always pixel-identical.
  */
-export function InvoiceDocument({ invoice, client, company, template, publicUrl, language, extras, content }: InvoiceDocumentProps) {
+export function InvoiceDocument({ invoice, client, company, template, publicUrl, language, extras, content, fields }: InvoiceDocumentProps) {
   const custom = template?.doc;
   const doc = isInvoiceDoc(custom) ? custom : templateToDoc(template);
   return (
-    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} extras={extras} content={content} direction={language === 'ar' ? 'rtl' : language === 'en' ? 'ltr' : undefined} />
+    <DocRenderer doc={doc} invoice={invoice} client={client} company={company} template={template} publicUrl={publicUrl} extras={extras} content={content} fields={fields} direction={language === 'ar' ? 'rtl' : language === 'en' ? 'ltr' : undefined} />
   );
 }

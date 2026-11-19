@@ -45,11 +45,31 @@ const parseQuotationItems = (value: unknown, parseSalesOrderItems: (v: unknown) 
 
 const SLOT_KEY = /^[a-z][a-zA-Z0-9]{0,39}$/;
 /** `{ slot: rich-text JSON | string | null }`; null removes the slot's own text. */
+const FIELD_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+/** Fill-in answers for {{field.<name>}}: a flat { name: text } object; null removes them all. */
+const parseFillIns = (value: unknown): Record<string, string> | null => {
+  if (value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'content.fields must be an object of names and text.');
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 50) throw new HttpError(400, 'content.fields can hold at most 50 entries.');
+  const out: Record<string, string> = {};
+  for (const [name, text] of entries) {
+    if (!FIELD_NAME.test(name)) throw new HttpError(400, `content.fields.${name} is not a valid field name.`);
+    if (typeof text !== 'string' || text.length > 2000) throw new HttpError(400, `content.fields.${name} must be text of at most 2000 characters.`);
+    out[name] = text;
+  }
+  return out;
+};
+
 const parseDocContent = (value: unknown): Record<string, unknown | null> | undefined => {
   if (value === undefined) return undefined;
   const record = asRecord(value, 'content');
   const out: Record<string, unknown | null> = {};
   for (const [slot, body] of Object.entries(record)) {
+    if (slot === 'fields') {
+      out.fields = parseFillIns(body);
+      continue;
+    }
     if (!SLOT_KEY.test(slot)) throw new HttpError(400, `content.${slot} is not a valid slot name.`);
     if (body !== null && typeof body !== 'string' && (typeof body !== 'object' || Array.isArray(body) || typeof (body as any).type !== 'string')) {
       throw new HttpError(400, `content.${slot} must be text or a rich-text document.`);

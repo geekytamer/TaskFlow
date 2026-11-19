@@ -28,7 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import { CurrencyAmount, useCompanyCurrency } from '@/lib/currency';
 import type { InvoiceTemplate, Quotation, QuotationStatus } from '@/modules/finance/types';
 import { chooseTemplateId } from '@/modules/finance/template-selection';
-import { templateSlots } from '@/modules/finance/doc/tokens';
+import { templateSlots, templateFields, fieldLabel } from '@/modules/finance/doc/tokens';
 import { docStrings, localizeLabel } from '@/modules/finance/doc/strings';
 import { getCompanyMembers } from '@/services/userService';
 import { quoteMatches } from '../lib/quote-search';
@@ -74,6 +74,8 @@ type QuoteForm = {
   content: Record<string, string>;
   /** Slots whose stored text is rich and not yet touched: left as they are on save. */
   richSlots: string[];
+  /** Answers to the template's fill-in boxes, by name without the "field." prefix. */
+  fields: Record<string, string>;
 };
 
 const SLOT_LABELS: Record<string, [string, string]> = {
@@ -102,6 +104,7 @@ const blankForm = (): QuoteForm => ({
   ownerUserId: '',
   content: {},
   richSlots: [],
+  fields: {},
 });
 
 /**
@@ -244,7 +247,14 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
     if (request !== editRequest.current) return;
     const content: Record<string, string> = {};
     const richSlots: string[] = [];
+    const fields: Record<string, string> = {};
     Object.entries(full.content || {}).forEach(([slot, value]) => {
+      if (slot === 'fields') {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          Object.entries(value as Record<string, unknown>).forEach(([name, text]) => { if (typeof text === 'string') fields[name] = text; });
+        }
+        return;
+      }
       const { text, rich } = slotPlainText(value);
       if (text) content[slot] = text;
       if (rich) richSlots.push(slot);
@@ -261,14 +271,18 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       ownerUserId: full.ownerUserId || '',
       content,
       richSlots,
+      fields,
     });
     setEditing(quote);
   };
 
-  const slots = React.useMemo(() => {
-    const template = quoteTemplates.find((tpl) => tpl.id === (form.templateId || chooseTemplateId(quoteTemplates)));
-    return templateSlots(template?.doc);
-  }, [quoteTemplates, form.templateId]);
+  const formTemplate = React.useMemo(
+    () => quoteTemplates.find((tpl) => tpl.id === (form.templateId || chooseTemplateId(quoteTemplates))),
+    [quoteTemplates, form.templateId],
+  );
+  const slots = React.useMemo(() => templateSlots(formTemplate?.doc), [formTemplate]);
+  // Boxes the template asks to fill in for each quote ({{field.<name>}}); names the server would refuse are left out.
+  const fillIns = React.useMemo(() => templateFields(formTemplate?.doc).filter((token) => /^field\.[a-z][a-z0-9_]{0,39}$/.test(token)), [formTemplate]);
   const optionalTotal = formOptionalTotal(form.items);
   const subtotal = formItemsTotal(form.items);
   const disc = formDiscountTotals(form.items);
@@ -285,11 +299,19 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
       return;
     }
     // A written box: text when filled, null when emptied (back to the template's own); untouched rich text is not sent.
-    const content: Record<string, string | null> = {};
+    const content: Record<string, string | Record<string, string> | null> = {};
     slots.forEach(({ slot }) => {
       if (form.richSlots.includes(slot)) return;
       content[slot] = (form.content[slot] || '').trim() || null;
     });
+    // Fill-in answers travel together in the reserved `fields` slot; all empty removes them.
+    const answers: Record<string, string> = {};
+    fillIns.forEach((token) => {
+      const name = token.replace(/^field\./, '');
+      const text = (form.fields[name] || '').trim();
+      if (text) answers[name] = text;
+    });
+    content.fields = Object.keys(answers).length ? answers : null;
     const contact = clients.find((c) => c.id === form.contactId);
     const payload = {
       issueDate: new Date(form.issueDate),
@@ -625,6 +647,28 @@ export function QuotationsPanel({ opportunityId, compact = false }: { opportunit
             <Label htmlFor="quote-notes">{t('quotes.notes')}</Label>
             <Textarea id="quote-notes" dir="auto" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
           </div>
+          {fillIns.length > 0 && (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">{tr('Details for this quote', 'تفاصيل هذا العرض')}</p>
+              {fillIns.map((token) => {
+                const name = token.replace(/^field\./, '');
+                const ds = docStrings(form.language || (language === 'ar' ? 'ar' : 'en'));
+                const label = formTemplate?.doc?.fieldLabels?.[token] || localizeLabel(fieldLabel(token), ds);
+                return (
+                  <div key={token} className="space-y-1">
+                    <Label htmlFor={`quote-field-${name}`}>{label}</Label>
+                    <Input
+                      id={`quote-field-${name}`}
+                      dir="auto"
+                      maxLength={2000}
+                      value={form.fields[name] ?? ''}
+                      onChange={(e) => setForm((prev) => ({ ...prev, fields: { ...prev.fields, [name]: e.target.value } }))}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {slots.map(({ slot, title, fallback }) => {
             const [en, ar] = SLOT_LABELS[slot] || [slot, slot];
             const ds = docStrings(form.language || (language === 'ar' ? 'ar' : 'en'));

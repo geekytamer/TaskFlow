@@ -259,3 +259,62 @@ test('a refused PUT on an accepted quote changes nothing, not even the salespers
   assert.equal(read.body.ownerUserId, quote.ownerUserId);
   assert.equal(read.body.language, quote.language);
 });
+
+// ── Fill-in fields, owner title, details layout ──────────────────────
+
+test('content.fields round-trips, is public, copies, and can be removed with null', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as, { content: { fields: { port: 'Sohar', incoterm: 'FOB' } } });
+  assert.deepEqual(quote.content.fields, { port: 'Sohar', incoterm: 'FOB' });
+  const read = await as(request(app).get(`/quotations/${quote.id}`));
+  assert.deepEqual(read.body.content.fields, { port: 'Sohar', incoterm: 'FOB' });
+  const pub = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.deepEqual(pub.body.quotation.content.fields, { port: 'Sohar', incoterm: 'FOB' });
+  const copy = await as(request(app).post(`/quotations/${quote.id}/copy`));
+  assert.deepEqual(copy.body.content.fields, { port: 'Sohar', incoterm: 'FOB' });
+  const replaced = await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { fields: { port: 'Salalah' } } });
+  assert.deepEqual(replaced.body.content.fields, { port: 'Salalah' });
+  const cleared = await as(request(app).put(`/quotations/${quote.id}`)).send({ content: { fields: null } });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+  assert.equal(cleared.body.content.fields, undefined);
+});
+
+test('content.fields refuses a bad shape with 400', async () => {
+  const { app, as } = setup();
+  const quote = await newQuote(app, as);
+  const put = (fields) => as(request(app).put(`/quotations/${quote.id}`)).send({ content: { fields } });
+  for (const bad of [{ 'Bad Name': 'x' }, { '1a': 'x' }, { A: 'x' }, { ['a'.repeat(41)]: 'x' }, { ok: 5 }, { ok: 'x'.repeat(2001) }, 'text', ['a'], 7,
+    Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`f${i}`, 'x']))]) {
+    assert.equal((await put(bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+  assert.equal((await put({ ok_1: 'x'.repeat(2000), ...Object.fromEntries(Array.from({ length: 49 }, (_, i) => [`f${i}`, ''])) })).status, 200);
+});
+
+test('owner.title is the employee job title in the quote company, else the position title', async () => {
+  const { app, as, store } = setup();
+  const user = store.createUser({ name: 'Seller5', email: 'seller5@x.example', password: 'Password1!', companyIds: ['1'], companyRoles: [{ companyId: '1', role: 'Employee' }], role: 'Employee' });
+  const quote = await newQuote(app, as, { ownerUserId: user.id });
+  const none = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.equal(none.body.quotation.extras['owner.title'], undefined, 'omitted without any title');
+  const position = store.createPosition({ title: 'Account Executive' });
+  store.updateUser(user.id, { positionId: position.id });
+  const viaPosition = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.equal(viaPosition.body.quotation.extras['owner.title'].value, 'Account Executive');
+  store.createEmployee({ companyId: '2', userId: user.id, name: 'Seller5', jobTitle: 'Other Company Title' });
+  store.createEmployee({ companyId: '1', userId: user.id, name: 'Seller5', jobTitle: 'Sales Manager' });
+  const viaEmployee = await request(app).get(`/public/quotations/${quote.id}`);
+  assert.equal(viaEmployee.body.quotation.extras['owner.title'].value, 'Sales Manager');
+});
+
+test('a details block accepts layout rows and inline, nothing else', async () => {
+  const { app, as } = setup();
+  const mk = (layout) => ({
+    version: 1, page: { size: 'A4', orientation: 'portrait', margin: { top: 10, right: 10, bottom: 10, left: 10 } },
+    theme: { fontFamily: 'Inter', primaryColor: '#111111', accentColor: '#222222', textColor: '#333333' },
+    body: [{ id: 'd', type: 'details', layout, fields: [{ label: 'a', value: 'b' }] }],
+  });
+  const create = (layout) => as(request(app).post('/companies/1/invoice-templates')).send({ name: `T ${layout}`, docType: 'quote', layout: 'classic', primaryColor: '#111111', accentColor: '#222222', doc: mk(layout) });
+  assert.equal((await create('rows')).status, 201);
+  assert.equal((await create('inline')).status, 201);
+  assert.equal((await create('table')).status, 400);
+});

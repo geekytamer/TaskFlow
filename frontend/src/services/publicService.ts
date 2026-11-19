@@ -65,7 +65,7 @@ export async function resolvePublicDocumentPath(id: string): Promise<string | nu
  * Fetches a quotation and maps it into the invoice-shaped payload the shared
  * document engine renders: valid-until stands where an invoice's due date is.
  */
-export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en'; extras: DocExtras; content: Record<string, RichNode | string> }> {
+export async function getPublicQuotation(id: string): Promise<PublicInvoicePayload & { quoteNumber: string; validUntil: Date; status: string; language?: 'ar' | 'en'; extras: DocExtras; content: Record<string, RichNode | string>; fields: Record<string, string> }> {
   const res = await fetch(`${API_BASE}/public/quotations/${id}`, { cache: 'no-store' });
   if (!res.ok) {
     throw new Error(res.status === 404 ? 'Quotation not found.' : 'Could not load quotation.');
@@ -106,7 +106,13 @@ export async function getPublicQuotation(id: string): Promise<PublicInvoicePaylo
     ? { ...data.template, createdAt: toDate(data.template.createdAt) || new Date(), updatedAt: toDate(data.template.updatedAt) || new Date() }
     : undefined;
   const language = q.language === 'ar' || q.language === 'en' ? q.language : undefined;
-  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status, language, extras: q.extras ?? {}, content: q.content ?? {} };
+  // The quote's fill-in answers travel inside content.fields; the renderer wants them as field.<name>.
+  const { fields: rawFields, ...content } = (q.content ?? {}) as Record<string, any>;
+  const fields: Record<string, string> = {};
+  if (rawFields && typeof rawFields === 'object' && !Array.isArray(rawFields)) {
+    for (const [name, value] of Object.entries(rawFields)) if (typeof value === 'string') fields[`field.${name}`] = value;
+  }
+  return { invoice, template, company: data.company, client: data.client, quoteNumber: q.quoteNumber, validUntil, status: q.status, language, extras: q.extras ?? {}, content, fields };
 }
 
 /**
