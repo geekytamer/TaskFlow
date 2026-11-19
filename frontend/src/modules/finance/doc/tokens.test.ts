@@ -42,3 +42,14 @@ test('templates may use slots, new columns and new conditions', () => {
   assert.equal(isInvoiceDoc(good), true, 'render-time check still recognises it');
   assert.notDeepEqual(validateInvoiceDoc({ ...base, body: [{ id: 'a', type: 'slot', slot: 'Bad!' }] }), []);
 });
+
+test('inherited object names are not tokens', () => {
+  const c = ctx({ extras: {} });
+  assert.equal(resolveTokens('a{{constructor}}b{{toString}}c{{__proto__}}d', c), 'abcd');
+  assert.equal(resolveTokens('a{{constructor}}b', ctx()), 'ab');
+});
+
+test('a fill-in field wins over an extras entry of the same name', () => {
+  const c = ctx({ fields: { 'field.x': 'mine' }, extras: { 'field.x': { type: 'text', value: 'theirs' } } });
+  assert.equal(resolveToken('field.x', c), 'mine');
+});

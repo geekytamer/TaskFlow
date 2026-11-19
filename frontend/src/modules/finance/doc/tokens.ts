@@ -196,10 +196,14 @@ export function resolveToken(token: string, ctx: DocDataContext): string {
     case 'from.address': return company?.address || '';
     default: {
       const key = token.trim();
-      const extra = ctx.extras?.[key];
-      if (extra) return extra.type === 'date' ? fmtDate(new Date(extra.value), ctx.locale) : extra.value;
-      if (!key.startsWith('field.')) return '';
-      return ctx.fields?.[key] || FIELD_FALLBACKS[key]?.(ctx) || '';
+      if (key.startsWith('field.')) {
+        const own = Object.hasOwn(ctx.fields ?? {}, key) ? ctx.fields![key] : '';
+        const fallback = Object.hasOwn(FIELD_FALLBACKS, key) ? FIELD_FALLBACKS[key](ctx) : '';
+        if (own || fallback) return own || fallback;
+      }
+      const extra = Object.hasOwn(ctx.extras ?? {}, key) ? ctx.extras![key] : undefined;
+      if (typeof extra?.value !== 'string') return '';
+      return extra.type === 'date' ? fmtDate(new Date(extra.value), ctx.locale) : extra.value;
     }
   }
 }
