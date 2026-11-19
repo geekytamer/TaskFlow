@@ -6,7 +6,7 @@ import * as React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Company } from '@/modules/companies/types';
 import type { Client, Invoice, InvoiceTemplate, InvoiceColumn } from '../types';
-import { CurrencyAmount } from '@/lib/currency';
+import { CurrencyAmount, formatCurrency } from '@/lib/currency';
 import { publicInvoiceUrl } from '@/services/publicService';
 import type {
   Block,
@@ -309,6 +309,7 @@ export function DocRenderer({
     taxAmount,
     total,
     formatMoney: (v) => String(v),
+    formatMoneyText: (v) => formatCurrency(v, docCurrency),
     publicUrl: publicUrl ?? publicInvoiceUrl(invoice.id),
     fields,
     extras,
@@ -844,6 +845,22 @@ function TotalsView({ block, ctx, theme, money, style, s }: { block: TotalsBlock
 }
 
 function DetailsView({ block, ctx, style }: { block: DetailsBlock; ctx: DocDataContext; theme: InvoiceDoc['theme']; style: React.CSSProperties }) {
+  if (block.layout === 'rows') {
+    const last = block.fields.length - 1;
+    return (
+      <div style={style}>
+        {block.title && <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: '#94a3b8' }}>{block.title}</div>}
+        <div style={{ marginTop: 8, fontSize: 14 }}>
+          {block.fields.map((f, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '8px 0', borderBottom: i < last ? '1px solid #e5e7eb' : undefined }}>
+              <span style={{ color: '#64748b' }}>{f.label}</span>
+              <span>{resolveTokens(f.value, ctx)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={style}>
       {block.title && <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: '#94a3b8' }}>{block.title}</div>}

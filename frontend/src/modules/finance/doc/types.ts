@@ -119,6 +119,8 @@ export interface DetailsField {
 export interface DetailsBlock extends BaseBlock {
   type: 'details';
   title?: string;
+  /** 'rows': label on the start side, value on the end side, a thin line between rows. Unset is 'inline'. */
+  layout?: 'inline' | 'rows';
   fields: DetailsField[];
 }
 

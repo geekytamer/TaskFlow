@@ -393,3 +393,42 @@ test('a slot prints the template fallback in the document language but never tra
   const en = renderToStaticMarkup(<DocRenderer doc={mk('ltr')} invoice={invoice} publicUrl="" />);
   assert.ok(en.includes('Thank you for the opportunity. Please find our offer below.'));
 });
+
+const detailsDoc = (block: object) => ({
+  version: 1, direction: 'ltr', page: { size: 'A4', orientation: 'portrait', margin: {} },
+  theme: { fontFamily: 'Inter', primaryColor: '#111111', accentColor: '#222222', textColor: '#333333' },
+  body: [{ id: 'd', type: 'details', ...block }],
+}) as never;
+const detailsInvoice = { id: 'q', invoiceNumber: 'N1', issueDate: new Date(), dueDate: new Date(), status: 'Draft', currency: 'USD', taxRate: 0, total: 0, lineItems: [] } as never;
+const INLINE_FRAGMENT = '<div><div><div style="font-size:11px;font-weight:600;text-transform:uppercase;color:#94a3b8">Info</div><div style="margin-top:8px;font-size:14px"><div style="margin-top:0"><span style="color:#64748b">Contact: </span><span style="font-weight:500"></span></div><div style="margin-top:2px"><span style="font-weight:600">plain</span></div></div></div></div>';
+
+test('a details block without layout, or inline, prints exactly the old markup', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const fields = [{ label: 'Contact', value: '{{company.name}}' }, { label: '', value: 'plain' }];
+  for (const extra of [{}, { layout: 'inline' }]) {
+    const html = renderToStaticMarkup(<DocRenderer doc={detailsDoc({ title: 'Info', fields, ...extra })} invoice={detailsInvoice} publicUrl="" />);
+    assert.ok(html.includes(INLINE_FRAGMENT), 'inline markup unchanged');
+  }
+});
+
+test('a details block in rows layout puts label and value on opposite sides with lines between rows', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const fields = [{ label: 'Reference', value: '{{doc.number}}' }, { label: 'Validity', value: '{{fields.validity}}' }, { label: 'Blank', value: '{{field.nothing}}' }];
+  const html = renderToStaticMarkup(<DocRenderer doc={detailsDoc({ title: 'Info', layout: 'rows', fields })} invoice={detailsInvoice} publicUrl="" />);
+  const first = html.slice(0, html.indexOf('doc-print-flow relative') > 0 ? html.indexOf('data-doc-measure-block') : html.length);
+  assert.ok(first.includes('Reference') && first.includes('N1') && first.includes('Validity') && first.includes('Blank'), 'blank rows still show');
+  assert.equal((first.match(/justify-content:space-between/g) || []).length, 3);
+  assert.equal((first.match(/border-bottom:1px solid #e5e7eb/g) || []).length, 2, 'no line after the last row');
+  assert.ok(first.includes('padding:8px 0'));
+  assert.ok(first.includes('color:#64748b'));
+  assert.ok(!/margin-left|margin-right|padding-left|padding-right|text-align:(left|right)/.test(first.replace(/<style>[\s\S]*?<\/style>/, '')));
+  assert.ok(first.includes('>Info<'), 'title above');
+});
+
+test('money in line1 tokens prints with the document currency while old tokens stay as before', async () => {
+  const { DocRenderer } = await import('./doc-renderer');
+  const invoice = { ...(detailsInvoice as object), currency: 'OMR', lineItems: [{ itemType: 'Manual', description: 'Dates', quantity: 2, unitPrice: 10, amount: 20 }] } as never;
+  const html = renderToStaticMarkup(<DocRenderer doc={detailsDoc({ fields: [{ label: 'Price', value: '{{line1.unitPrice}}' }, { label: 'Total', value: '{{doc.total}}' }] })} invoice={invoice} publicUrl="" />);
+  assert.match(html, /OMR/);
+  assert.ok(html.includes('<span style="font-weight:500">20</span>'), 'doc.total still raw');
+});

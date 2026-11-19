@@ -218,6 +218,7 @@ function checkBlock(
       }
       break;
     case 'details':
+      if (value.layout !== undefined && value.layout !== 'inline' && value.layout !== 'rows') errors.push(`${path}.layout must be inline or rows.`);
       checkString(value.title, `${path}.title`, errors, { optional: true, max: 200, allowEmpty: true });
       if (!Array.isArray(value.fields) || value.fields.length > 50) {
         errors.push(`${path}.fields must be an array with at most 50 entries.`);

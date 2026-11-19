@@ -1185,6 +1185,15 @@ function DetailsProperties({ block, onChange }: { block: DetailsBlock; onChange:
       <Field label={tr('Title', 'العنوان')}>
         <Input className="h-8" value={block.title ?? ''} onChange={(event) => onChange({ title: event.target.value } as Partial<DetailsBlock>)} />
       </Field>
+      <Field label={tr('Layout', 'التخطيط')}>
+        <Select value={block.layout ?? 'inline'} onValueChange={(layout) => onChange({ layout: layout as 'inline' | 'rows' } as Partial<DetailsBlock>)}>
+          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="inline">{tr('Inline', 'سطر واحد')}</SelectItem>
+            <SelectItem value="rows">{tr('Rows', 'صفوف')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
       <Label className="text-xs">{tr('Fields', 'الحقول')}</Label>
       {block.fields.map((field, index) => (
         <div key={index} className="grid grid-cols-[1fr_1.4fr_auto] gap-1">
