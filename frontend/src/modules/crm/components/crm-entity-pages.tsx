@@ -591,7 +591,14 @@ export function CampaignsPage() {
     const wanted = requestedCampaignId.current;
     if (!wanted || selectedCampaign) return;
     const match = campaigns.find((c) => c.id === wanted);
-    if (match) setSelectedCampaign(match);
+    if (!match) return;
+    // Open it once. Keeping the id would reopen the campaign every time the
+    // user closes it, trapping them on it (only Back got out).
+    requestedCampaignId.current = '';
+    setSelectedCampaign(match);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('campaign');
+    window.history.replaceState(window.history.state, '', url.toString());
   }, [campaigns, selectedCampaign]);
 
   React.useEffect(() => {
