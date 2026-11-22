@@ -13116,6 +13116,42 @@ export class DataStore {
 		    return this.db.prepare('DELETE FROM campaign_assignments WHERE id = ?').run(id).changes > 0;
 		  }
 
+		  /**
+		   * Per campaign: money (revenue = client prices, cost = deliverable costs,
+		   * expenses not rejected, profit) and what needs attention, so the list can
+		   * show it without opening each campaign.
+		   */
+		  campaignHealth(campaigns: CrmCampaign[]): Array<{
+		    campaignId: string; deliverables: number; revenue: number; cost: number; expenses: number; profit: number;
+		    missingCost: number; unbilled: number; lossItems: number; issues: string[];
+		  }> {
+		    const round = (n: number) => Math.round(n * 1000) / 1000;
+		    return campaigns.map((campaign) => {
+		      const ds = this.listCampaignDeliverables(campaign.id);
+		      const billed = (d: CampaignDeliverable) => Boolean(d.vendorBillId && this.getVendorBillById(d.vendorBillId));
+		      const external = ds.filter((d) => (d.fulfillment ?? 'Internal') === 'External');
+		      const revenue = round(ds.reduce((a, d) => a + (d.price ?? 0), 0));
+		      const cost = round(ds.reduce((a, d) => a + (d.cost ?? 0), 0));
+		      const expenses = round(this.listCampaignExpenses(campaign.id)
+		        .filter((e) => e.status !== 'Rejected')
+		        .reduce((a, e) => a + (e.amount ?? 0), 0));
+		      const missingCost = external.filter((d) => !((d.cost ?? 0) > 0) && !billed(d)).length;
+		      const unbilled = external.filter((d) => (d.cost ?? 0) > 0 && !billed(d)).length;
+		      const lossItems = ds.filter((d) => (d.price ?? 0) > 0 && (d.cost ?? 0) > (d.price ?? 0)).length;
+		      const issues: string[] = [];
+		      if (!ds.length) issues.push('noDeliverables');
+		      if (missingCost) issues.push('missingCost');
+		      if (unbilled) issues.push('unbilled');
+		      if (revenue > 0 && !(campaign.invoiceId && this.getInvoiceById(campaign.invoiceId))) issues.push('noInvoice');
+		      if (lossItems) issues.push('loss');
+		      if (ds.length && (campaign.budget ?? 0) > 0 && Math.abs((campaign.budget ?? 0) - revenue) > 0.0005) issues.push('budgetGap');
+		      return {
+		        campaignId: campaign.id, deliverables: ds.length, revenue, cost, expenses,
+		        profit: round(revenue - cost - expenses), missingCost, unbilled, lossItems, issues,
+		      };
+		    });
+		  }
+
 		  listCampaignExpenses(campaignId: string): CampaignExpense[] {
 		    const rows = this.db
 		      .prepare('SELECT * FROM campaign_expenses WHERE campaignId = ? ORDER BY expenseDate DESC, createdAt DESC')

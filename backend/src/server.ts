@@ -5080,6 +5080,17 @@ export function createServer(options: CreateServerOptions = {}) {
 		    }),
 		  );
 
+		  app.get(
+		    '/companies/:companyId/campaigns/health',
+		    authMiddleware,
+		    handler((req, res) => {
+		      // Money per campaign: same people as the campaign invoice button.
+		      requireCompanyRoles(req, req.params.companyId, companyManagementRoles);
+		      const campaigns = store.listCrmCampaigns(req.params.companyId, req.query.includeArchived === 'true', viewerOf(req));
+		      res.json(store.campaignHealth(campaigns));
+		    }),
+		  );
+
 		  app.post(
 		    '/companies/:companyId/campaigns',
 		    authMiddleware,

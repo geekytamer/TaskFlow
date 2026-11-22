@@ -303,6 +303,24 @@ export function VendorBillTable() {
     });
   }, [bills, purchaseOrderMap, search, statusFilter]);
 
+  // ?bill=<id> (from a campaign's Bill badge): show that bill and open it,
+  // once — then drop the parameter so closing it does not reopen it.
+  const handledBillLink = React.useRef(false);
+  React.useEffect(() => {
+    if (handledBillLink.current || loading || typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get('bill');
+    if (!id) return;
+    handledBillLink.current = true;
+    url.searchParams.delete('bill');
+    window.history.replaceState(window.history.state, '', url.toString());
+    const bill = bills.find((b) => b.id === id);
+    if (!bill) return;
+    setStatusFilter('all');
+    setSearch(bill.billNumber);
+    void openPreview(bill);
+  }, [bills, loading]);
+
   const supplierPurchaseOrders = React.useMemo(() => {
     if (!form.supplierId) return purchaseOrders;
     return purchaseOrders.filter(

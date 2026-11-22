@@ -1,8 +1,10 @@
 {
   "campaigns:campaigns.generate-invoice.create": [
+    "GET /companies/:companyId/campaigns/health",
     "POST /companies/:companyId/campaigns/:campaignId/sync-invoice"
   ],
   "campaigns:campaigns.sync-invoice.create": [
+    "GET /companies/:companyId/campaigns/health",
     "POST /companies/:companyId/campaigns/:campaignId/generate-invoice"
   ],
   "campaigns:delete": [
