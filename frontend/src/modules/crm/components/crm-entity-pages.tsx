@@ -92,6 +92,8 @@ import {
   AlertCircle,
   Pencil,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -547,6 +549,10 @@ export function CampaignsPage() {
   const [expenseForm, setExpenseForm] = React.useState({ description: '', amount: '', expenseDate: '', billable: false });
 
   const [campaignsLoading, setCampaignsLoading] = React.useState(false);
+  const [campaignSearch, setCampaignSearch] = React.useState('');
+  const [campaignStatusFilter, setCampaignStatusFilter] = React.useState<string>('all');
+  const [campaignClientFilter, setCampaignClientFilter] = React.useState<string>('all');
+  const [campaignYearFilter, setCampaignYearFilter] = React.useState<string>('all');
 
   const loadCampaigns = React.useCallback(async () => {
     if (!selectedCompany) { setCampaigns([]); return; }
@@ -673,6 +679,30 @@ export function CampaignsPage() {
     </SectionPageShell>
   );
 
+  const campaignYear = (c: CrmCampaign) => {
+    const d = c.startDate ?? c.endDate ?? c.createdAt;
+    return d ? String(new Date(d).getFullYear()) : '';
+  };
+  const campaignClientOptions = Array.from(new Set(campaigns.map((c) => c.contactId).filter(Boolean) as string[]))
+    .map((id) => ({ id, name: contactName(id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const campaignYearOptions = Array.from(new Set(campaigns.map(campaignYear).filter(Boolean))).sort().reverse();
+  const campaignStatusOptions = Array.from(new Set(campaigns.map((c) => c.status)));
+  const searchWords = campaignSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filteredCampaigns = campaigns.filter((c) => {
+    if (campaignStatusFilter !== 'all' && c.status !== campaignStatusFilter) return false;
+    if (campaignClientFilter !== 'all' && c.contactId !== campaignClientFilter) return false;
+    if (campaignYearFilter !== 'all' && campaignYear(c) !== campaignYearFilter) return false;
+    if (searchWords.length) {
+      const hay = `${c.name} ${c.contactId ? contactName(c.contactId) : ''} ${c.notes ?? ''}`.toLowerCase();
+      if (!searchWords.every((w) => hay.includes(w))) return false;
+    }
+    return true;
+  });
+  const campaignFiltersOn = Boolean(searchWords.length) || campaignStatusFilter !== 'all' || campaignClientFilter !== 'all' || campaignYearFilter !== 'all';
+  const clearCampaignFilters = () => {
+    setCampaignSearch(''); setCampaignStatusFilter('all'); setCampaignClientFilter('all'); setCampaignYearFilter('all');
+  };
   const active = campaigns.filter((c) => c.status === 'Active').length;
   const planned = campaigns.filter((c) => c.status === 'Planned').length;
   const totalBudget = campaigns.reduce((s, c) => s + (c.budget ?? 0), 0);
@@ -735,11 +765,57 @@ export function CampaignsPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{(campaigns.length !== 1 ? t('campaignsPage.countPlural') : t('campaignsPage.countSingular')).replace('{count}', String(campaigns.length))}</p>
-        <Button onClick={() => setDialogOpen(true)} data-tutorial="campaigns-create">
-          <Plus className="me-2 h-4 w-4" /> {t('campaignsPage.newCampaign')}
-        </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={campaignSearch}
+              onChange={(e) => setCampaignSearch(e.target.value)}
+              placeholder={tr('Search campaign or client…', 'ابحث باسم الحملة أو العميل…')}
+              aria-label={tr('Search campaigns', 'بحث في الحملات')}
+              className="ps-9"
+            />
+          </div>
+          <Select value={campaignStatusFilter} onValueChange={setCampaignStatusFilter}>
+            <SelectTrigger className="w-[150px]" aria-label={tr('Status', 'الحالة')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tr('All statuses', 'كل الحالات')}</SelectItem>
+              {campaignStatusOptions.map((st) => <SelectItem key={st} value={st}>{campaignStatusLabel(st)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={campaignClientFilter} onValueChange={setCampaignClientFilter}>
+            <SelectTrigger className="w-[190px]" aria-label={tr('Client', 'العميل')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tr('All clients', 'كل العملاء')}</SelectItem>
+              {campaignClientOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {campaignYearOptions.length > 1 && (
+            <Select value={campaignYearFilter} onValueChange={setCampaignYearFilter}>
+              <SelectTrigger className="w-[120px]" aria-label={tr('Year', 'السنة')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{tr('All years', 'كل السنوات')}</SelectItem>
+                {campaignYearOptions.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          {campaignFiltersOn && (
+            <Button variant="ghost" size="sm" onClick={clearCampaignFilters} className="gap-1 text-muted-foreground">
+              <X className="h-3.5 w-3.5" /> {tr('Clear', 'مسح')}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {campaignFiltersOn
+              ? tr(`${filteredCampaigns.length} of ${campaigns.length} campaigns`, `${filteredCampaigns.length} من ${campaigns.length} حملة`)
+              : (campaigns.length !== 1 ? t('campaignsPage.countPlural') : t('campaignsPage.countSingular')).replace('{count}', String(campaigns.length))}
+          </p>
+          <Button onClick={() => setDialogOpen(true)} data-tutorial="campaigns-create">
+            <Plus className="me-2 h-4 w-4" /> {t('campaignsPage.newCampaign')}
+          </Button>
+        </div>
       </div>
 
       {/* Campaign table */}
@@ -759,7 +835,7 @@ export function CampaignsPage() {
             {campaignsLoading && [...Array(3)].map((_, i) => (
               <TableRow key={i}><TableCell colSpan={6}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
             ))}
-            {!campaignsLoading && campaigns.map((item) => (
+            {!campaignsLoading && filteredCampaigns.map((item) => (
               <TableRow
                 key={item.id}
                 className={`hover:bg-muted/30 transition-colors cursor-pointer ${selectedCampaign?.id === item.id ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
@@ -815,6 +891,12 @@ export function CampaignsPage() {
             {!campaignsLoading && campaigns.length === 0 && (
               <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                 {t('campaignsPage.emptyState')}
+              </TableCell></TableRow>
+            )}
+            {!campaignsLoading && campaigns.length > 0 && filteredCampaigns.length === 0 && (
+              <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                {tr('No campaign matches these filters.', 'لا توجد حملة تطابق هذه الفلاتر.')}{' '}
+                <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={clearCampaignFilters}>{tr('Clear filters', 'مسح الفلاتر')}</button>
               </TableCell></TableRow>
             )}
           </TableBody>
