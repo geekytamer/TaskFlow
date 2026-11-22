@@ -12854,19 +12854,25 @@ export class DataStore {
 		    return true;
 		  }
 
-		  generateCampaignVendorBills(companyId: string, campaignId: string): VendorBill[] {
+		  /** Bill the campaign's external deliverables, or only `deliverableId` when given. */
+		  generateCampaignVendorBills(companyId: string, campaignId: string, deliverableId?: string): VendorBill[] {
 		    const campaign = this.getCrmCampaignById(campaignId);
 		    if (!campaign || campaign.companyId !== companyId) {
 		      throw new Error('Campaign not found.');
 		    }
-		    const deliverables = this.listCampaignDeliverables(campaignId);
+		    let deliverables = this.listCampaignDeliverables(campaignId);
+		    if (deliverableId) {
+		      deliverables = deliverables.filter((d) => d.id === deliverableId);
+		      if (!deliverables.length) throw new Error('Deliverable not found.');
+		    }
 		    const createdBills: VendorBill[] = [];
 		    const now = new Date();
 		    const dueDate = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30);
 		    for (const d of deliverables) {
 		      // Only external deliverables become payables. Skip internal ones,
 		      // those already billed, and anything without a vendor contact.
-		      if (d.vendorBillId) continue;
+		      // A link to a bill that no longer exists does not count as billed.
+		      if (d.vendorBillId && this.getVendorBillById(d.vendorBillId)) continue;
 		      if ((d.fulfillment ?? 'Internal') !== 'External') continue;
 		      const vendorContactId = d.vendorContactId ?? d.contactId;
 		      if (!vendorContactId) continue;
@@ -12970,6 +12976,31 @@ export class DataStore {
 		    if (nextFulfillment === 'External' && !nextVendor) {
 		      throw new Error('An external deliverable needs a vendor contact.');
 		    }
+		    // A billed deliverable: cost and vendor are what the bill says. A draft
+		    // bill follows the edit; an approved/paid one locks them.
+		    const nextCost = updates.cost === undefined ? existing.cost : updates.cost;
+		    const bill = existing.vendorBillId ? this.getVendorBillById(existing.vendorBillId) : undefined;
+		    const billFieldsChanged = (nextCost ?? 0) !== (existing.cost ?? 0)
+		      || nextVendor !== existing.vendorContactId
+		      || nextFulfillment !== (existing.fulfillment ?? 'Internal');
+		    let syncBill: (() => void) | undefined;
+		    if (bill && billFieldsChanged) {
+		      if (bill.status !== 'Draft') {
+		        throw new Error(`This deliverable is on vendor bill ${bill.billNumber} (${bill.status}). Its cost and vendor can't change now; fix the bill in Vendor bills.`);
+		      }
+		      if (nextFulfillment !== 'External' || !(Number(nextCost) > 0)) {
+		        throw new Error(`This deliverable is on draft vendor bill ${bill.billNumber}. Delete the bill first to remove its cost or make it internal.`);
+		      }
+		      const vendor = nextVendor ? this.getContactById(nextVendor) : undefined;
+		      if (!vendor || vendor.companyId !== existing.companyId) throw new Error('Vendor contact must belong to the selected company.');
+		      syncBill = () => {
+		        this.updateVendorBill(bill.id, {
+		          amount: Number(nextCost),
+		          vendorName: vendor.name,
+		          supplierId: vendor.supplierId ?? vendor.id,
+		        });
+		      };
+		    }
 		    const deliverable: CampaignDeliverable = {
 		      ...existing,
 		      contactId: updates.contactId === undefined ? existing.contactId : updates.contactId,
@@ -12989,7 +13020,7 @@ export class DataStore {
 		      notes: updates.notes === undefined ? existing.notes : updates.notes,
 		      updatedAt: new Date(),
 		    };
-		    this.db
+		    const stmt = this.db
 		      .prepare(
 		        `UPDATE campaign_deliverables SET contactId=@contactId, vendorContactId=@vendorContactId,
 		         assignedUserId=@assignedUserId,
@@ -12997,8 +13028,11 @@ export class DataStore {
 		         status=@status, contentUrl=@contentUrl, price=@price, cost=@cost, fulfillment=@fulfillment, vendorBillId=@vendorBillId,
 		         publishedAt=@publishedAt, notes=@notes,
 		         updatedAt=@updatedAt WHERE id=@id`,
-		      )
-		      .run(this.serializeCampaignDeliverable(deliverable));
+		      );
+		    this.db.transaction(() => {
+		      syncBill?.();
+		      stmt.run(this.serializeCampaignDeliverable(deliverable));
+		    })();
 		    return this.getCampaignDeliverableById(id);
 		  }
 

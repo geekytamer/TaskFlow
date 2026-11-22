@@ -1272,8 +1272,10 @@ export async function syncCampaignInvoice(
   );
 }
 
-export async function generateCampaignVendorBills(companyId: string, campaignId: string): Promise<any[]> {
+/** Bill the campaign's unbilled external deliverables, or only `deliverableId`. */
+export async function generateCampaignVendorBills(companyId: string, campaignId: string, deliverableId?: string): Promise<any[]> {
   return apiFetch<any[]>(`/companies/${companyId}/campaigns/${campaignId}/generate-vendor-bills`, {
     method: 'POST',
+    body: JSON.stringify(deliverableId ? { deliverableId } : {}),
   });
 }
