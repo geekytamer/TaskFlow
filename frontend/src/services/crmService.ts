@@ -819,6 +819,25 @@ export async function deleteProposal(id: string): Promise<void> {
   await apiFetch<void>(`/proposals/${id}`, { method: 'DELETE' });
 }
 
+export type CampaignIssue = 'noDeliverables' | 'missingCost' | 'unbilled' | 'noInvoice' | 'loss' | 'budgetGap';
+export interface CampaignHealth {
+  campaignId: string;
+  deliverables: number;
+  revenue: number;
+  cost: number;
+  expenses: number;
+  profit: number;
+  missingCost: number;
+  unbilled: number;
+  lossItems: number;
+  issues: CampaignIssue[];
+}
+
+/** Money and open issues per campaign (finance roles only). */
+export async function getCampaignHealth(companyId: string): Promise<CampaignHealth[]> {
+  return apiFetch<CampaignHealth[]>(`/companies/${companyId}/campaigns/health`);
+}
+
 export async function getCampaigns(companyId: string, includeArchived = false): Promise<CrmCampaign[]> {
   const qs = includeArchived ? '?includeArchived=true' : '';
   const data = await apiFetch<any[]>(`/companies/${companyId}/campaigns${qs}`);

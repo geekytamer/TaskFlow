@@ -469,6 +469,7 @@ export const ROUTES: readonly RouteDecl[] = [
   // ─── campaigns ─────────────────────────────────────────────────────────────
   { method: 'GET', path: '/companies/:companyId/campaigns', permission: 'campaigns.view', legacyRoles: ALL },
   { method: 'POST', path: '/companies/:companyId/campaigns', permission: 'campaigns.create', legacyRoles: ALL },
+  { method: 'GET', path: '/companies/:companyId/campaigns/health', permission: 'campaigns.invoice', legacyRoles: MGMT },
   { method: 'PUT', path: '/campaigns/:id', permission: 'campaigns.edit', legacyRoles: ALL },
   { method: 'DELETE', path: '/campaigns/:id', permission: 'campaigns.delete', legacyRoles: AM },
   { method: 'POST', path: '/companies/:companyId/campaigns/:campaignId/generate-invoice', permission: 'campaigns.invoice', legacyRoles: MGMT },

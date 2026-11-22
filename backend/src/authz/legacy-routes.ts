@@ -192,6 +192,7 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /campaigns/:id/assignments': { module: 'campaigns', action: 'create' },
   'POST /campaigns/:id/expenses': { module: 'campaigns', action: 'create' },
   'POST /companies/:companyId/campaigns/:campaignId/generate-invoice': { module: 'campaigns', action: 'campaigns.generate-invoice.create' },
+  'GET /companies/:companyId/campaigns/health': { module: 'campaigns', action: 'campaigns.generate-invoice.create' },
   'POST /companies/:companyId/campaigns/:campaignId/sync-invoice': { module: 'campaigns', action: 'campaigns.sync-invoice.create' },
   'PUT /campaigns/:id': { module: 'campaigns', action: 'write' },
   'PUT /campaign-deliverables/:id': { module: 'campaigns', action: 'write' },

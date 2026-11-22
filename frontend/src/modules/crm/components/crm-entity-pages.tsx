@@ -62,8 +62,11 @@ import {
   updateProposalStatus,
   updateProposal,
   updateVendorRequestStatus,
+  getCampaignHealth,
   type CampaignAssignment,
   type CampaignDeliverable,
+  type CampaignHealth,
+  type CampaignIssue,
   type CampaignExpense,
   type CrmCampaign,
   type CrmProposal,
@@ -553,19 +556,32 @@ export function CampaignsPage() {
   const [campaignStatusFilter, setCampaignStatusFilter] = React.useState<string>('all');
   const [campaignClientFilter, setCampaignClientFilter] = React.useState<string>('all');
   const [campaignYearFilter, setCampaignYearFilter] = React.useState<string>('all');
+  const [campaignIssueFilter, setCampaignIssueFilter] = React.useState<string>('all');
+  const [campaignHealth, setCampaignHealth] = React.useState<Record<string, CampaignHealth>>({});
 
+  // Money + open issues per campaign; only for people who handle campaign money.
+  const loadCampaignHealth = React.useCallback(async () => {
+    if (!selectedCompany || !canManageFinance) { setCampaignHealth({}); return; }
+    try {
+      const rows = await getCampaignHealth(selectedCompany.id);
+      setCampaignHealth(Object.fromEntries(rows.map((r) => [r.campaignId, r])));
+    } catch {
+      setCampaignHealth({});
+    }
+  }, [selectedCompany, canManageFinance]);
   const loadCampaigns = React.useCallback(async () => {
     if (!selectedCompany) { setCampaigns([]); return; }
     setCampaignsLoading(true);
     try {
       const data = await getCampaigns(selectedCompany.id);
       setCampaigns(data);
+      void loadCampaignHealth();
     } catch (error: any) {
       toast({ variant: 'destructive', title: t('campaignsPage.toastLoadFailed'), description: error?.message });
     } finally {
       setCampaignsLoading(false);
     }
-  }, [selectedCompany, toast]);
+  }, [selectedCompany, toast, loadCampaignHealth]);
 
   const loadExecution = React.useCallback(async (id: string) => {
     const [d, a, e] = await Promise.allSettled([
@@ -600,6 +616,9 @@ export function CampaignsPage() {
     url.searchParams.delete('campaign');
     window.history.replaceState(window.history.state, '', url.toString());
   }, [campaigns, selectedCampaign]);
+
+  // A deliverable edit/bill changes the campaign's money and issues.
+  React.useEffect(() => { if (deliverables.length) void loadCampaignHealth(); }, [deliverables, loadCampaignHealth]);
 
   React.useEffect(() => {
     if (selectedCampaign) loadExecution(selectedCampaign.id);
@@ -700,16 +719,43 @@ export function CampaignsPage() {
     if (campaignStatusFilter !== 'all' && c.status !== campaignStatusFilter) return false;
     if (campaignClientFilter !== 'all' && c.contactId !== campaignClientFilter) return false;
     if (campaignYearFilter !== 'all' && campaignYear(c) !== campaignYearFilter) return false;
+    if (campaignIssueFilter !== 'all') {
+      const issues = campaignHealth[c.id]?.issues ?? [];
+      if (campaignIssueFilter === 'any' ? issues.length === 0 : !issues.includes(campaignIssueFilter as CampaignIssue)) return false;
+    }
     if (searchWords.length) {
       const hay = `${c.name} ${c.contactId ? contactName(c.contactId) : ''} ${c.notes ?? ''}`.toLowerCase();
       if (!searchWords.every((w) => hay.includes(w))) return false;
     }
     return true;
   });
-  const campaignFiltersOn = Boolean(searchWords.length) || campaignStatusFilter !== 'all' || campaignClientFilter !== 'all' || campaignYearFilter !== 'all';
+  const campaignFiltersOn = Boolean(searchWords.length) || campaignStatusFilter !== 'all' || campaignClientFilter !== 'all' || campaignYearFilter !== 'all' || campaignIssueFilter !== 'all';
   const clearCampaignFilters = () => {
-    setCampaignSearch(''); setCampaignStatusFilter('all'); setCampaignClientFilter('all'); setCampaignYearFilter('all');
+    setCampaignSearch(''); setCampaignStatusFilter('all'); setCampaignClientFilter('all'); setCampaignYearFilter('all'); setCampaignIssueFilter('all');
   };
+  const showCampaignMoney = canManageFinance && Object.keys(campaignHealth).length > 0;
+  const campaignIssueLabel = (issue: CampaignIssue, h?: CampaignHealth) => {
+    switch (issue) {
+      case 'noDeliverables': return tr('No deliverables', 'بدون مخرجات');
+      case 'missingCost': return tr(`${h?.missingCost ?? ''} missing cost`.trim(), `تكلفة ناقصة ${h?.missingCost ?? ''}`.trim());
+      case 'unbilled': return tr(`${h?.unbilled ?? ''} not billed`.trim(), `غير مفوتر ${h?.unbilled ?? ''}`.trim());
+      case 'noInvoice': return tr('No client invoice', 'بدون فاتورة عميل');
+      case 'loss': return tr('Cost above price', 'تكلفة أعلى من السعر');
+      case 'budgetGap': return tr('Budget ≠ deliverables', 'الميزانية ≠ المخرجات');
+    }
+  };
+  const campaignIssueHint = (issue: CampaignIssue) => {
+    switch (issue) {
+      case 'noDeliverables': return tr('Add the deliverables so it can be invoiced and billed.', 'أضف المخرجات لتتم فوترتها.');
+      case 'missingCost': return tr('External deliverables without a vendor cost: the vendor is never billed.', 'مخرجات خارجية بدون تكلفة مورد: لن تصدر فاتورة المورد.');
+      case 'unbilled': return tr('Vendor cost with no vendor bill yet.', 'تكلفة مورد بدون فاتورة مورد بعد.');
+      case 'noInvoice': return tr('Deliverables have client prices but no invoice was generated.', 'للمخرجات أسعار عميل لكن لم تُنشأ فاتورة.');
+      case 'loss': return tr('A deliverable costs more than the client pays for it.', 'مخرج تكلفته أعلى مما يدفعه العميل.');
+      case 'budgetGap': return tr('Campaign budget differs from the sum of client prices.', 'ميزانية الحملة تختلف عن مجموع أسعار العميل.');
+    }
+  };
+  const ALL_CAMPAIGN_ISSUES: CampaignIssue[] = ['missingCost', 'unbilled', 'noInvoice', 'loss', 'budgetGap', 'noDeliverables'];
+  const campaignsNeedingAttention = campaigns.filter((c) => (campaignHealth[c.id]?.issues.length ?? 0) > 0).length;
   const active = campaigns.filter((c) => c.status === 'Active').length;
   const planned = campaigns.filter((c) => c.status === 'Planned').length;
   const totalBudget = campaigns.reduce((s, c) => s + (c.budget ?? 0), 0);
@@ -807,6 +853,19 @@ export function CampaignsPage() {
               </SelectContent>
             </Select>
           )}
+          {showCampaignMoney && (
+            <Select value={campaignIssueFilter} onValueChange={setCampaignIssueFilter}>
+              <SelectTrigger className="w-[190px]" aria-label={tr('Needs attention', 'تحتاج انتباه')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{tr('All campaigns', 'كل الحملات')}</SelectItem>
+                <SelectItem value="any">{tr(`Needs attention (${campaignsNeedingAttention})`, `تحتاج انتباه (${campaignsNeedingAttention})`)}</SelectItem>
+                {ALL_CAMPAIGN_ISSUES.map((issue) => {
+                  const n = campaigns.filter((c) => campaignHealth[c.id]?.issues.includes(issue)).length;
+                  return n ? <SelectItem key={issue} value={issue}>{`${campaignIssueLabel(issue)} (${n})`}</SelectItem> : null;
+                })}
+              </SelectContent>
+            </Select>
+          )}
           {campaignFiltersOn && (
             <Button variant="ghost" size="sm" onClick={clearCampaignFilters} className="gap-1 text-muted-foreground">
               <X className="h-3.5 w-3.5" /> {tr('Clear', 'مسح')}
@@ -834,13 +893,15 @@ export function CampaignsPage() {
               <TableHead>{t('campaignsPage.colClient')}</TableHead>
               <TableHead>{t('campaignsPage.colDates')}</TableHead>
               <TableHead>{t('campaignsPage.colBudget')}</TableHead>
+              {showCampaignMoney && <TableHead>{tr('Profit', 'الربح')}</TableHead>}
               <TableHead>{t('common.status')}</TableHead>
+              {showCampaignMoney && <TableHead>{tr('Needs attention', 'تحتاج انتباه')}</TableHead>}
               <TableHead className="text-right">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {campaignsLoading && [...Array(3)].map((_, i) => (
-              <TableRow key={i}><TableCell colSpan={6}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+              <TableRow key={i}><TableCell colSpan={showCampaignMoney ? 8 : 6}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
             ))}
             {!campaignsLoading && filteredCampaigns.map((item) => (
               <TableRow
@@ -858,9 +919,39 @@ export function CampaignsPage() {
                   {item.endDate ? ` → ${new Date(item.endDate).toLocaleDateString()}` : ''}
                 </TableCell>
                 <TableCell className="text-sm font-medium">{item.budget ? amount(item.budget) : '—'}</TableCell>
+                {showCampaignMoney && (() => {
+                  const h = campaignHealth[item.id];
+                  if (!h || (!h.revenue && !h.cost && !h.expenses)) return <TableCell className="text-sm text-muted-foreground">—</TableCell>;
+                  return (
+                    <TableCell
+                      className={`text-sm font-medium tabular-nums ${h.profit < 0 ? 'text-red-600 dark:text-red-400' : ''}`}
+                      title={tr(
+                        `Client ${amount(h.revenue)} − cost ${amount(h.cost)} − expenses ${amount(h.expenses)}`,
+                        `العميل ${amount(h.revenue)} − التكلفة ${amount(h.cost)} − المصروفات ${amount(h.expenses)}`,
+                      )}
+                    >
+                      {amount(h.profit)}
+                    </TableCell>
+                  );
+                })()}
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <ColorBadge status={item.status} map={campaignStatusColor} label={campaignStatusLabel(item.status)} />
                 </TableCell>
+                {showCampaignMoney && (
+                  <TableCell>
+                    <div className="flex max-w-[260px] flex-wrap gap-1">
+                      {(campaignHealth[item.id]?.issues ?? []).map((issue) => (
+                        <span
+                          key={issue}
+                          title={campaignIssueHint(issue)}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${issue === 'loss' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300' : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'}`}
+                        >
+                          {campaignIssueLabel(issue, campaignHealth[item.id])}
+                        </span>
+                      ))}
+                    </div>
+                  </TableCell>
+                )}
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     {(item.status === 'Active' || item.status === 'Completed') && (
@@ -896,12 +987,12 @@ export function CampaignsPage() {
               </TableRow>
             ))}
             {!campaignsLoading && campaigns.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+              <TableRow><TableCell colSpan={showCampaignMoney ? 8 : 6} className="h-32 text-center text-muted-foreground">
                 {t('campaignsPage.emptyState')}
               </TableCell></TableRow>
             )}
             {!campaignsLoading && campaigns.length > 0 && filteredCampaigns.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+              <TableRow><TableCell colSpan={showCampaignMoney ? 8 : 6} className="h-32 text-center text-muted-foreground">
                 {tr('No campaign matches these filters.', 'لا توجد حملة تطابق هذه الفلاتر.')}{' '}
                 <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={clearCampaignFilters}>{tr('Clear filters', 'مسح الفلاتر')}</button>
               </TableCell></TableRow>
@@ -1085,7 +1176,7 @@ export function CampaignsPage() {
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {item.vendorBillId && (
-                            <a href="/finance?tab=payables" title={tr('Open vendor bills', 'فتح فواتير الموردين')}>
+                            <a href={`/finance?tab=payables&bill=${encodeURIComponent(item.vendorBillId)}`} title={tr('Open this vendor bill', 'فتح فاتورة المورد')}>
                               <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20">
                                 <BadgeDollarSign className="h-2.5 w-2.5" /> {t('campaignsPage.billBadge')}
                               </Badge>
@@ -1376,6 +1467,18 @@ export function CampaignsPage() {
               if (deliverableForm.fulfillment === 'External' && !deliverableForm.vendorContactId) {
                 toast({ variant: 'destructive', title: t('campaignsPage.vendorRequiredTitle'), description: t('campaignsPage.vendorRequiredDesc') });
                 return;
+              }
+              if (deliverableForm.fulfillment === 'External' && !(Number(deliverableForm.cost) > 0)) {
+                const ok = await confirm({
+                  title: tr('No vendor cost?', 'بدون تكلفة مورد؟'),
+                  description: tr(
+                    'This deliverable is done by an outside vendor but has no Vendor Cost, so no vendor bill can be made for it. Save without a cost?',
+                    'هذا المُخرَج ينفذه مورد خارجي لكن بدون تكلفة مورد، فلن تصدر له فاتورة مورد. حفظ بدون تكلفة؟',
+                  ),
+                  confirmText: tr('Save without cost', 'حفظ بدون تكلفة'),
+                  cancelText: tr('Add the cost', 'إضافة التكلفة'),
+                });
+                if (!ok) return;
               }
               setAddingDeliverable(true);
               try {
