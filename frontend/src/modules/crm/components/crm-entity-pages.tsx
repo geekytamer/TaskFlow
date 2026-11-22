@@ -515,6 +515,28 @@ export function CampaignsPage() {
   const [deliverableForm, setDeliverableForm] = React.useState({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' as 'Internal' | 'External' });
   const [addingDeliverable, setAddingDeliverable] = React.useState(false);
   const [deliverableDialogOpen, setDeliverableDialogOpen] = React.useState(false);
+  /** The deliverable the dialog is editing; null = adding a new one. */
+  const [editingDeliverable, setEditingDeliverable] = React.useState<CampaignDeliverable | null>(null);
+  const [billingDeliverableId, setBillingDeliverableId] = React.useState<string | null>(null);
+  const emptyDeliverableForm = { title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' as 'Internal' | 'External' };
+  const openAddDeliverable = () => {
+    setEditingDeliverable(null);
+    setDeliverableForm(emptyDeliverableForm);
+    setDeliverableDialogOpen(true);
+  };
+  const openEditDeliverable = (item: CampaignDeliverable) => {
+    setEditingDeliverable(item);
+    setDeliverableForm({
+      title: item.title || '',
+      platform: item.platform || '',
+      dueDate: item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 10) : '',
+      price: item.price != null ? String(item.price) : '',
+      cost: item.cost != null ? String(item.cost) : '',
+      vendorContactId: item.vendorContactId || '',
+      fulfillment: item.fulfillment === 'External' ? 'External' : 'Internal',
+    });
+    setDeliverableDialogOpen(true);
+  };
   const [assignmentDialogOpen, setAssignmentDialogOpen] = React.useState(false);
   const [expenseDialogOpen, setExpenseDialogOpen] = React.useState(false);
   const confirm = useConfirm();
@@ -657,17 +679,50 @@ export function CampaignsPage() {
   const invoiceableDeliverables = deliverables.filter((item) => (item.price ?? 0) > 0);
   const payableDeliverables = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && item.vendorContactId && !item.vendorBillId);
   const missingPayableSetup = deliverables.filter((item) => item.fulfillment === 'External' && (item.cost ?? 0) > 0 && !item.vendorContactId && !item.vendorBillId).length;
+  const missingCost = deliverables.filter((item) => item.fulfillment === 'External' && !((item.cost ?? 0) > 0) && !item.vendorBillId);
+  const allVendorCostsBilled = deliverables.some((item) => item.vendorBillId)
+    && missingPayableSetup === 0 && missingCost.length === 0;
   const internalCost = deliverables.filter((item) => item.fulfillment !== 'External').reduce((s, item) => s + (item.cost ?? 0), 0);
   const invoiceDisabledReason = !selectedCampaign?.contactId
     ? t('campaignsPage.invoiceDisabledNoClient')
     : invoiceableDeliverables.length === 0
       ? t('campaignsPage.invoiceDisabledNoDeliverables')
       : '';
+  // Nothing left to bill: say why. "All billed" is not a problem, so it is
+  // only the button's hint, not the amber warning.
   const vendorBillsDisabledReason = payableDeliverables.length === 0
     ? missingPayableSetup > 0
       ? t('campaignsPage.vendorBillsDisabledMissingVendor')
-      : t('campaignsPage.vendorBillsDisabledNoPayable')
+      : missingCost.length > 0
+        ? tr(
+          `${missingCost.map((d) => d.title).join(', ')}: no Vendor Cost yet. Edit the deliverable to add it, then bill it.`,
+          `${missingCost.map((d) => d.title).join('، ')}: لا توجد تكلفة مورد بعد. عدّل المُخرَج لإضافتها ثم أصدر فاتورته.`,
+        )
+        : allVendorCostsBilled
+          ? ''
+          : t('campaignsPage.vendorBillsDisabledNoPayable')
     : '';
+  const vendorBillsButtonHint = vendorBillsDisabledReason
+    || (payableDeliverables.length === 0 && allVendorCostsBilled
+      ? tr('Every vendor cost on this campaign is already billed.', 'كل تكاليف الموردين في هذه الحملة مفوترة.')
+      : t('campaignsPage.vendorBillsTitleHint'));
+  const billOneDeliverable = async (item: CampaignDeliverable) => {
+    if (!selectedCompany || !selectedCampaign) return;
+    setBillingDeliverableId(item.id);
+    try {
+      const bills = await generateCampaignVendorBills(selectedCompany.id, selectedCampaign.id, item.id);
+      await loadExecution(selectedCampaign.id);
+      if (bills.length === 0) {
+        toast({ title: t('campaignsPage.toastBillsNone'), description: t('campaignsPage.toastBillsNoneDesc') });
+      } else {
+        toast({ title: t('campaignsPage.toastBillGenerated').replace('{count}', '1'), description: t('campaignsPage.toastBillsGeneratedDesc') });
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: t('campaignsPage.toastBillsFailed'), description: error?.message });
+    } finally {
+      setBillingDeliverableId(null);
+    }
+  };
 
   return (
     <SectionPageShell title={t('campaignsPage.title')} description={t('campaignsPage.description')} actions={<GamesLink />}>
@@ -823,8 +878,8 @@ export function CampaignsPage() {
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs gap-1"
-                disabled={generatingVendorBills || Boolean(vendorBillsDisabledReason)}
-                title={vendorBillsDisabledReason || t('campaignsPage.vendorBillsTitleHint')}
+                disabled={generatingVendorBills || payableDeliverables.length === 0}
+                title={vendorBillsButtonHint}
                 onClick={async () => {
                   if (!selectedCompany) return;
                   setGeneratingVendorBills(true);
@@ -913,7 +968,7 @@ export function CampaignsPage() {
             <TabsContent value="deliverables">
               <div className="space-y-3">
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={() => setDeliverableDialogOpen(true)}>
+                  <Button size="sm" onClick={openAddDeliverable}>
                     <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.addDeliverable')}
                   </Button>
                 </div>
@@ -933,12 +988,27 @@ export function CampaignsPage() {
                               ? (item.vendorContactId ? ` · ${t('campaignsPage.vendorLabel')}: ${contactName(item.vendorContactId)}` : '')
                               : ` · ${t('campaignsPage.fulfillmentInternalShort')}`}
                           </p>
+                          {item.fulfillment === 'External' && !item.vendorBillId && !((item.cost ?? 0) > 0) && (
+                            <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                              {tr('No vendor cost yet. Edit to add it.', 'لا توجد تكلفة مورد بعد. عدّل لإضافتها.')}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {item.vendorBillId && (
-                            <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10">
-                              <BadgeDollarSign className="h-2.5 w-2.5" /> {t('campaignsPage.billBadge')}
-                            </Badge>
+                            <a href="/finance?tab=payables" title={tr('Open vendor bills', 'فتح فواتير الموردين')}>
+                              <Badge variant="outline" className="gap-1 text-[10px] h-5 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20">
+                                <BadgeDollarSign className="h-2.5 w-2.5" /> {t('campaignsPage.billBadge')}
+                              </Badge>
+                            </a>
+                          )}
+                          {canManageFinance && !item.vendorBillId && item.fulfillment === 'External' && item.vendorContactId && (item.cost ?? 0) > 0 && (
+                            <Button size="sm" variant="outline" className="h-6 gap-1 text-xs"
+                              disabled={billingDeliverableId === item.id}
+                              title={tr(`Create a vendor bill for ${contactName(item.vendorContactId)}`, `إنشاء فاتورة مورد لـ ${contactName(item.vendorContactId)}`)}
+                              onClick={() => billOneDeliverable(item)}>
+                              <BadgeDollarSign className="h-3 w-3" /> {tr('Create bill', 'إنشاء فاتورة')}
+                            </Button>
                           )}
                           {item.status !== 'Published' && (
                             <Button size="sm" variant="outline" className="h-6 text-xs"
@@ -946,6 +1016,11 @@ export function CampaignsPage() {
                               {t('campaignsPage.actionPublish')}
                             </Button>
                           )}
+                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            aria-label={tr('Edit deliverable', 'تعديل المُخرَج')} title={tr('Edit', 'تعديل')}
+                            onClick={() => openEditDeliverable(item)}>
+                            <Pencil className="h-3 w-3" />
+                          </Button>
                           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                             onClick={async () => {
                               if (!(await confirm({ title: t('campaignsPage.deleteDeliverableTitle'), description: t('campaignsPage.deleteDeliverableDesc'), confirmText: t('common.delete'), cancelText: t('common.cancel'), destructive: true }))) return;
@@ -1136,14 +1211,22 @@ export function CampaignsPage() {
       </Dialog>
 
       {/* Add deliverable dialog */}
-      <Dialog open={deliverableDialogOpen} onOpenChange={setDeliverableDialogOpen}>
+      <Dialog open={deliverableDialogOpen} onOpenChange={(open) => { setDeliverableDialogOpen(open); if (!open) setEditingDeliverable(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" /> {t('campaignsPage.addDeliverable')}
+              <ClipboardList className="h-5 w-5 text-primary" /> {editingDeliverable ? tr('Edit deliverable', 'تعديل المُخرَج') : t('campaignsPage.addDeliverable')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {editingDeliverable?.vendorBillId && (
+              <p className="rounded-md border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
+                {tr(
+                  'This deliverable has a vendor bill. A draft bill updates with the new cost and vendor; an approved or paid bill keeps them locked.',
+                  'لهذا المُخرَج فاتورة مورد. الفاتورة المسودة تتحدث بالتكلفة والمورد الجديدين؛ والمعتمدة أو المدفوعة تبقيهما مقفلين.',
+                )}
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label>{tr('Deliverable', 'المُخرَج')} <span className="text-destructive">*</span></Label>
               <Input placeholder={t('campaignsPage.deliverableTitlePh')} value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
@@ -1207,7 +1290,7 @@ export function CampaignsPage() {
               }
               setAddingDeliverable(true);
               try {
-                await createCampaignDeliverable(selectedCampaign.id, {
+                const fields = {
                   title: deliverableForm.title.trim(),
                   platform: deliverableForm.platform || undefined,
                   dueDate: deliverableForm.dueDate ? new Date(deliverableForm.dueDate) : undefined,
@@ -1215,17 +1298,29 @@ export function CampaignsPage() {
                   cost: deliverableForm.cost ? Number(deliverableForm.cost) : undefined,
                   fulfillment: deliverableForm.fulfillment,
                   vendorContactId: deliverableForm.fulfillment === 'External' ? (deliverableForm.vendorContactId || undefined) : undefined,
-                });
-                setDeliverableForm({ title: '', platform: '', dueDate: '', price: '', cost: '', vendorContactId: '', fulfillment: 'Internal' });
+                };
+                if (editingDeliverable) {
+                  // Emptied number fields are sent as 0 so they really clear.
+                  await updateCampaignDeliverable(editingDeliverable.id, {
+                    ...fields,
+                    platform: fields.platform ?? '',
+                    price: fields.price ?? 0,
+                    cost: fields.cost ?? 0,
+                  });
+                } else {
+                  await createCampaignDeliverable(selectedCampaign.id, fields);
+                }
+                setDeliverableForm(emptyDeliverableForm);
+                setEditingDeliverable(null);
                 setDeliverableDialogOpen(false);
                 await loadExecution(selectedCampaign.id);
               } catch (error: any) {
-                toast({ variant: 'destructive', title: t('campaignsPage.toastCreateFailed'), description: error?.message });
+                toast({ variant: 'destructive', title: editingDeliverable ? tr('Could not save the deliverable', 'تعذر حفظ المُخرَج') : t('campaignsPage.toastCreateFailed'), description: error?.message });
               } finally {
                 setAddingDeliverable(false);
               }
             }}>
-              <Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.add')}
+              {editingDeliverable ? t('common.save', 'Save') : <><Plus className="me-1.5 h-3.5 w-3.5" /> {t('campaignsPage.add')}</>}
             </Button>
           </DialogFooter>
         </DialogContent>

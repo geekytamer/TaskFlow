@@ -5218,9 +5218,19 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (!campaign || campaign.companyId !== req.params.companyId) {
 		        throw new HttpError(404, 'Campaign not found.');
 		      }
-		      const bills = withActor(req, () =>
-		        store.generateCampaignVendorBills(req.params.companyId, req.params.campaignId),
-		      );
+		      const deliverableId = optionalString(asRecord(req.body ?? {}, 'body').deliverableId);
+		      if (deliverableId) {
+		        const d = store.getCampaignDeliverableById(deliverableId);
+		        if (!d || d.campaignId !== campaign.id) throw new HttpError(404, 'Deliverable not found.');
+		      }
+		      let bills;
+		      try {
+		        bills = withActor(req, () =>
+		          store.generateCampaignVendorBills(req.params.companyId, req.params.campaignId, deliverableId),
+		        );
+		      } catch (error) {
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not generate vendor bills.');
+		      }
 		      res.status(201).json(bills);
 		    }),
 		  );
@@ -5297,7 +5307,9 @@ export function createServer(options: CreateServerOptions = {}) {
 		      if (effectiveFulfillment === 'External' && !effectiveVendor) {
 		        throw new HttpError(400, 'An external deliverable needs a vendor contact.');
 		      }
-		      const updated = withActor(req, () =>
+		      let updated;
+		      try {
+		      updated = withActor(req, () =>
 		        store.updateCampaignDeliverable(req.params.id, {
 		          contactId: body.contactId !== undefined ? optionalString(body.contactId) : undefined,
 		          vendorContactId: body.vendorContactId !== undefined ? optionalString(body.vendorContactId) : undefined,
@@ -5315,6 +5327,10 @@ export function createServer(options: CreateServerOptions = {}) {
 		          fulfillment: body.fulfillment !== undefined ? enumValue(body.fulfillment, 'fulfillment', campaignFulfillments) : undefined,
 		        }),
 		      );
+		      } catch (error) {
+		        if (error instanceof HttpError) throw error;
+		        throw new HttpError(400, error instanceof Error ? error.message : 'Could not update deliverable.');
+		      }
 		      if (!updated) throw new HttpError(404, 'Deliverable not found.');
 		      res.json(updated);
 		    }),
